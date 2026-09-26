@@ -148,9 +148,9 @@ B0 不让证据校验参与生成或修复；对输出**事后**运行同一个 
 - 两人话题划分之间的 1-to-1 overlap；
 - 两人 item 之间的 F1（以一人为“标准答案”）。
 
-**F. 标注工具（已实现）**：先保存一次主 CLI `messages` 命令的完整 UTF-8 JSONL，包括末尾 done 与实际退出码；再执行 `chat-tldr-eval export-sheet --messages <JSONL> --out <新CSV> [--exit-code N]`。它不读数据库、不调用模型，跳过撤回消息，不预填模型判断。人工填写后用 `chat-tldr-eval import-sheet <CSV> --out <新目录>` 输出 `messages.jsonl` 和 `items.jsonl`。
+**F. 标注工具（已实现）**：先保存一次主 CLI `messages` 命令的完整 UTF-8 JSONL，包括末尾 done 与实际退出码；再执行 `chat-tldr-eval export-sheet --messages <JSONL> --out <新CSV> [--exit-code N]`。它不读数据库、不调用模型，跳过撤回消息，不预填模型判断。人工填写后用 `chat-tldr-eval import-sheet <CSV> --messages <原始JSONL> --out <新目录>` 输出 `messages.jsonl` 和 `items.jsonl`；参考流必须仍由协调者保管，成功摘要中的 `source_checked=true` 表示源列与消息范围均匹配。
 
-CSV 的 `thread/todo/announcement/items_json` 必须明确填写；无结论写 `[]`。原文列的 `text:` 防公式前缀应原样保留。两个命令都拒绝覆盖既有目标；表格字段、验证边界及 UTF-8 保存方法见 [eval/README.md](../eval/README.md)。省略 `--exit-code` 只能证明文件内部一致，不能证明真实子进程成功。
+CSV 的 `thread/todo/announcement/items_json` 必须明确填写；无结论写 `[]`。原文列的 `text:` 防公式前缀应原样保留。两个命令都拒绝覆盖既有目标；表格字段、验证边界及 UTF-8 保存方法见 [eval/README.md](../eval/README.md)。省略 `--exit-code` 只能证明文件内部一致，不能证明真实子进程成功。50 条双人标注的名单在看标签前随机固定，保留独立版本再人工裁决；第二人的未选行留空，不把空白当否定，详细交接规则见该 README。
 
 ### 5.1 标注文件格式
 

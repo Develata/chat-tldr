@@ -63,6 +63,9 @@ enum Command {
     /// Validate a labelled CSV and publish messages.jsonl and items.jsonl together.
     ImportSheet {
         sheet: PathBuf,
+        /// Original complete messages stream; require unchanged source cells and coverage.
+        #[arg(long)]
+        messages: Option<PathBuf>,
         /// New gold directory; must not already exist.
         #[arg(long)]
         out: PathBuf,
@@ -98,7 +101,11 @@ fn main() -> ExitCode {
             exit_code,
         } => sheet::export(&messages, &out, exit_code)
             .unwrap_or_else(|error| json!({"command":"export-sheet","valid":false,"error":error})),
-        Command::ImportSheet { sheet, out } => sheet::import(&sheet, &out)
+        Command::ImportSheet {
+            sheet,
+            messages,
+            out,
+        } => sheet::import(&sheet, messages.as_deref(), &out)
             .unwrap_or_else(|error| json!({"command":"import-sheet","valid":false,"error":error})),
         Command::Score { gold, run, out } => score::run(&gold, &run, &out)
             .unwrap_or_else(|error| json!({"command":"score","valid":false,"error":error})),
