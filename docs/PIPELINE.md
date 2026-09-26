@@ -33,14 +33,23 @@ QCE JSON ─▶ qce 适配器 ─▶ UnifiedMessage ─▶ import（去重、游
 | 游标 | 含义 | 何时推进 |
 |---|---|---|
 | `last_ingested` | 已导入的最大消息位置 | `import` 事务提交时 |
-| `last_analyzed` | 最长的“全部已分析”前缀的末尾：所有 `≤` 它的消息都有 `analyzed_run` | 每个话题的检查点提交后重新计算 |
+| `last_analyzed` | 最长的“已了结”前缀的末尾：所有 `≤` 它的消息 `analysis_state ≠ pending` | 每个话题的检查点提交后重新计算 |
 | `last_reviewed` | 用户明确“标为已读”的位置 | **只在** `mark-read --up-to` 时推进；打开 GUI、运行 analyze 都不推进 |
 
 游标类型是 `Cursor(sent_at_ms, ordinal)`，见 DATA_MODEL §1.3。
 
+**消息的分析状态** `messages.analysis_state`：
+
+| 值 | 含义 | 何时设置 |
+|---|---|---|
+| `pending` | 等待分析 | 导入时的默认值 |
+| `done` | 已随所在话题完成抽取 | 话题检查点提交时 |
+| `skipped` | 不参与分析（撤回消息） | 导入时直接设置，因此撤回消息不会卡住 `last_analyzed` |
+| `failed` | 所在话题本次抽取失败 | 见 §8.2；下次 `analyze` 开始时恢复为 `pending` |
+
 **两个“待处理”的定义**（控制器按它们判断还有没有事要做）：
-- 待切分消息：还没有 `topic_messages` 记录的消息（不含撤回消息）。
-- 脏话题（dirty topic）：包含 `analyzed_run IS NULL` 消息的话题。
+- 待切分消息：还没有 `topic_messages` 记录、且 `analysis_state = pending` 的消息。
+- 脏话题（dirty topic）：包含 `analysis_state = pending` 消息的话题。
 
 **回填（backfill）**：两次导出有重叠，或者后导入了更早的文件时，可能插入早于 `last_analyzed` 的消息。
 - `import` 统计这类消息数量（`imports.backfilled`），并发出 `W_BACKFILL`。
@@ -67,7 +76,7 @@ QCE JSON ─▶ qce 适配器 ─▶ UnifiedMessage ─▶ import（去重、游
 
 | 情况 | 处理 |
 |---|---|
-| 撤回消息 | 保留一行，`recalled=true`，`text` 置空。**不参与切分和抽取**，不能作为证据。GUI 可显示“某消息已撤回” |
+| 撤回消息 | 保留一行，`recalled=true`，`text` 置空，`analysis_state = skipped`。**不参与切分和抽取**，不能作为证据。GUI 可显示“某消息已撤回” |
 | 图片 | `[图片]` 占位，元数据进 `attachments`，永不上传 |
 | 表情 | 有名字 `[表情:名字]`，否则 `[表情]` |
 | 纯表情刷屏 | 同一 burst 内全部由表情/图片占位组成的消息，在抽取时降权（渲染时合并为 `[表情×N]`） |
@@ -82,8 +91,10 @@ QCE JSON ─▶ qce 适配器 ─▶ UnifiedMessage ─▶ import（去重、游
 
 1. 以 `UnifiedMessage.text` 为基础。
 2. 合并转发展开为：`[合并转发:<title>]` 后跟每条内部消息一行 `  > <sender_display>: <text>`，深度 2 缩进 4 格。
-3. `redact=true` 时，按本 chat 的 `redaction_codes` 做字符串替换：已知的昵称、群名片、备注 → `U1`、`U2`…，群号、QQ 号 → `G1`、`Q1`…。按长度从长到短替换，避免部分匹配。代号表只存在本地数据库。
+3. `redact=true` 时，按本 chat 的 `redaction_codes` 做字符串替换：已知的昵称、群名片、备注 → `⟦U1⟧`、`⟦U2⟧`…，群号、QQ 号 → `⟦G1⟧`、`⟦Q1⟧`…。代号用 `⟦ ⟧`（U+27E6/U+27E7）包住，这样还原时不会误伤正文中本来就有的“U3”这类文字，引用匹配也不会有歧义。按长度从长到短替换，避免部分匹配。代号表只存在本地数据库。
 4. 规则有任何改动 → `RenderProfile.version + 1`。
+
+**还原（un-redact）**：模型生成的文本（话题标题、结论的 title 和 summary、证据 quote）都处在脱敏的命名空间里。数据库中**原样保存**，校验也针对原样文本进行。CLI 在输出 `topic`、`insight` 事件和 `--html` 时，把其中的 `⟦…⟧` 代号还原为本地名字：`Insight.title`、`Insight.summary`、`topic.title` 输出还原后的文本；`Insight.evidence[].quote` 保持原样（用于审计），还原后的文本放在 `EvidenceView.display_quote`。无法识别的 `⟦…⟧` 保持原样。
 
 > 局限：脱敏只替换**已知别名**。正文里用外号、简称提到的人无法识别。这一点写进报告的局限性部分。
 
@@ -402,6 +413,8 @@ pub fn find_quote(haystack: &str, quote: &str) -> Option<(usize, usize)>;
 
 `view_cursor = last_analyzed`：用户看到的是分析过的内容，因此 `mark-read` 最多推进到这里，还没分析的消息不会被标为已读。
 
+已知且接受的行为：展示窗口按消息的 `sent_at` 判断。回填进来的、早于 `last_reviewed` 的消息，其 P2/P3 结论不会出现在默认视图中（P0 与未过期的 P1 不受影响）。
+
 GUI 三栏：“需要你处理”= P0，“值得知道”= P1，“其他话题”= P2 + P3（P3 默认折叠）。
 
 ## 8. 智能体控制器
@@ -417,7 +430,7 @@ GUI 三栏：“需要你处理”= P0，“值得知道”= P1，“其他话�
 | # | 条件 | 允许的动作 | 规则默认项 |
 |---|---|---|---|
 | R0 | `steps_taken ≥ max_steps` / `cost_usd ≥ budget_usd` / 收到取消 | `Finish(MaxSteps / BudgetExceeded / Cancelled)` | — |
-| R1 | `unverified_insights > 0` | `Verify(全部待校验)` | — |
+| R1 | `pending_verification > 0` | `Verify(全部草稿结论)` | — |
 | R2a | `pending ≤ direct_max(60)` 且 `interleave < 0.2` | `AnalyzeDirect` | — |
 | R2b | `pending ≤ direct_max` 且 `interleave ≥ 0.2` | `AnalyzeDirect`、`Segment` | `Segment` |
 | R2c | `pending > direct_max` | `Segment`（每步最多处理 300 条） | — |
@@ -426,22 +439,29 @@ GUI 三栏：“需要你处理”= P0，“值得知道”= P1，“其他话�
 
 - `interleave`：待切分消息中，已解析的回复边里，源消息和目标消息之间夹着 ≥ 3 条其他人消息的边所占的比例。
 - “信号最强的脏话题”：按话题内消息的 `max(p_todo, p_announcement, needs_action)` 以及 @我 数量排序。
-- 单个话题抽取失败（重试后仍失败）：该话题记为 `failed`，不再算作脏话题，本次运行最终状态为 `partial`。
+- `pending_messages` 只统计本次运行**有资格处理**的待切分消息（受 `--since/--until` 限制），否则 R2c 会对永远不会处理的消息反复选择 `Segment`。
+- **草稿结论**：`AnalyzeTopic` / `AnalyzeDirect` 的输出先作为草稿保存在本次运行的内存中，`pending_verification` 就是草稿数。`Verify` 处理全部草稿：通过的写入数据库（`verified` 或 `unverified`），不通过的重试一次，仍不通过的以 `rejected` 写入。之后草稿数归零。已经存进数据库的 `unverified` 结论**不算**草稿，不会再次触发 R1。进程在两步之间被杀时草稿丢失，对应话题仍是脏话题，下次重新抽取（有缓存，不会重复付费）。
+- 单个话题抽取失败（重试后仍失败）：该话题本次的待分析消息 `analysis_state` 标为 `failed`，不再算作脏话题，本次运行最终状态为 `partial`。**下次 `analyze` 开始时**，`failed` 恢复为 `pending`，重试一次。
 
 ### 8.3 终止性
 
-除 R0 的硬上限外，循环也一定会结束：按字典序比较三元组 `(待切分消息数, 活跃话题数 + 脏话题数, 待校验结论数)`，每个动作都会让它严格减小。
-- `Segment`、`AnalyzeDirect`：第一项减小；
-- `MergeTopics`：第一项不变，活跃话题数减 1，脏话题数不增加；
-- `AnalyzeTopic`：前两项中脏话题数减 1（第三项可能增加，但字典序靠后）；
-- `Verify`：第三项清零。
+除 R0 的硬上限外，循环也一定会结束。按字典序比较四元组
 
-`max_steps`（默认 64）和 `budget_usd`（默认 0.50 美元）是额外的安全上限。
+`(待切分消息数, 活跃话题数, 合并候选数 + 脏话题数, 草稿结论数)`，
+
+每个动作都会让它严格减小（只要求字典序减小，排在后面的分量可以增加）：
+- `Segment`、`AnalyzeDirect`：第一项减小（可能新建话题、产生草稿，都在后面的分量）；
+- `MergeTopics` 成功：第一项不变，活跃话题数减 1；
+- `MergeTopics` 被 Jev 否决：前两项不变，这一对被记住、不再提议，合并候选数减 1；
+- `AnalyzeTopic`（成功或失败）：前两项不变，合并候选不变，脏话题数减 1（失败时消息标为 `failed`，同样不再是脏话题）；
+- `Verify`：前三项不变，草稿数归零。
+
+话题因超时自动关闭只会让活跃话题数减少，不影响上述结论。`max_steps`（默认 64）和 `budget_usd`（默认 0.50 美元）是额外的安全上限。
 
 ### 8.4 检查点
 
 - `Segment` 每处理完一批 burst 提交一次（`topic_messages`）。
-- 每个话题的 `AnalyzeTopic` + 对应的 `Verify` 成功后提交：结论、证据、该话题消息的 `analyzed_run`、`run_checkpoints` 一条记录。
+- 每个话题的 `AnalyzeTopic` + 对应的 `Verify` 完成后提交：结论、证据、该话题消息的 `analysis_state = done` 与 `analyzed_run`、`run_checkpoints` 一条记录。
 - 进程中途被杀：已提交的部分保留；下次 `analyze` 重新计算“待切分消息”和“脏话题”，从断点继续。结合缓存，重跑已完成的步骤不会重复付费。
 
 ## 9. 缓存、用量与隐私
@@ -464,5 +484,5 @@ GUI 三栏：“需要你处理”= P0，“值得知道”= P1，“其他话�
 | Jev 不可用（未配置 key、连续 3 次失败） | 本次运行切换为 `LlmDecider`，发 `W_DECIDER_FALLBACK` |
 | 话题切分整体失败 | `--strategy b1` 路径：按时间间隔 + 固定长度切块 |
 | 截止日期规范化不确定 | 只保留 `raw`，`bound_date=None` |
-| LLM 输出无效 | 重试一次，仍失败则该话题记为 `failed`，运行最终为 `partial` |
+| LLM 输出无效 | 重试一次，仍失败则该话题的待分析消息标为 `failed`，运行最终为 `partial`，下次运行重试 |
 | GUI 不可用 | `analyze --html` / `inbox --html` 生成静态页面演示 |

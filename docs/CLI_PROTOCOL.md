@@ -53,7 +53,7 @@
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `--since <RFC3339>` / `--until <RFC3339>` | 无 | 指定时间范围；不指定时处理所有 `analyzed_run IS NULL` 的消息 |
+| `--since <RFC3339>` / `--until <RFC3339>` | 无 | 指定时间范围；不指定时处理全部待切分消息和脏话题（PIPELINE §1.1） |
 | `--decider <jev\|llm>` | `jev` | Jev 不可用（未配置 key 或连续失败）时自动降级为 `llm` 并发 `warning` |
 | `--strategy <ours\|b0\|b1\|sim-tfidf\|sim-embed>` | `ours` | 评估用的基线开关，见 [EVALUATION.md](EVALUATION.md) §2；GUI 不使用 |
 | `--max-steps <N>` | 配置值（默认 64） | 控制器最大步数 |
@@ -87,7 +87,7 @@
 {
   "step": 3,
   "observation": {"pending_messages":412,"interleave":0.38,"active_topics":7,"dirty_topics":3,
-                  "unverified_insights":0,"merge_candidates":1,"steps_taken":3,"cost_usd":0.012},
+                  "pending_verification":0,"merge_candidates":1,"steps_taken":3,"cost_usd":0.012},
   "allowed": [{"action":"analyze_topic","topic_id":"t_a19c3b0d77e2"},
               {"action":"merge_topics","into":"t_a19c3b0d77e2","from":["t_0b2e5f11c9aa"]}],
   "chosen": {"action":"merge_topics","into":"t_a19c3b0d77e2","from":["t_0b2e5f11c9aa"]},
@@ -129,7 +129,8 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
   "ok": true
 }
 ```
-- `display_text` = `render(message, redact=false)`；`display_quote` = 把 quote 里的脱敏代号还原后的文本。
+- `display_text` = `render(message, redact=false)`；`display_quote` = 把 quote 里的 `⟦…⟧` 脱敏代号还原后的文本。
+- `insight.title`、`insight.summary` 已由 CLI 还原脱敏代号；`insight.evidence[].quote` 保持模型看到的原样（用于审计）。`topic` 事件的 `title` 同样已还原。
 - `highlight` 是 `display_text` 中的**字符**下标区间（Unicode scalar，左闭右开）；还原失败时为 `null`，GUI 只显示原文，不高亮。
 - `ok` 是这条证据的校验结果。
 

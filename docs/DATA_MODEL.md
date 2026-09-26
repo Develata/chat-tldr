@@ -65,7 +65,8 @@ pub struct RenderProfile { pub version: u16, pub redact: bool }
 
 - `render(msg, profile) -> String` 是 engine 中的纯函数，确定性输出。它既用来生成发给 Jev/LLM 的文本，也用来做证据校验。
 - 规则改动必须升级 `version`。`version` 同时进入缓存键和每条 Evidence。
-- 显示给用户时使用 `redact=false` 的渲染结果，并用本地别名表把 quote 中的代号还原（见 CLI_PROTOCOL 中的 `EvidenceView`）。
+- 脱敏代号的形式为 `⟦U3⟧`（带定界符，见 PIPELINE §2.2）。
+- 显示给用户时使用 `redact=false` 的渲染结果；模型生成的文本（话题标题、结论 title/summary、quote）由 CLI 在输出时把代号还原为本地名字（见 PIPELINE §2.2“还原”与 CLI_PROTOCOL 中的 `EvidenceView`）。
 
 ---
 
@@ -195,8 +196,8 @@ pub struct SourceMeta {
 | `id` | `InsightId` | 稳定 ID | 更新时不变 |
 | `chat_id` | `ChatId` | 所属会话 | |
 | `kind` | `InsightKind` | 类型 | 见 §3.1 |
-| `title` | `String` | 一行标题 | ≤ 40 个汉字 |
-| `summary` | `String` | 一两句说明 | ≤ 200 个汉字 |
+| `title` | `String` | 一行标题 | ≤ 40 个汉字；CLI 输出时已还原脱敏代号 |
+| `summary` | `String` | 一两句说明 | ≤ 200 个汉字；CLI 输出时已还原脱敏代号 |
 | `priority` | `Priority` | 层级 P0–P3 | 由规则决定，**反馈不能改变层级** |
 | `rank_score` | `f32` | 层内排序分 | 规则先验 + 个性化修正（修正幅度限制在 ±0.5），见 PIPELINE §7 |
 | `confidence` | `Option<f32>` | 该结论成立的模型概率 | `MentionMe`（规则产生）为 `1.0`；`Todo` / `Announcement` 取各证据消息对应的 Decider noul（`n{i}_todo` / `n{i}_announcement`，Jev 或 LlmDecider）中最大的 `p_yes`；`Decision`、`TopicSummary` 为 `null` |
@@ -370,7 +371,7 @@ pub struct AgentObservation {
     pub interleave: f32,                // 交错度：跨 burst 的回复/@ 边占全部边的比例
     pub active_topics: u32,
     pub dirty_topics: u32,              // 有新消息但未重新抽取的话题数
-    pub unverified_insights: u32,
+    pub pending_verification: u32,      // 本次运行已抽取、尚未校验的草稿结论数（不含库中已保存的 unverified 结论）
     pub merge_candidates: u32,
     pub steps_taken: u32,
     pub cost_usd: f64,
@@ -438,7 +439,8 @@ CREATE TABLE messages (
   reply_source_id  TEXT, reply_resolved TEXT,           -- 悬空引用在后续导入时补全
   recalled         INTEGER NOT NULL, system INTEGER NOT NULL,
   body_json        TEXT NOT NULL,                        -- 完整 UnifiedMessage
-  analyzed_run     TEXT,                                 -- NULL = 待分析
+  analysis_state   TEXT NOT NULL DEFAULT 'pending',      -- pending | done | skipped | failed，见 PIPELINE §1.1
+  analyzed_run     TEXT,                                 -- 置为 done 的那次运行
   UNIQUE (chat_id, source_identity)
 );
 CREATE INDEX idx_messages_order ON messages(chat_id, sent_at_ms, pk);

@@ -8,7 +8,7 @@
 | ID | 问题 | 当前默认 | 影响 |
 |---|---|---|---|
 | Q-DEC-1 | LLM 客户端偏离最初建议：不用 `async-openai`，改为基于 `reqwest::blocking` 自写 OpenAI / Anthropic 两种客户端，全项目不用 async（ADR-0008） | 按 ADR-0008 执行 | engine 的依赖和代码风格 |
-| Q-DEC-2 | 默认开启脱敏（`--no-redact` 才关闭）。开启后模型看不到真实昵称，摘要里会出现 `U3` 这类代号，由 CLI 在显示时还原 | 默认开启 | 隐私与摘要可读性 |
+| Q-DEC-2 | 默认开启脱敏（`--no-redact` 才关闭）。开启后模型看不到真实昵称，生成的摘要里是 `⟦U3⟧` 这类代号，由 CLI 在输出时还原；正文里用外号提到的人无法脱敏 | 默认开启 | 隐私与摘要可读性 |
 | Q-DEC-3 | 分支保护要求 Code Owner 审核，但 @Develata 不能审核自己的 PR | @Develata 用管理员权限绕过合并自己的 PR | 协作流程 |
 | Q-DEC-4 | 单次 `analyze` 的默认上限：`budget_usd = 0.50`，`max_steps = 64` | 按默认值 | 演示时的成本 |
 | Q-DEC-5 | Rust edition 2024，stable 工具链，不设 MSRV | 按默认值 | 骨架 |
