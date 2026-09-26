@@ -32,15 +32,17 @@ pub fn write(
     output: PreparedOutput,
     paths: &Paths,
 ) -> Result<(), Failure> {
+    write_page(&render(snapshot), output, paths)
+}
+
+pub(crate) fn write_page(page: &str, output: PreparedOutput, paths: &Paths) -> Result<(), Failure> {
     let path = &output.path;
     target::validate(path, paths)?;
     let parent = path
         .parent()
         .ok_or_else(|| Failure::new("E_OUTPUT_WRITE", 8, "HTML output needs a parent directory"))?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(output_error)?;
-    temporary
-        .write_all(render(snapshot).as_bytes())
-        .map_err(output_error)?;
+    temporary.write_all(page.as_bytes()).map_err(output_error)?;
     temporary.as_file().sync_all().map_err(output_error)?;
     let exists = target::validate(path, paths)?;
     if output.replace_existing && exists {
@@ -103,7 +105,7 @@ fn render(snapshot: &InboxSnapshot) -> String {
     page
 }
 
-fn escape(text: &str) -> String {
+pub(crate) fn escape(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
     for ch in text.chars() {
         match ch {

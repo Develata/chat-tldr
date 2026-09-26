@@ -4,7 +4,11 @@
 
 适配器参考项目 DATA_MODEL 契约，并仅核对 [QCE 7fcca88 的字段类型](https://github.com/shuakami/qq-chat-exporter/blob/7fcca88/qq-chat-export-core/src/types.rs) 和 [元素数据字段](https://github.com/shuakami/qq-chat-exporter/blob/7fcca88/qq-chat-export-server/src/parser/simple_parser.rs)，未复制上游实现。
 
-当前支持完整单文件 JSON，`chatInfo.type` 必须为 `group` 或 `private`，身份取 `peerUid`、其次 `peerUin`。`temp`、分块目录、JSONL 和旧版未知导出格式暂不支持。尚未用真实导出验收，Q-QCE-1 至 Q-QCE-6 的真实样本问题仍保留。
+当前支持完整单文件 JSON，`chatInfo.type` 必须为 `group` 或 `private`，身份取 `peerUid`、其次 `peerUin`。`temp`、分块目录、JSONL 和旧版未知导出格式暂不支持。首次 200 条真实单文件已通过离线导入验收，范围见 [ACCEPTANCE](../../docs/ACCEPTANCE.md)；未出现的真实元素形态仍待确认，合成样例不补充真实样本证据。
+
+## 多场景分析样本
+
+[scenario-analysis.json](scenario-analysis.json) 包含 100 条虚构群聊，[scenario-analysis-backfill.json](scenario-analysis-backfill.json) 提供后续历史回填输入。@我 / @全体 / @他人 / 正文伪 @、截止日期、热点闲聊、事项更正、回复、撤回和媒体等场景的消息范围、固定身份与验收界限见 [场景说明](scenario-analysis.README.md)。热门/优先等六种产品视图的实现口径见 [分析视图](../../docs/ANALYSIS_VIEWS.md)，事项更正与待回应仍为语义挑战。
 
 额外约定：
 

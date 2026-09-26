@@ -15,6 +15,10 @@
 
 ### 当前实现范围
 
+热门、优先、相关、截止、未读与资料六个分析视图已接入只读 `overview`、GUI 与 HTML，见 [ANALYSIS_VIEWS](ANALYSIS_VIEWS.md)。热度和优先级分开；分行传输，不把部分结果标为已读。变更/冲突关系、待回应语义仍待实现。
+
+当前本地验证：401 项 Rust 测试、fmt、workspace 严格 clippy 和构建通过；新增总览、大响应分行、GUI 完整流/交互和多场景样本回归，见 [REVIEW_FIXES](REVIEW_FIXES.md)。真实模型质量及本批界面截图尚未验收。
+
 - 已写入：六成员 workspace 与 Cargo.lock、core 协议类型/流校验、QCE JSON 适配器、engine 配置/SQLite 迁移/原子导入/查询，以及 CLI `version/config init/doctor/import/chats/messages`。
 - 本轮完成 CLI 基础闭环：`analyze`、带原文证据的 `inbox`、`feedback`、`resolve`、`mark-read`，以及 `analyze --html` / `inbox --html`。已读只推进到收件箱返回的安全前缀；反馈替换当前评价，排序调整有界且不改变优先级。
 - 分析包含基础话题分配、结构化抽取、时间规范化、证据校验、规则 @我 和 P0–P3 排序。同步 Jev / DeepSeek 客户端、OpenAI / Anthropic 兼容接口及 Mock 已实现；网络协议与异常路径通过本地假服务器验证，未以真实云调用替代测试。

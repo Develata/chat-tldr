@@ -17,12 +17,14 @@ pub mod agent;
 pub mod ids;
 pub mod insight;
 pub mod message;
+pub mod overview;
 pub mod protocol;
 
 pub use agent::*;
 pub use ids::*;
 pub use insight::*;
 pub use message::*;
+pub use overview::*;
 pub use protocol::*;
 
 pub const SCHEMA_VERSION: &str = "1.0";

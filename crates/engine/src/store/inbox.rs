@@ -37,12 +37,28 @@ pub struct InboxSnapshot {
     pub insights: Vec<InsightPayload>,
 }
 
+pub(crate) struct InboxData {
+    pub snapshot: InboxSnapshot,
+    pub messages: BTreeMap<MessageId, UnifiedMessage>,
+    pub positions: BTreeMap<MessageId, Cursor>,
+    pub states: BTreeMap<MessageId, (String, Option<TopicId>)>,
+}
+
 pub fn inbox(path: &Path, chat: &ChatId, options: &InboxOptions) -> Result<InboxSnapshot> {
     let Some(mut connection) = open_read(path)? else {
         return Err(EngineError::ChatNotFound(chat.to_string()));
     };
     let tx = connection.transaction()?;
-    let reviewed = last_reviewed(&tx, chat)?;
+    Ok(read_inbox(&tx, chat, options, false)?.snapshot)
+}
+
+pub(super) fn read_inbox(
+    tx: &Connection,
+    chat: &ChatId,
+    options: &InboxOptions,
+    all_topics: bool,
+) -> Result<InboxData> {
+    let reviewed = last_reviewed(tx, chat)?;
     type MessageRow = (i64, i64, String, String, Option<String>);
     let rows: Vec<MessageRow> = tx.prepare(
         "SELECT m.pk,m.sent_at_ms,m.analysis_state,m.body_json,t.topic_id FROM messages m \
@@ -51,6 +67,7 @@ pub fn inbox(path: &Path, chat: &ChatId, options: &InboxOptions) -> Result<Inbox
         .collect::<std::result::Result<_, _>>()?;
     let mut positions = BTreeMap::new();
     let mut messages = BTreeMap::new();
+    let mut states = BTreeMap::new();
     let mut topic_messages: BTreeMap<TopicId, Vec<MessageId>> = BTreeMap::new();
     let mut view_cursor = None;
     let mut safe_prefix = true;
@@ -70,6 +87,9 @@ pub fn inbox(path: &Path, chat: &ChatId, options: &InboxOptions) -> Result<Inbox
                 "stored message belongs to another chat".into(),
             ));
         }
+        if all_topics {
+            states.insert(message.id.clone(), (state, topic.clone().map(Into::into)));
+        }
         if let Some(topic) = topic {
             topic_messages
                 .entry(topic.into())
@@ -84,7 +104,7 @@ pub fn inbox(path: &Path, chat: &ChatId, options: &InboxOptions) -> Result<Inbox
         .prepare("SELECT body_json,rank_prior FROM insights WHERE chat_id=?1 ORDER BY insight_id")?
         .query_map([chat.as_ref()], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<std::result::Result<_, _>>()?;
-    let weights = read_weights(&tx)?;
+    let weights = read_weights(tx)?;
     let mut rejected_insights = 0;
     let mut insights = Vec::new();
     for (body, prior) in raw {
@@ -151,7 +171,7 @@ pub fn inbox(path: &Path, chat: &ChatId, options: &InboxOptions) -> Result<Inbox
         if !options.all && !unseen_evidence && !persistent {
             continue;
         }
-        item.rank_score = score_from_weights(&tx, &item, prior, &weights)?;
+        item.rank_score = score_from_weights(tx, &item, prior, &weights)?;
         let evidence_view = item
             .evidence
             .iter()
@@ -190,9 +210,9 @@ pub fn inbox(path: &Path, chat: &ChatId, options: &InboxOptions) -> Result<Inbox
         .prepare("SELECT topic_id,merged_into FROM topics WHERE chat_id=?1")?
         .query_map([chat.as_ref()], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<std::result::Result<_, _>>()?;
-    let topics = read_topics(&tx, chat)?
+    let topics = read_topics(tx, chat)?
         .into_iter()
-        .filter(|topic| selected_topics.contains(&topic.id))
+        .filter(|topic| all_topics || selected_topics.contains(&topic.id))
         .map(|topic| {
             let members: Vec<_> = topic_messages
                 .get(&topic.id)
@@ -236,17 +256,22 @@ pub fn inbox(path: &Path, chat: &ChatId, options: &InboxOptions) -> Result<Inbox
             Priority::Unknown => {}
         }
     }
-    Ok(InboxSnapshot {
-        meta: InboxPayload {
-            chat_id: chat.clone(),
-            view_cursor,
-            last_reviewed: reviewed,
-            counts,
-            rejected_insights,
-            generated_at: options.now,
+    Ok(InboxData {
+        snapshot: InboxSnapshot {
+            meta: InboxPayload {
+                chat_id: chat.clone(),
+                view_cursor,
+                last_reviewed: reviewed,
+                counts,
+                rejected_insights,
+                generated_at: options.now,
+            },
+            topics,
+            insights,
         },
-        topics,
-        insights,
+        messages: lookup.0,
+        positions,
+        states,
     })
 }
 

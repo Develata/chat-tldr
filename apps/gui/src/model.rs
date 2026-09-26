@@ -1,10 +1,10 @@
 //! Pure event reduction. A provisional stream never becomes a reviewed view.
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 
 use chat_tldr_core::{
     ChatId, ChatPayload, CliEvent, Cursor, DecisionPayload, EventBody, EventStreamValidator,
-    InboxPayload, InsightPayload, JevAnswerPayload, ProgressPayload, RunStats, RunStatus,
-    StatsPayload, TopicPayload,
+    InboxPayload, InsightId, InsightPayload, JevAnswerPayload, Overview, ProgressPayload, RunStats,
+    RunStatus, StatsPayload, TopicId, TopicPayload,
 };
 use serde::Deserialize;
 
@@ -48,6 +48,8 @@ pub enum FollowUp {
 
 #[derive(Default)]
 struct Pending {
+    overview: Option<Overview>,
+    overview_expected: Option<BTreeMap<String, u64>>,
     version: Option<VersionInfo>,
     chats: Vec<ChatPayload>,
     meta: Option<InboxPayload>,
@@ -59,6 +61,7 @@ struct Pending {
 
 #[derive(Default)]
 pub struct GuiModel {
+    pub overview: Option<OverviewView>,
     pub capabilities: Option<Capabilities>,
     pub cli_version: Option<String>,
     pub chats: Vec<ChatPayload>,
@@ -75,6 +78,31 @@ pub struct GuiModel {
     pub active: Option<RequestTag>,
     pending: Pending,
     latest_request: Option<u64>,
+}
+
+pub struct OverviewView {
+    pub report: Overview,
+    pub titles: BTreeMap<TopicId, String>,
+    pub items: BTreeMap<InsightId, usize>,
+}
+
+impl OverviewView {
+    fn new(report: Overview) -> Self {
+        Self {
+            titles: report
+                .topics
+                .iter()
+                .map(|t| (t.topic_id.clone(), t.title.clone()))
+                .collect(),
+            items: report
+                .insights
+                .iter()
+                .enumerate()
+                .map(|(n, i)| (i.insight.id.clone(), n))
+                .collect(),
+            report,
+        }
+    }
 }
 
 impl GuiModel {
@@ -101,6 +129,12 @@ impl GuiModel {
         self.latest_request = Some(request.id);
         self.pending = Pending::default();
         self.progress = None;
+        if !matches!(
+            request.kind,
+            CommandKind::Stats | CommandKind::Decisions | CommandKind::JevLog
+        ) {
+            self.overview = None;
+        }
         match request.kind {
             CommandKind::Version => {
                 self.capabilities = None;
@@ -142,6 +176,7 @@ impl GuiModel {
             return false;
         }
         self.selected_chat = Some(chat);
+        self.overview = None;
         self.inbox = None;
         self.stats = None;
         self.progress = None;
@@ -194,6 +229,72 @@ impl GuiModel {
 
     fn reduce(&mut self, request: &RequestTag, body: EventBody) {
         match body {
+            EventBody::Ack(ack)
+                if request.kind == CommandKind::Overview && ack.command == "overview.rows" =>
+            {
+                let row = serde_json::from_value::<chat_tldr_core::OverviewPart>(ack.detail);
+                if let (Ok(row), Some(report), Some(expected)) = (
+                    row,
+                    self.pending.overview.as_mut(),
+                    self.pending.overview_expected.as_ref(),
+                ) {
+                    if ack.changed || ack.target.as_deref() != Some(report.chat_id.as_ref()) {
+                        self.problem("总览行会话或状态不匹配");
+                        return;
+                    }
+                    if report.counts().get(row.section()).copied().unwrap_or(0)
+                        >= expected.get(row.section()).copied().unwrap_or(0)
+                    {
+                        self.problem("总览行数超出声明");
+                        return;
+                    }
+                    row.append(report);
+                } else {
+                    self.problem("总览行出现在元数据之前或格式无效");
+                }
+            }
+            EventBody::Ack(ack) if request.kind == CommandKind::Overview => {
+                if ack.command != "overview" || ack.changed || self.pending.overview.is_some() {
+                    self.problem("总览响应重复或命令不匹配");
+                    return;
+                }
+                let expected = serde_json::from_value::<BTreeMap<String, u64>>(
+                    ack.detail.get("counts").cloned().unwrap_or_default(),
+                );
+                match serde_json::from_value::<Overview>(
+                    ack.detail.get("overview").cloned().unwrap_or_default(),
+                ) {
+                    Ok(report)
+                        if report.version == 1
+                            && request.chat.as_ref() == Some(&report.chat_id)
+                            && ack.target.as_deref() == Some(report.chat_id.as_ref())
+                            && report.since < report.until
+                            && report.insights.len() <= VIEW_LIMIT
+                            && report.topics.len() <= VIEW_LIMIT
+                            && report
+                                .insights
+                                .iter()
+                                .all(|row| row.insight.chat_id == report.chat_id)
+                            && report
+                                .topics
+                                .iter()
+                                .all(|row| row.chat_id == report.chat_id) =>
+                    {
+                        let empty = report.counts();
+                        if let Ok(expected) = expected
+                            && expected.keys().eq(empty.keys())
+                            && expected.values().all(|n| *n <= VIEW_LIMIT as u64)
+                            && empty.values().all(|n| *n == 0)
+                        {
+                            self.pending.overview_expected = Some(expected);
+                            self.pending.overview = Some(report);
+                        } else {
+                            self.problem("总览行数声明无效");
+                        }
+                    }
+                    _ => self.problem("总览版本、会话或数据无效"),
+                }
+            }
             EventBody::Ack(ack) if request.kind == CommandKind::Version => {
                 if ack.command != "version" || self.pending.version.is_some() {
                     self.problem("版本握手响应重复或命令不匹配");
@@ -308,6 +409,16 @@ impl GuiModel {
         }
         if current_chat && completion.is_success() {
             match request.kind {
+                CommandKind::Overview => {
+                    if let Some(report) = pending.overview
+                        && pending.overview_expected.as_ref() == Some(&report.counts())
+                        && overview_consistent(&report)
+                    {
+                        self.overview = Some(OverviewView::new(report));
+                    } else {
+                        completion.error = Some("CLI 未返回有效分析总览".into());
+                    }
+                }
                 CommandKind::Version => {
                     if let Some(version) = pending.version {
                         self.cli_version = Some(version.cli_version);
@@ -482,6 +593,43 @@ fn compatible_schema(version: &str) -> bool {
             && !minor.is_empty()
             && minor.bytes().all(|byte| byte.is_ascii_digit())
     })
+}
+
+fn overview_consistent(report: &Overview) -> bool {
+    let topics: HashSet<_> = report.topics.iter().map(|t| &t.topic_id).collect();
+    let items: HashSet<_> = report.insights.iter().map(|i| &i.insight.id).collect();
+    let topic_ok = |topic: Option<&TopicId>| topic.is_none_or(|id| topics.contains(id));
+    topics.len() == report.topics.len()
+        && items.len() == report.insights.len()
+        && report.topics.iter().all(|t| t.chat_id == report.chat_id)
+        && report
+            .insights
+            .iter()
+            .all(|i| i.insight.chat_id == report.chat_id && topic_ok(i.insight.topic_id.as_ref()))
+        && report
+            .hot_topics
+            .iter()
+            .all(|t| topics.contains(&t.topic_id) && t.activity_score.is_finite())
+        && report
+            .priority_topics
+            .iter()
+            .chain(&report.unread_topics)
+            .all(|t| {
+                topic_ok(t.topic_id.as_ref()) && t.insight_ids.iter().all(|id| items.contains(id))
+            })
+        && report.related.iter().all(|i| items.contains(&i.insight_id))
+        && report
+            .deadlines
+            .iter()
+            .all(|i| items.contains(&i.insight_id))
+        && report
+            .mentions
+            .iter()
+            .all(|m| topic_ok(m.topic_id.as_ref()))
+        && report
+            .resources
+            .iter()
+            .all(|r| topic_ok(r.source.topic_id.as_ref()))
 }
 
 fn push_bounded<T>(items: &mut VecDeque<T>, item: T, limit: usize) {

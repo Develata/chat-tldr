@@ -25,6 +25,9 @@ use tempfile::TempDir;
 
 const FIXTURE: &[u8] = include_bytes!("../../../fixtures/qce/synthetic-group.json");
 
+#[path = "analysis/scenario.rs"]
+mod scenario;
+
 struct Workspace {
     _directory: TempDir,
     database: PathBuf,

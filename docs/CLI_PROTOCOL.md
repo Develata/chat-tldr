@@ -42,6 +42,7 @@
 | `chats` | 列出已导入的会话及三个游标、未读数 | `chat`*, `done` |
 | `analyze --chat <ID>` | 运行智能体控制器，分析待处理消息 | `progress`, `decision`, `topic`, `insight`, `stats`(scope=run), `done` |
 | `inbox --chat <ID>` | 查询收件箱（供 GUI 展示） | `inbox`, `topic`*, `insight`*, `done` |
+| `overview --chat <ID> [--since TIME] [--until TIME] [--html FILE]` | 只读分析总览：热门、优先、相关、截止、未读、资料 | `ack`（头部及逐行数据）, `done` |
 | `messages --chat <ID> [--since] [--until]` | 按时间顺序列出消息及其话题归属（供评估和 GUI 浏览原文） | `message`*, `done` |
 | `feedback <INSIGHT_ID> --useful \| --not-important` | 设置当前有效反馈，不重复计票 | `ack`, `done` |
 | `resolve <INSIGHT_ID> --done \| --dismiss \| --reopen` | 修改结论的 `lifecycle` | `ack`, `done` |
@@ -100,6 +101,14 @@
 - `<CURSOR>` **必须**是 GUI 最近一次完整显示的 `inbox` 事件里的非空 `view_cursor`，原样回传；空值时禁用标为已读。
 - CLI 校验游标格式、会话归属和连续 `done/skipped` 前缀形成的安全上界，不能跨越 `failed/pending`。CLI 不能仅凭 Cursor 证明用户看过界面，“只回传已展示位置”由 GUI 契约保证。
 - 如果 `<CURSOR>` 早于当前 `last_reviewed`，则不做任何改动，返回 `ack`（`changed=false`）。
+
+**`overview --chat <ID>`**
+- 用户于 2026-09-26 要求推进分析视图后新增的兼容命令。`--until` 为带偏移的 RFC 3339 排他终点，默认当前时间；`--since` 为包含下界，默认 until 前 24 小时，必须早于 until。GUI 提供 6/24/168 小时窗口。`--html` 使用与 inbox 相同的路径保护和原子发布。
+- 不读取密钥、不调用模型、不创建数据库、不保存运行或推进任何游标。单个只读事务中完成查询和证据重验。热榜只统计 done、非系统/撤回、已归属的窗口消息；原始提及及资料也可显示 pending，必须标识。优先/相关/截止保留窗口前 open 事项；未读回顾按 last_reviewed。until 同时用于截止状态，未归一或仅模型猜测的时间列为待确认。
+- 首个 `ack.command=overview`，`changed=false`，`target=ChatId`，`detail={overview:<头部>,counts:<各节行数>}`。头部 `version=1`，包括 chat_id、since/until、generated_at、data_start/end、window_messages、pending_messages（全群）、window_pending、last_reviewed，以及空的九节数组。
+- 后续每个 `ack.command=overview.rows` 的 target 仍为同一 ChatId、changed=false；`detail={section:<节名>,row:<对应类型>}`。节名为 hot_topics、priority_topics、related、mentions、deadlines、unread_topics、resources、topics、insights；类型见 `core/overview.rs`。归属引用可先于被引用的行，消费者在结束时检查计数和引用完整性。
+- v1 信封、既有事件、DB 版本均不变。GUI 通过 capabilities 判断入口，仅在 done/真实进程退出均成功、每节计数匹配且引用有效后发布，不把部分流或重复头部当成完整结果。单行数据上限 900,000 字节，超限返回 E_OUTPUT_WRITE/8；GUI 每节最多 50,000 行并明确拒绝超限，不能截断后宣称完整。
+- 总览不返回可用于标已读的 view_cursor。读取和展示它不代表完整阅读收件箱；仍需按既有 inbox 契约标读。报告是当前状态在消息窗口上的视图，不是历史版本快照；完整统计口径见 [ANALYSIS_VIEWS](ANALYSIS_VIEWS.md)。
 
 **`feedback` 与 `resolve`**
 - 相同评价重复提交时 `changed=false`；切换评价替换当前有效值，不能累计成多次有效投票。审计记录可另存。

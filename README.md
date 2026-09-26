@@ -30,6 +30,7 @@
 - 结构化抽取：@我、待办、截止日期、通知、决策、话题摘要
 - 证据校验：LLM 提出，Rust 验证
 - P0–P3 分层收件箱 + 有界的反馈校准
+- 分析总览：最近热门话题、优先话题、与我有关、截止事项、未读回顾和资料入口；只读 `overview`、原生 GUI 与 HTML 共用结果，见 [分析视图](docs/ANALYSIS_VIEWS.md)
 - 基于规则选择动作的控制器，具有步数上限、费用预估、取消检查和决策日志
 - 本地 SQLite 检查点、模型响应缓存与用量记录；部分失败后可继续处理未完成消息
 - 同步 Jev 和 DeepSeek 客户端、OpenAI / Anthropic 兼容接口与 Mock；模型协议和流程用合成数据、Mock 及本地假服务器验证
@@ -84,6 +85,14 @@ cargo build --workspace
 GUI 的导入只选择已完成的导出文件；GUI 不填写密钥或 QQ 身份。密钥按下节设置在启动 GUI 的进程环境中；首次云端分析需确认聊天原文会发送给配置的服务。仅打开 GUI、导入和查询不调用模型。`doctor` 检查本地配置和环境变量是否就绪，不验证网络连通性。
 
 ### 使用真实模型
+
+已导入并分析的群聊可以直接查看总览，不会追加模型请求：
+
+```powershell
+cargo run -p chat-tldr -- --data-dir ./private/demo overview --chat qq:group:synthetic-study --html ./private/demo/overview.html
+```
+
+默认统计最近 24 小时；历史材料可传带时区的 `--since` / `--until`。GUI 中点击“分析总览”可切换热门、优先、相关、截止、未读和资料六个视图。没有完成分析的消息只显示原始提及/资料和待分析数量，不会产生热榜或模型结论；总览不标已读。
 
 下面的 `analyze` 会把聊天原文发送到配置的云服务。默认使用 Jev 做分类与话题归属、DeepSeek 做抽取；LLM 密钥必需，Jev 密钥缺失或服务不可用时会警告并改用 LLM。也可显式传入 `--decider llm`。密钥只从环境变量读取。
 
@@ -144,6 +153,7 @@ LLM 的 `base_url`、模型名和接口格式（`openai` / `anthropic`）在 `co
 | [ROADMAP](docs/ROADMAP.md) | 3 天计划与降级预案 |
 | [decisions/](docs/decisions/) | 架构决策记录 |
 | [OPEN_QUESTIONS](docs/OPEN_QUESTIONS.md) | 待定问题 |
+| [ANALYSIS_VIEWS](docs/ANALYSIS_VIEWS.md) | 已实现分析视图、统计口径、剩余语义功能与测试范围 |
 | [CONTRIBUTING](CONTRIBUTING.md) | 协作流程（写给第一次用 Git 的同学） |
 
 ### 团队分工

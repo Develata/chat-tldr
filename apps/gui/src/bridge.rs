@@ -41,6 +41,7 @@ pub enum CommandKind {
     Version,
     Chats,
     Inbox,
+    Overview,
     Analyze,
     Import,
     Feedback,

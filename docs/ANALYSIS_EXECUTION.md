@@ -2,6 +2,8 @@
 
 本页细化已批准的 PIPELINE，保留 core 1.0 类型与 CLI 命令契约；内部模块和状态可以演进。当前实现进度以 CLI capabilities 和测试为准。
 
+用户后续授权的六种分析视图已接入 `overview`，从当前已持久化结果生成，不触发新的模型请求。热门统计、优先话题、提及、截止、未读和资料口径见 [ANALYSIS_VIEWS](ANALYSIS_VIEWS.md)；`core/overview.rs` 只新增 ack.detail 的版本化共享类型，既有 v1 事件与分析事务不变。
+
 ## 本轮实现范围
 
 当前打通 `import → analyze → inbox → feedback/resolve/mark-read`，含 HTML 输出、SQLite 检查点、同步 Jev/LLM 客户端和离线 Mock。本轮 `ours` 先提供基本闭环：控制器按规则选择动作；没有历史候选的小积压直接抽取，其余按时间与回复形成 burst，由规则或 Decider 归属话题。

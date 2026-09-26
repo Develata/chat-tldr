@@ -2,6 +2,131 @@ use super::*;
 use chat_tldr_core::{AckPayload, DonePayload};
 use serde_json::json;
 
+fn overview_ack(chat: &ChatId) -> AckPayload {
+    AckPayload {
+        command: "overview".into(),
+        target: Some(chat.to_string()),
+        changed: false,
+        detail: json!({"overview":{
+            "version":1,"chat_id":chat,"since":"2026-09-24T00:00:00+08:00","until":"2026-09-25T00:00:00+08:00","generated_at":"2026-09-26T00:00:00+08:00",
+            "data_start":null,"data_end":null,"window_messages":0,"pending_messages":0,"window_pending":0,"last_reviewed":null,
+            "hot_topics":[],"priority_topics":[],"related":[],"mentions":[],"deadlines":[],"unread_topics":[],"resources":[],"topics":[],"insights":[]
+        },"counts":{"hot_topics":0,"priority_topics":0,"related":0,"mentions":0,"deadlines":0,"unread_topics":0,"resources":0,"topics":0,"insights":0}}),
+    }
+}
+
+#[test]
+fn overview_publishes_only_after_success_and_never_marks_the_inbox_displayed() {
+    let mut model = GuiModel::demo();
+    let chat = model.selected_chat.clone().unwrap();
+    let tag = request(3, CommandKind::Overview, Some(chat.clone()));
+    model.begin(tag.clone()).unwrap();
+    emit(&mut model, &tag, EventBody::Ack(overview_ack(&chat)));
+    assert!(model.overview.is_none());
+    end(&mut model, tag, completed(RunStatus::Complete, 0));
+    assert!(model.overview.is_some());
+    assert!(model.mark_read_cursor().is_none());
+    let tag = request(4, CommandKind::Overview, Some(chat.clone()));
+    model.begin(tag.clone()).unwrap();
+    emit(&mut model, &tag, EventBody::Ack(overview_ack(&chat)));
+    end(&mut model, tag, completed(RunStatus::Failed, 7));
+    assert!(model.overview.is_none());
+}
+
+#[test]
+fn overview_rows_reassemble_topic_and_insight_references_before_publication() {
+    let mut model = GuiModel::demo();
+    let chat = model.selected_chat.clone().unwrap();
+    let inbox = model.inbox.clone().unwrap();
+    let mut ack = overview_ack(&chat);
+    let mut report: Overview = serde_json::from_value(ack.detail["overview"].clone()).unwrap();
+    report.topics = inbox.topics;
+    report.insights = inbox.insights;
+    let first = &report.insights[0].insight;
+    report.priority_topics.push(chat_tldr_core::TopicDigest {
+        topic_id: first.topic_id.clone(),
+        priority: first.priority,
+        insight_ids: vec![first.id.clone()],
+        reasons: vec!["有截止事项".into()],
+    });
+    let counts = report.counts();
+    let rows = report.drain_parts();
+    ack.detail = json!({"overview":report,"counts":counts});
+    let tag = request(3, CommandKind::Overview, Some(chat.clone()));
+    model.begin(tag.clone()).unwrap();
+    emit(&mut model, &tag, EventBody::Ack(ack));
+    for row in rows {
+        emit(
+            &mut model,
+            &tag,
+            EventBody::Ack(AckPayload {
+                command: "overview.rows".into(),
+                target: Some(chat.to_string()),
+                changed: false,
+                detail: serde_json::to_value(row).unwrap(),
+            }),
+        );
+    }
+    assert!(model.overview.is_none());
+    end(&mut model, tag, completed(RunStatus::Complete, 0));
+    assert_eq!(model.overview.as_ref().unwrap().report.counts(), counts);
+    assert!(model.mark_read_cursor().is_none());
+}
+
+#[test]
+fn overview_missing_extra_or_dangling_rows_cannot_publish() {
+    for case in 0..3 {
+        let mut model = GuiModel::demo();
+        let chat = model.selected_chat.clone().unwrap();
+        let mut ack = overview_ack(&chat);
+        let tag = request(3, CommandKind::Overview, Some(chat.clone()));
+        model.begin(tag.clone()).unwrap();
+        if case != 1 {
+            ack.detail["counts"]["related"] = json!(1);
+        }
+        emit(&mut model, &tag, EventBody::Ack(ack));
+        if case != 0 {
+            emit(
+                &mut model,
+                &tag,
+                EventBody::Ack(AckPayload {
+                    command: "overview.rows".into(),
+                    target: Some(chat.to_string()),
+                    changed: false,
+                    detail: json!({"section":"related","row":{"insight_id":"missing","reasons":[]}}),
+                }),
+            );
+        }
+        end(&mut model, tag, completed(RunStatus::Complete, 0));
+        assert!(model.overview.is_none());
+        assert!(model.last_error.is_some());
+    }
+}
+
+#[test]
+fn overview_rejects_wrong_versions_chats_and_duplicate_payloads() {
+    for case in 0..3 {
+        let mut model = GuiModel::demo();
+        let chat = model.selected_chat.clone().unwrap();
+        let mut ack = overview_ack(&chat);
+        let tag = request(3, CommandKind::Overview, Some(chat));
+        model.begin(tag.clone()).unwrap();
+        if case == 0 {
+            ack.detail["overview"]["version"] = json!(2);
+        }
+        if case == 1 {
+            ack.detail["overview"]["chat_id"] = json!("another-chat");
+        }
+        emit(&mut model, &tag, EventBody::Ack(ack.clone()));
+        if case == 2 {
+            emit(&mut model, &tag, EventBody::Ack(ack));
+        }
+        end(&mut model, tag, completed(RunStatus::Complete, 0));
+        assert!(model.overview.is_none());
+        assert!(model.last_error.is_some());
+    }
+}
+
 fn request(id: u64, kind: CommandKind, chat: Option<ChatId>) -> RequestTag {
     RequestTag { id, kind, chat }
 }

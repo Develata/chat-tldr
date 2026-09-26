@@ -1,0 +1,234 @@
+{
+  "metadata": {
+    "name": "QQChatExporter",
+    "copyright": "https://github.com/shuakami/qq-chat-exporter",
+    "version": "0.1.0"
+  },
+  "chatInfo": {
+    "name": "完全虚构的多场景分析验收群",
+    "type": "group",
+    "selfUid": "u_scenario_self",
+    "selfUin": "290000001",
+    "selfName": "合成林舟",
+    "peerUid": "synthetic-analysis-group",
+    "peerUin": "290000099",
+    "participantCount": 6
+  },
+  "statistics": {
+    "totalMessages": 4,
+    "timeRange": {
+      "start": "2026-09-24T01:18:00.000Z",
+      "end": "2026-09-24T04:17:00.000Z",
+      "durationDays": 1
+    },
+    "messageTypes": {
+      "reply": 4
+    },
+    "senders": [
+      {
+        "uid": "u_scenario_self",
+        "name": "合成林舟",
+        "messageCount": 2,
+        "percentage": 50.0
+      },
+      {
+        "uid": "u_scenario_chen",
+        "name": "合成陈禾",
+        "messageCount": 1,
+        "percentage": 25.0
+      },
+      {
+        "uid": "u_scenario_wang",
+        "name": "合成王砚",
+        "messageCount": 1,
+        "percentage": 25.0
+      }
+    ],
+    "resources": {
+      "total": 0,
+      "byType": {},
+      "totalSize": 0
+    }
+  },
+  "messages": [
+    {
+      "id": "9200000000000000101",
+      "seq": "101",
+      "timestamp": 1790223300000,
+      "time": "2026-09-24T04:15:00.000Z",
+      "sender": {
+        "uid": "u_scenario_self",
+        "uin": "290000001",
+        "name": "合成林舟",
+        "nickname": "林舟",
+        "groupCard": "合成资料员",
+        "remark": "合成自我身份"
+      },
+      "type": "reply",
+      "content": {
+        "text": "补入旧档案讨论：三个命名例子中的年份都使用四位数，不改变上午保留示例的决定。",
+        "elements": [
+          {
+            "type": "reply",
+            "data": {
+              "messageId": "9200000000000000020",
+              "referencedMessageId": "9200000000000000020",
+              "senderUin": "290000002",
+              "senderName": "合成陈禾",
+              "content": "档案目录先保留这三个命名例子，今天上午到这里，没有新任务。",
+              "timestamp": 1790212740,
+              "previewElements": []
+            }
+          },
+          {
+            "type": "text",
+            "data": {
+              "text": "补入旧档案讨论：三个命名例子中的年份都使用四位数，不改变上午保留示例的决定。"
+            }
+          }
+        ],
+        "resources": [],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "id": "9200000000000000019",
+      "seq": "19",
+      "timestamp": 1790212680000,
+      "time": "2026-09-24T01:18:00.000Z",
+      "sender": {
+        "uid": "u_scenario_self",
+        "uin": "290000001",
+        "name": "合成林舟",
+        "nickname": "林舟",
+        "groupCard": "合成资料员",
+        "remark": "合成自我身份"
+      },
+      "type": "reply",
+      "content": {
+        "text": "目录名称方案是『年份—课程—资料类型』，我已经列好三个例子供讨论。",
+        "elements": [
+          {
+            "type": "reply",
+            "data": {
+              "messageId": "9200000000000000018",
+              "referencedMessageId": "9200000000000000018",
+              "senderUin": "290000002",
+              "senderName": "合成陈禾",
+              "content": "旧档案目录整理：只统一文件夹名称，不移动文件正文，也没有截止时间。",
+              "timestamp": 1790212620,
+              "previewElements": []
+            }
+          },
+          {
+            "type": "text",
+            "data": {
+              "text": "目录名称方案是『年份—课程—资料类型』，我已经列好三个例子供讨论。"
+            }
+          }
+        ],
+        "resources": [],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "id": "9200000000000000102",
+      "seq": "102",
+      "timestamp": 1790223360000,
+      "time": "2026-09-24T04:16:00.000Z",
+      "sender": {
+        "uid": "u_scenario_chen",
+        "uin": "290000002",
+        "name": "合成陈禾"
+      },
+      "type": "reply",
+      "content": {
+        "text": "补充历史说明：同意四位年份，仍然只改目录名称，不动正文。",
+        "elements": [
+          {
+            "type": "reply",
+            "data": {
+              "messageId": "9200000000000000101",
+              "referencedMessageId": "9200000000000000101",
+              "senderUin": "290000001",
+              "senderName": "合成林舟",
+              "content": "补入旧档案讨论：三个命名例子中的年份都使用四位数，不改变上午保留示例的决定。",
+              "timestamp": 1790223300,
+              "previewElements": []
+            }
+          },
+          {
+            "type": "text",
+            "data": {
+              "text": "补充历史说明：同意四位年份，仍然只改目录名称，不动正文。"
+            }
+          }
+        ],
+        "resources": [],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "id": "9200000000000000103",
+      "seq": "103",
+      "timestamp": 1790223420000,
+      "time": "2026-09-24T04:17:00.000Z",
+      "sender": {
+        "uid": "u_scenario_wang",
+        "uin": "290000003",
+        "name": "合成王砚"
+      },
+      "type": "reply",
+      "content": {
+        "text": "上午的旧档案目录方案我也看过，课程名称用全称；没有新增截止时间。",
+        "elements": [
+          {
+            "type": "reply",
+            "data": {
+              "messageId": "9200000000000000018",
+              "referencedMessageId": "9200000000000000018",
+              "senderUin": "290000002",
+              "senderName": "合成陈禾",
+              "content": "旧档案目录整理：只统一文件夹名称，不移动文件正文，也没有截止时间。",
+              "timestamp": 1790212620,
+              "previewElements": []
+            }
+          },
+          {
+            "type": "text",
+            "data": {
+              "text": "上午的旧档案目录方案我也看过，课程名称用全称；没有新增截止时间。"
+            }
+          }
+        ],
+        "resources": [],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    }
+  ],
+  "exportOptions": {
+    "includedFields": [
+      "id",
+      "timestamp",
+      "sender",
+      "content",
+      "resources"
+    ],
+    "filters": {},
+    "options": {
+      "includeResourceLinks": true,
+      "includeSystemMessages": true,
+      "preferGroupMemberName": true,
+      "timeFormat": "YYYY-MM-DD HH:mm:ss",
+      "encoding": "utf-8"
+    }
+  }
+}

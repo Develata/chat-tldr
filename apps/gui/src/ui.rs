@@ -6,6 +6,7 @@ use eframe::egui::{self, Color32, RichText};
 
 use crate::{model::GuiModel, prefs::Preferences};
 
+mod overview;
 mod review;
 use review::ReviewCoverage;
 
@@ -15,6 +16,10 @@ mod interaction_tests;
 
 #[derive(Default)]
 pub struct UiState {
+    pub overview: bool,
+    pub overview_hours: u32,
+    overview_tab: usize,
+    overview_page: usize,
     pub all: bool,
     pub resolved: bool,
     pub lane: usize,
@@ -53,6 +58,7 @@ pub enum Action {
     Stats,
     Decisions,
     JevLog,
+    Overview(u32),
 }
 
 pub fn render(
@@ -85,6 +91,22 @@ pub fn render(
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("群聊省流").strong().size(21.0));
             ui.add_space(18.0);
+            if ui.selectable_label(state.overview, "分析总览").clicked()
+                && enabled
+                && model.has_capability("overview")
+                && model.selected_chat.is_some()
+            {
+                state.overview = true;
+                state.overview_page = 0;
+                actions.push(Action::Overview(if state.overview_hours == 0 {
+                    24
+                } else {
+                    state.overview_hours
+                }));
+            }
+            if ui.selectable_label(!state.overview, "收件箱").clicked() {
+                state.overview = false;
+            }
             button(
                 ui,
                 "导入 JSON",
@@ -105,7 +127,10 @@ pub fn render(
             button(
                 ui,
                 "标为已读",
-                enabled && model.mark_read_cursor().is_some() && model.has_capability("mark-read"),
+                enabled
+                    && !state.overview
+                    && model.mark_read_cursor().is_some()
+                    && model.has_capability("mark-read"),
                 Action::MarkRead,
                 &mut actions,
             );
@@ -243,6 +268,10 @@ pub fn render(
     }
     let mut displayed = None;
     egui::CentralPanel::default().show(ui, |ui| {
+        if state.overview {
+            overview::render(ui, state, model, enabled, busy, &mut actions);
+            return;
+        }
         ui.add_space(12.0);
         let title = model
             .chats

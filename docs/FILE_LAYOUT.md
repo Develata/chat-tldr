@@ -127,6 +127,7 @@ chat-tldr/
 | `store.rs` | 连接、迁移、原子导入与基础消息查询 |
 | `store/analysis.rs`、`store/inbox.rs` | 分析会话、提交与证据来源读取；收件箱、反馈、生命周期 |
 | `store/history.rs` | stats/decisions/jev-log 的只读事务查询与旧记录兼容，测试在 `store/history/` |
+| `overview.rs`、`store/overview.rs` | 六种分析视图的纯聚合算法与同一只读快照；复用 inbox 证据重验，单元测试在 `overview/` |
 | `render/`、`segment/` | 渲染、burst、话题候选与归属 |
 | `decider/`、`llm/`、`embed/` | provider trait、真实客户端与 Mock |
 | `extract/`、`temporal/`、`verify/` | 抽取、日期规范化、证据校验 |
