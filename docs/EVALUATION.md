@@ -24,14 +24,16 @@
 
 B0 一次处理整个待分析窗口，有界格式重试，不使用 Jev 分类、证据修复或话题合并。输入以渲染长度加每条开销估计控制在 96,000 字符，超限移除最早整条消息并记录数量，输出上限 16,384 token。此输入估计不是服务商 tokenizer 的精确上限。B0 流显式记录策略与模型顺序；score 保留其被拒条目。
 
-| 名称 | CLI 参数 | 说明 |
+| 名称 | CLI 参数 | 状态与说明 |
 |---|---|---|
-| **B0** 整段总结 | `--strategy b0` | 全部待处理消息一次性交给 LLM，输出话题和 items。超过上下文时截断最早的消息，并记录截断比例 |
-| **B1** 固定切块 | `--strategy b1` | 先按强时间间隔切开，再按固定 token 数（默认 3000）切块，逐块抽取，最后用一次 LLM 调用合并去重 |
-| **Ours** 完整方案 | `--strategy ours --decider jev` | burst + 候选 + Jev 归属 + 控制器 + 校验 + 排序 |
-| **Ours-LLM**（消融） | `--strategy ours --decider llm` | 用 LlmDecider 替代 Jev，其余不变 |
-| **Sim-TFIDF**（对照） | `--strategy sim-tfidf` | 第三层不用 Jev，改用 TF-IDF 相似度阈值（PIPELINE §3.5） |
-| **Sim-Embed**（可选） | `--strategy sim-embed` | 同上，改用 embedding；只有配置了 embedding 服务才跑 |
+| **B0** 整段总结 | `--strategy b0` | **已实现**。全部待处理消息一次性交给 LLM，输出话题和 items。超过上下文时截断最早的消息，并记录截断比例 |
+| **B1** 固定切块 | `--strategy b1` | **规划，当前 CLI 拒绝**。先按强时间间隔切开，再按固定 token 数（默认 3000）切块，逐块抽取，最后用一次 LLM 调用合并去重 |
+| **Ours** 当前主线 | `--strategy ours --decider jev` | **已实现**。burst + 候选 + Jev 归属 + 受限 Jev 控制器 + 校验 + 排序；故障行为见下 |
+| **Ours-LLM**（对照） | `--strategy ours --decider llm` | **可运行**。消息/话题判别使用 LlmDecider，控制器采用规则回退；不能描述为仅替换判别模型、其余完全相同的严格消融 |
+| **Sim-TFIDF**（对照） | `--strategy sim-tfidf` | **规划，当前 CLI 拒绝**。第三层不用 Jev，改用 TF-IDF 相似度阈值（PIPELINE §3.5） |
+| **Sim-Embed**（可选） | `--strategy sim-embed` | **规划，当前 CLI 拒绝**。同上，改用 embedding；只有配置了 embedding 服务才跑 |
+
+Jev 不可用时，消息/话题判别可降级到 LlmDecider；控制器采用规则允许集合中的默认动作，不让 LLM 接管调度。报告必须区分这两种回退，按日志的实际 provider/model 与 `decision.method` 统计。
 
 B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行同一个 `verify`，只用于计算幻觉率，不过滤它们的结果（`score` 在计算抽取和排序指标时，对 B0/B1 保留 `rejected` 条目，对 Ours 系列则排除）。所有系统都用 `inbox --include-rejected` 导出结论。
 

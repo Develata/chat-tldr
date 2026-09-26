@@ -166,7 +166,7 @@ CI 已升级 checkout v7.0.1 / rust-cache v2.9.2（Node.js 24，完整 SHA 固�
 5. B1 基线
 6. GUI 决策日志面板（CLI `chat-tldr decisions --run <ID>` 已可重放历史；GUI 展示验收另计）
 
-**原定交付底线**：证据校验、幂等导入、@我 规则、JSONL 协议、Ours vs B0 对比、Jev 校准曲线。前四项已有基础实现；后两项仍待评估工具与数据，不能以 Mock 测试替代结果。
+**原定交付底线**：证据校验、幂等导入、@我 规则、JSONL 协议、Ours vs B0 对比、Jev 校准曲线。当前对照与校准工具已实现，合成流程及真实运行/成本结果见 [ACCEPTANCE](ACCEPTANCE.md)；真实质量比较与真实校准曲线仍待人工标注，不能以 Mock 测试替代。
 
 </details>
 
