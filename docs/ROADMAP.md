@@ -1,17 +1,17 @@
 # 路线图（ROADMAP）
 
-> 用途：3 天的任务清单（按人拆分，可勾选）、里程碑、砍需求的顺序、降级预案，以及非目标与未来工作。
+> 用途：当前交付缺口、真实期限、降级预案，以及保留供参考的早期三天计划。
 > 读者：全体成员。每天开始和结束时对照一次。
 
 ## 当前安排（2026-09-26 用户更新）
 
 - **实际交付截止：2026-09-27 23:59，America/Santiago（UTC−3）。**
-- 主线编码（包含 QCE JSON 导入适配器）主要由 Codex 承担，Develata 参与设计与架构审核；三位同学尚未开工，先承担 QCE 的拉取、下载、清理与集成管理、GUI 设计等外围任务。QCE 管理组件向主线交付本地导出文件路径。下方 A/B/C 的原始完整分工是参考方案，后续按实际分配调整。
+- 主线编码（包含 QCE JSON 导入适配器）主要由 Codex 承担，Develata 参与设计与架构审核；当前仓库未记录三位同学的独立交付或账号绑定，线下进度待确认。同学承担 QCE 管理、GUI 设计复核、独立标注与验收材料；QCE 管理组件向主线交付本地导出文件路径。下方原始分工保留作历史参考。
 - CLI 与文件布局草案已经用户批准，见 [CLI_V1_REVIEW.md](CLI_V1_REVIEW.md)。**当前分工以 [TEAM_ASSIGNMENTS.md](TEAM_ASSIGNMENTS.md) 为准**：Codex 主线编码，A 做 QCE 管理，B 做 GUI 设计，C 做合成场景与验收材料；字母仍未绑定真实账号。
 - 文件存放与组件读写归属见 [FILE_LAYOUT.md](FILE_LAYOUT.md)；QCE 管理组件预留在 `apps/qce-manager/`，主线导入适配器保持在 `crates/qce/`。
 - 下方“第 1/2/3 天”是原始相对计划，不代表在实际截止日期之后另有开发时间。
 
-各人详细的任务说明见 [tasks/](tasks/)。
+各人当前待办见 [TEAM_ASSIGNMENTS](TEAM_ASSIGNMENTS.md)；[tasks/](tasks/) 保存主线模块的历史规格和验收目标，不是同学当前待办台账。
 
 ### 当前实现范围
 
@@ -37,7 +37,26 @@ CI 已升级 checkout v7.0.1 / rust-cache v2.9.2（Node.js 24，完整 SHA 固�
 - 话题合并本地验收：workspace 347 项 Rust 测试通过，新增 46 项覆盖候选图、模型确认、原子事务、反馈等价/查询计划、CLI 及中断恢复。所有数据为合成数据、模型为 Mock 或本地假服务；该结果不代表真实云模型合并质量。
 - 自动关闭与历史回填本地验收：workspace 376 项测试、fmt、严格 clippy 与构建通过。本批新增 29 项，覆盖首次关闭边界、回填保持 Closed、历史前驱/范围隔离、待验证草稿恢复及归属/关闭提交后输出中断；用户决定已写入 Q-DEC-7，详见 [REVIEW_FIXES](REVIEW_FIXES.md)。
 
-## 里程碑
+## 当前待完成与待验收
+
+| 项目 | 负责人 | 当前状态与退出条件 |
+|---|---|---|
+| 真实云服务与分析效果 | Codex 联调，Develata 复核 | 尚未验收；记录实际 provider/model、退出码、证据、降级和用量，再对照独立人工期望，不把 Mock 或离线导入当作通过 |
+| 更正/取消关联、待回应语义 | Codex，Develata 审核设计 | 尚未实现；需要旧/新安排或问题/回答的可靠语义关系与合成反例回归 |
+| 控制器、embedding、其余 eval/基线 | Codex，Develata 决定交付取舍 | Jev 动作选择、embedding、话题/校准指标和基线仍有缺口；仅支持 `ours`，不得用占位命令或虚构指标补齐 |
+| QCE 管理程序 | A 席位 | 目前只有说明；按已核对的导出接口封装获取/启动/导出/受控清理，成功才交付完整 JSON 路径 |
+| GUI 设计与补充验收 | B 席位，Codex 接入 | 主线 GUI 已实现；独立图稿、新总览原生截图、真实流程体验复核待交付 |
+| 独立 gold、报告与演示 | C 席位，Develata 复核 | 共用样本和工具已就绪；独立标注、双人一致性、真实结果报告/演示仍待交付 |
+| 协作权限与合并门槛 | Develata | 账号绑定/CODEOWNERS 与同学实际合并权限待确认；线上有效 ruleset 尚无 required_status_checks，`fmt/clippy/test` 名称已就绪，本次合并逐项核对 CI |
+
+已有能力、各人下一份具体产物与数据边界以 [README](../README.md)、[TEAM_ASSIGNMENTS](TEAM_ASSIGNMENTS.md)、[ACCEPTANCE](ACCEPTANCE.md) 为准。实际期限前保留已通过回归的功能，剩余范围由 Develata 根据验收结果决定。
+
+<details>
+<summary>早期三天计划与降级顺序（历史参考，不作为当前分工或进度）</summary>
+
+以下保留原始相对日程与验收目标；其中 A/B/C 原计划中的适配器、GUI、评估工具代码已由 Codex 承担。勾选不表示挂名同学已经交付，当前完成者、缺口及线上规则以本页上方和 TEAM_ASSIGNMENTS 为准。
+
+## 原始里程碑
 
 | 时间 | 里程碑 | 验收 |
 |---|---|---|
@@ -150,6 +169,8 @@ CI 已升级 checkout v7.0.1 / rust-cache v2.9.2（Node.js 24，完整 SHA 固�
 
 **原定交付底线**：证据校验、幂等导入、@我 规则、JSONL 协议、Ours vs B0 对比、Jev 校准曲线。前四项已有基础实现；后两项仍待评估工具与数据，不能以 Mock 测试替代结果。
 
+</details>
+
 ## 降级预案
 
 | 故障 | 预案 |
@@ -157,14 +178,14 @@ CI 已升级 checkout v7.0.1 / rust-cache v2.9.2（Node.js 24，完整 SHA 固�
 | Jev 不可用 | 已支持自动降级并输出 `W_DECIDER_FALLBACK`，或显式 `--decider llm`；效果数字仍需实际评估 |
 | 话题切分失败 | 当前保留失败状态后重试；计划中的 `--strategy b1` 尚不可用 |
 | 截止日期规范化不确定 | 只保留 `raw` |
-| GUI 出问题 | `chat-tldr inbox --chat <ID> --html demo.html`，用浏览器演示 |
+| GUI 出问题 | `chat-tldr inbox --chat <ID> --html demo.html` 或 `overview --chat <ID> --html overview.html`，用浏览器演示 |
 | 真实测试群数据来不及 | 用合成集完成全部流程，报告中如实注明 |
 
 ## 非目标
 
 - 将 QCE 源码链接进主程序，或由主线自行实现 NapCat 实时抓取；微信支持；实时机器人。独立 QCE 管理组件可由同学提供，并通过导出文件与主线集成
 - 向量数据库、RAG、Agent 框架（如 Rig、LangChain）、模型微调、训练话题切分模型
-- 纯本地模式（Jev 是云服务）
+- 开箱即用的完整本地模型分析（默认配置使用云服务）；导入和查询本身已可离线运行
 - 完整的中文时间解析库（只做高频规则）
 - QCE 的 chunked-JSONL 导出格式
 - 多用户、多设备同步
@@ -174,6 +195,5 @@ CI 已升级 checkout v7.0.1 / rust-cache v2.9.2（Node.js 24，完整 SHA 固�
 - 支持 QCE chunked-JSONL 与更多导出工具
 - 本地 embedding（fastembed-rs）与本地 LLM（Ollama），减少云端依赖
 - 更完整的时间表达式解析（农历、节假日、“月底”“学期末”）
-- 可选的脱敏模式（发送前把昵称、群号替换为代号）
 - 并行执行 AnalyzeTopic
 - 用积累的反馈与标注做离线阈值搜索

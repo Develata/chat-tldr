@@ -3,7 +3,7 @@
 > 用途：定义 `chat-tldr` 命令行的命令、参数、stdout 上的 JSON Lines 事件、错误码、退出码和版本兼容规则。
 > 读者：@Develata（实现 CLI）、同学 B（GUI 解析输出）、同学 C（eval 调用 CLI）。信封类型的定义见 [DATA_MODEL.md](DATA_MODEL.md) §4。
 
-> 状态：2026-09-26 用户已采纳 [CLI v1 评审稿](CLI_V1_REVIEW.md)，本页是同步后的首次 v1 契约。命令表中的基础、分析、收件箱、状态操作及 `stats/decisions/jev-log` 查询均已实现；当前策略仅 `ours`、Decider 为 `jev/llm`。完整分析策略仍有缺口，见 [ANALYSIS_EXECUTION](ANALYSIS_EXECUTION.md)；实际可用能力以 `version.capabilities` 为准。
+> 状态：2026-09-26 用户已采纳 [CLI v1 评审稿](CLI_V1_REVIEW.md)，本页是同步后的 v1 契约。基础、分析、收件箱、六视图总览 `overview`、状态操作及 `stats/decisions/jev-log` 查询均已实现；当前策略仅 `ours`、Decider 为 `jev/llm`。完整分析策略仍有缺口，见 [ANALYSIS_EXECUTION](ANALYSIS_EXECUTION.md)；实际可用能力以 `version.capabilities` 为准。
 
 ## 1. 总规则
 
@@ -213,7 +213,7 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
 ```json
 {"command":"resolve","target":"i_7c2d9e01ab34","changed":true,"detail":{"lifecycle":"done"}}
 ```
-`version` 命令的 `ack`：`{"command":"version","target":null,"changed":false,"detail":{"cli_version":"0.1.0","schema_version":"1.0","db_version":1,"capabilities":{"commands":["version","config init","doctor","import","chats","messages","analyze","inbox","feedback","resolve","mark-read","stats","decisions","jev-log"],"strategies":["ours"],"deciders":["jev","llm"]}}}`。capabilities 只列实际已实现的能力，不能广告空桩。
+`version` 命令的 `ack`：`{"command":"version","target":null,"changed":false,"detail":{"cli_version":"0.1.0","schema_version":"1.0","db_version":1,"capabilities":{"commands":["version","config init","doctor","import","chats","messages","analyze","inbox","overview","feedback","resolve","mark-read","stats","decisions","jev-log"],"strategies":["ours"],"deciders":["jev","llm"]}}}`。capabilities 只列实际已实现的能力，不能广告空桩。
 
 ### 3.9 `warning`
 ```json

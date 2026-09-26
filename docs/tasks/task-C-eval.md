@@ -1,7 +1,9 @@
-# 任务 C：评估、演示数据、README 与报告
+# 评估规格与人工验收材料协作
 
-> 用途：同学 C 的任务 issue 正文。可以直接复制到 GitHub issue。
+> 原任务 C 的完整评估目标，保留作为规划参考；下方未完成目标不是当前已支持的命令或实测结果。
 > 当前安排：Codex 负责评估工具编码，同学的数据、标注与报告任务另行分配。审核：@Develata。
+
+**当前状态（2026-09-26）**：`check-stream`、标注 CSV 往返和 Ours 部分离线指标已实现，eval 当前 44 项测试通过；共用 100 条主样本与 4 条回填样本已提交。独立人工 gold、双人标注、真实效果报告、完整基线和校准仍待完成。README 由 Codex 同步维护，不计作同学 C 的报告交付。当前任务入口见 [TEAM_ASSIGNMENTS](../TEAM_ASSIGNMENTS.md) 和 [eval/synthetic](../../eval/synthetic/README.md)。
 
 源码、合成数据、真实数据、实验运行和报告的存放位置见 [FILE_LAYOUT.md](../FILE_LAYOUT.md) 与 [eval/README.md](../../eval/README.md)。
 
@@ -13,11 +15,11 @@
 4. 跑完所有系统和基线的实验，产出报告需要的数字和图。
 5. README 的完善、报告框架、演示视频。
 
-## 你可以修改的目录
+## 当前修改范围
 
-- `eval/`
-- `README.md`（与 @Develata 共同负责）
-- `fixtures/` 下的合成数据（新增文件即可，不要改已有文件）
+- 同学 C：`eval/synthetic/`、`reports/`；共用 `fixtures/` 修改先协调。
+- Codex：`eval/src/`、`eval/tests/` 和 README；需要同学参与源码时另行明确文件。
+- 真实导出、标注和运行数据只保存在被忽略的 `eval/private/`。
 
 `eval` 只依赖 `crates/core`，通过运行 `chat-tldr` 子进程拿数据，不直接读数据库。
 
@@ -26,18 +28,19 @@
 - 评估方案与标注规范：[EVALUATION.md](../EVALUATION.md)（**先完整读一遍**）
 - 协议：[CLI_PROTOCOL.md](../CLI_PROTOCOL.md)（`insight`、`topic`、`stats`、`jev_answer` 事件）
 
-`chat-tldr-eval` 的子命令：
+`chat-tldr-eval` 当前命令与规划：
 
-| 子命令 | 输入 | 输出 |
+| 子命令 | 状态 | 输入与输出 |
 |---|---|---|
-| `export-sheet --messages <messages.jsonl> --out sheet.csv` | `chat-tldr messages` 的输出 | CSV：message_id、时间、发送者、文本、以及空的标注列 |
-| `import-sheet sheet.csv --out gold/` | 填好的 CSV | `gold/messages.jsonl`、`gold/items.jsonl`（格式见 EVALUATION §5.1） |
-| `score --gold <DIR> --run <DIR> --out <CSV>` | 标注 + 系统输出 | 切分、抽取、排序、幻觉指标 |
-| `agreement --a <DIR> --b <DIR>` | 两人的标注 | κ、1-to-1、item F1 |
-| `calibrate --gold <DIR> --jev <jev.jsonl> --out <PNG>` | 标注 + Jev 回答 | 可靠性曲线 PNG、ECE、Brier |
-| `summarize <CSV>...` | 各系统结果 | Markdown 汇总表 |
+| `check-stream <FILE> --exit-code <CODE>` | 已实现 | 校验 JSONL 流与真实退出码，不产生效果评分 |
+| `export-sheet --messages <messages.jsonl> --out sheet.csv` | 已实现 | 成功完整消息流 → 含空标注列的 CSV |
+| `import-sheet sheet.csv --out gold/` | 已实现 | 人工填写 CSV → `gold/messages.jsonl`、`gold/items.jsonl`，不覆盖已有目录 |
+| `score --gold <DIR> --run <DIR> --out <CSV>` | 部分指标已实现 | Ours 抽取/截止/排序、保存快照 rejected 比例和单次用量；缺失与未实现指标明确标记 |
+| `agreement --a <DIR> --b <DIR>` | 未实现 | 规划：两人标注的一致性 |
+| `calibrate --gold <DIR> --jev <jev.jsonl> --out <PNG>` | 未实现 | 规划：可靠性曲线、ECE、Brier |
+| `summarize <CSV>...` | 未实现 | 规划：跨系统汇总表 |
 
-`score` 从 `messages.jsonl` 读取每条消息的预测话题（切分指标），从 `inbox.jsonl` 的 `insight` 事件读取结论（抽取、排序、幻觉指标）。
+`score` 读取同一实验的 `messages.jsonl`、`analyze.jsonl`、`inbox.jsonl`，完整参数和统计边界见 [eval/README](../../eval/README.md)。话题/切分指标尚未实现；当前快照 rejected 比例不能当作所有原始提案或人工语义的幻觉率。未知子命令会报错。
 
 ## 验收标准
 

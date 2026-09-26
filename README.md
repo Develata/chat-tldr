@@ -3,8 +3,10 @@
 > Turn unread QQ group chats into a personal, traceable action inbox.
 > 把未读群聊变成可追溯的个人行动收件箱。
 
-**状态 / Status**：CLI 基础闭环、HTML 导出及历史统计/日志查询已实现；eval 支持标注表格、协议校验与 Ours 离线抽取/排序评分。原生 GUI 已接入 CLI，Windows 合成数据联调、浅色/深色/窄窗口截图及交互测试通过，见 [GUI 验证记录](docs/GUI_VERIFICATION.md)。当前 `ours` 仍是基础策略，其余评估指标和真实模型质量验收尚未完成。分工见 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md)。
-*The basic CLI workflow, HTML export, history queries and native GUI are implemented. Windows synthetic-data smoke checks and GUI interaction tests pass. Evaluation supports annotation sheets, stream validation and offline Ours extraction/ranking scores. Remaining metrics and real-model acceptance are pending.*
+**状态 / Status（2026-09-26）**：文件导入、增量分析、话题合并/自动关闭/历史回填、个人收件箱及六个分析总览视图已实现，支持 CLI、原生 GUI 和 HTML。eval 已提供标注表格、协议校验与 Ours 离线抽取/排序评分。当前仅支持 `ours`；更正/取消关系、待回应语义、完整评估和真实云模型效果仍待完成。当前分工与待交付项见 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md)。
+*File import, incremental analysis, topic merging/closure/backfill, the personal inbox and six overview views are implemented in CLI, native GUI and HTML. Offline annotation and Ours extraction/ranking tools are available. Change/cancellation links, unanswered-question semantics, remaining evaluation metrics and real-model acceptance are pending.*
+
+[![CI](https://github.com/Develata/chat-tldr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Develata/chat-tldr/actions/workflows/ci.yml)
 
 ---
 
@@ -38,7 +40,18 @@
 - 只读 `stats`、`decisions --run`、`jev-log --run`：查询累计用量或历史运行，重放决策与带归属的模型回答
 - eval 的 `check-stream`、`export-sheet`、`import-sheet` 和 `score`：协议检查、人工标注 CSV 往返与 Ours 离线抽取/排序评分；缺少的指标明确标记不可用
 
-尚未实现控制器用 Jev 选择下一步动作、embedding 候选筛选，以及 eval 的话题/校准等其余指标、`calibrate/summarize` 和基线比较。当前仅支持 `--strategy ours`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成；首次 200 条真实 QCE 单文件已通过离线导入验收，真实云模型效果仍待验收。
+尚未实现安排更正/取消的关联、待回应问题的语义识别、控制器用 Jev 选择下一步动作、embedding 候选筛选，以及 eval 的话题/校准等其余指标、`agreement/calibrate/summarize` 和基线比较。当前仅支持 `--strategy ours`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成。QCE 管理组件目前仅有接入说明；JSON 导入适配器已可独立使用。
+
+### 已验证到哪里
+
+| 范围 | 已有证据 | 尚未证明 |
+|---|---|---|
+| 主线逻辑与协议 | 401 项 Rust 测试；fmt、严格 clippy；模型使用 Mock/本地假服务 | 真实云模型的准确率与费用 |
+| 输入兼容 | 一个 200 条真实 QCE 单文件通过 51 项离线检查；另有 100 条主样本 + 4 条回填合成样本 | 未出现的真实导出形态、JSON 卡片正文、附件内容 |
+| GUI | Windows 原生收件箱截图与交互回归；新增总览通过 reducer/egui 交互测试 | 新总览截图、真实聊天云分析的完整交互、Linux/macOS 原生窗口 |
+| 评估 | 标注 CSV 往返、Ours 已实现指标的手算与 CLI 回归 | 独立人工 gold、完整基线比较和真实效果报告 |
+
+CI 按模块并行，覆盖 Windows 六模块、Linux CLI/eval、macOS CLI/GUI/eval，保留 `fmt`、`clippy`、`test` 必需检查名称。Actions 使用 Node.js 24、Linux 使用 Ubuntu 26.04；版本固定完整 SHA，由每周 Dependabot 更新 PR 跟进。运行结果见上方 CI，维护规则见 [CONTRIBUTING](CONTRIBUTING.md#ci-依赖维护)，验收细节见 [ACCEPTANCE](docs/ACCEPTANCE.md) 与 [REVIEW_FIXES](docs/REVIEW_FIXES.md)。
 
 ### 现在就能运行（无需密钥）
 
@@ -84,7 +97,7 @@ cargo build --workspace
 
 GUI 的导入只选择已完成的导出文件；GUI 不填写密钥或 QQ 身份。密钥按下节设置在启动 GUI 的进程环境中；首次云端分析需确认聊天原文会发送给配置的服务。仅打开 GUI、导入和查询不调用模型。`doctor` 检查本地配置和环境变量是否就绪，不验证网络连通性。
 
-### 使用真实模型
+### 查看分析总览
 
 已导入并分析的群聊可以直接查看总览，不会追加模型请求：
 
@@ -93,6 +106,21 @@ cargo run -p chat-tldr -- --data-dir ./private/demo overview --chat qq:group:syn
 ```
 
 默认统计最近 24 小时；历史材料可传带时区的 `--since` / `--until`。GUI 中点击“分析总览”可切换热门、优先、相关、截止、未读和资料六个视图。没有完成分析的消息只显示原始提及/资料和待分析数量，不会产生热榜或模型结论；总览不标已读。
+
+| 视图 | 看什么 |
+|---|---|
+| 热门话题 | 最近讨论活跃、参与人数多的话题；限制单人重复刷屏贡献 |
+| 优先话题 | 按最高有效 P0–P3 排列未处理事项，保留窗口前仍未完成的事项 |
+| 与我有关 | 分配给我/全体的事项，以及真实身份匹配的 @我/@全体 |
+| 截止事项 | 已逾期、尚未到期和时间待确认的事项，保留实际负责人 |
+| 未读回顾 | 证据位于已读游标之后的结论；查看总览不会推进游标 |
+| 资料入口 | 窗口内链接、附件元数据与来源消息；不读取附件正文 |
+
+热门与优先使用不同排序。除话题摘要外，任何带截止日期的结论都属于 P0，即使由他人负责。总览按已有分析结果聚合，不额外调用模型；时间窗口和证据边界见 [ANALYSIS_VIEWS](docs/ANALYSIS_VIEWS.md)。
+
+多场景测试可使用 [scenario-analysis.json](fixtures/qce/scenario-analysis.json) 与 [回填样本](fixtures/qce/scenario-analysis-backfill.json)。这是 Codex 补齐的共用测试材料，场景映射和运行顺序见 [样本说明](fixtures/qce/scenario-analysis.README.md)，尚不是独立人工标注的正式 gold。
+
+### 使用真实模型
 
 下面的 `analyze` 会把聊天原文发送到配置的云服务。默认使用 Jev 做分类与话题归属、DeepSeek 做抽取；LLM 密钥必需，Jev 密钥缺失或服务不可用时会警告并改用 LLM。也可显式传入 `--decider llm`。密钥只从环境变量读取。
 
@@ -150,7 +178,7 @@ LLM 的 `base_url`、模型名和接口格式（`openai` / `anthropic`）在 `co
 | [ANALYSIS_EXECUTION](docs/ANALYSIS_EXECUTION.md) | 分析执行、检查点、恢复与预算边界 |
 | [QCE_DOCKER_EXPORT](docs/QCE_DOCKER_EXPORT.md) | 单文件 JSON 导出步骤与合成模板依据 |
 | [EVALUATION](docs/EVALUATION.md) | 基线、指标、标注规范 |
-| [ROADMAP](docs/ROADMAP.md) | 3 天计划与降级预案 |
+| [ROADMAP](docs/ROADMAP.md) | 当前交付缺口、真实期限、降级预案与历史计划 |
 | [decisions/](docs/decisions/) | 架构决策记录 |
 | [OPEN_QUESTIONS](docs/OPEN_QUESTIONS.md) | 待定问题 |
 | [ANALYSIS_VIEWS](docs/ANALYSIS_VIEWS.md) | 已实现分析视图、统计口径、剩余语义功能与测试范围 |
@@ -158,11 +186,15 @@ LLM 的 `base_url`、模型名和接口格式（`openai` / `anthropic`）在 `co
 
 ### 团队分工
 
-| 成员 | 负责 |
-|---|---|
-| @Develata | 参与设计、审核架构与代码 |
-| Codex | 主线编码，包含 QCE JSON 导入、core、engine、CLI、GUI 接入与评估工具 |
-| 同学协作 | A：QCE 管理；B：GUI 设计；C：合成场景与验收材料。详见 TEAM_ASSIGNMENTS，席位尚未绑定真实账号 |
+| 成员/席位 | 当前交付状态 | 接下来负责 |
+|---|---|---|
+| @Develata | 已确认产品规则与接口方向 | 架构/代码审核、真实结果复核、交付取舍 |
+| Codex | 主线代码、六个总览、合成回归材料及 CI 已实现 | 剩余分析语义、集成修复和文档维护 |
+| A：QCE 管理 | 仓库仅有接入说明，尚无管理程序 | 复用已验证导出流程，交付组件管理与完整 JSON 路径 |
+| B：GUI 设计 | 主线 GUI 已由 Codex 实现，未见独立设计交付 | 现有界面与六个总览的设计复核、线框图和交互说明 |
+| C：验收材料 | 共用合成样本/评估工具已提供，未见独立标注或报告 | 人工期望与 gold、演示步骤、验收报告 |
+
+A/B/C 尚未绑定真实账号，表中状态依据当前仓库；线下进度待本人确认。具体交付和目录边界以 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md) 为准。实际交付截止为 **2026-09-27 23:59，America/Santiago（UTC−3）**。
 
 ---
 
@@ -183,15 +215,21 @@ How it differs from pasting the chat into a general-purpose LLM:
 
 - Imports JSON exported by [QQChatExporter](https://github.com/shuakami/qq-chat-exporter); idempotent deduplication
 - Topic assignment using temporal bursts, indexed reply/mention links and ranked candidates; ambiguous [Jev](https://docs.typesafe.ai) decisions receive LLM review with the same candidates
+- Recoverable, model-confirmed topic merging; message-time closure and historical backfill that keeps closed topics closed
 - Structured extraction: mentions of you, to-dos, deadlines, announcements, decisions, topic summaries
 - Evidence verification: the LLM proposes, Rust verifies
 - P0–P3 tiered inbox with bounded feedback calibration
+- Six read-only overview views: popular topics, priority topics, related-to-me items, deadlines, unread recap and resources; shared by CLI, GUI and HTML without additional model requests
 - A bounded controller with rule-based action selection, SQLite checkpoints, response caching and usage records
 - Synchronous Jev / DeepSeek clients, OpenAI / Anthropic-compatible interfaces, and Mock-based tests
 - CLI analysis, inbox, feedback, lifecycle and mark-read commands, plus standalone HTML export
 - Read-only run statistics, decision replay and model-answer history; annotation CSV export/import, protocol validation and offline Ours extraction/ranking scores
 
-`ours` currently provides this basic workflow. Topic merging, Jev-based controller action selection, embedding candidates, topic/calibration metrics and baseline comparisons remain pending. The native GUI has passed Windows synthetic-data smoke checks, screenshot review and egui pointer interaction tests. One real QCE JSON export with 200 messages has passed offline import checks; cloud-model quality and other real-data shapes remain unverified.
+`ours` currently provides this workflow. Change/cancellation links, unanswered-question semantics, Jev-based controller action selection, embedding candidates, topic/calibration metrics and baseline comparisons remain pending. QCE management is still a reserved external component; the JSON importer already works independently.
+
+There are 401 passing Rust regression tests using synthetic data, mocks and local fake services. The Windows inbox has native screenshot and interaction evidence; the new overview has reducer/egui interaction coverage, with native screenshots still pending. One real QCE JSON export with 200 messages passed 51 offline checks. The shared 100-message scenario and four-message backfill fixture are available for regression and independent annotation; they are not formal gold or evidence of model quality. Real cloud-model acceptance and independent evaluation remain pending.
+
+CI runs Windows modules in parallel, with Linux CLI/eval and macOS CLI/GUI/eval checks. Actions use Node.js 24 and Linux uses Ubuntu 26.04; pinned action revisions are maintained through weekly Dependabot PRs. Required check names remain `fmt`, `clippy` and `test`.
 
 ### Usage
 
