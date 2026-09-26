@@ -1,6 +1,7 @@
 //! Offline metrics over validated CLI artifacts. No engine or database access.
 mod input;
 mod metrics;
+mod threads;
 
 use std::path::Path;
 
@@ -15,16 +16,31 @@ pub fn run(gold: &Path, run: &Path, out: &Path) -> Result<Value, String> {
     let predictions: Vec<_> = input
         .insights
         .into_iter()
-        .filter(|item| item.verification_status != VerificationStatus::Rejected)
+        .filter(|item| {
+            input.system == "b0" || item.verification_status != VerificationStatus::Rejected
+        })
         .collect();
     let retained = predictions.len() as u64;
     let mut rows = metrics::calculate(&predictions, &input.gold);
-    rows.push(ratio("snapshot_rejected_rate", total - retained, total));
-    rows.push(ratio("snapshot_rejected_rate_after_filter", 0, retained));
+    let rejected = if input.system == "b0" {
+        predictions
+            .iter()
+            .filter(|item| item.verification_status == VerificationStatus::Rejected)
+            .count() as u64
+    } else {
+        total - retained
+    };
+    rows.push(ratio("snapshot_rejected_rate", rejected, total));
+    rows.push(ratio(
+        "snapshot_rejected_rate_after_filter",
+        if input.system == "b0" { rejected } else { 0 },
+        retained,
+    ));
     rows.push(count("gold_messages", input.messages.len() as u64));
     rows.push(count("gold_items", input.gold.len() as u64));
     rows.push(count("snapshot_items", total));
     rows.push(count("scored_items", retained));
+    rows.extend(threads::calculate(&input.messages, &input.labels));
 
     // Saved inbox items may have been replaced by later extraction. They cannot
     // reconstruct the denominator of all raw LLM proposals across a run.
@@ -33,18 +49,15 @@ pub fn run(gold: &Path, run: &Path, out: &Path) -> Result<Value, String> {
         "unavailable_raw_proposals",
     ));
     for name in [
-        "thread_one_to_one",
-        "thread_exact_f1",
-        "ari",
-        "nmi",
         "burst_purity",
         "boundary_f1",
         "mention_me_accuracy",
         "manual_unsupported_rate",
-        "ece",
-        "brier",
     ] {
         rows.push(unavailable(name, "not_implemented"));
+    }
+    for name in ["ece", "brier"] {
+        rows.push(unavailable(name, "separate_calibrate_command"));
     }
 
     let stats_available = input.stats.is_some();
@@ -100,7 +113,7 @@ pub fn run(gold: &Path, run: &Path, out: &Path) -> Result<Value, String> {
             writer
                 .write_record([
                     "1".to_owned(),
-                    "ours".to_owned(),
+                    input.system.clone(),
                     row.name.clone(),
                     row.value.map(|value| value.to_string()).unwrap_or_default(),
                     row.numerator
@@ -118,7 +131,7 @@ pub fn run(gold: &Path, run: &Path, out: &Path) -> Result<Value, String> {
             .map_err(|error| format!("cannot flush scores: {error}"))
     })?;
     Ok(json!({
-        "command":"score", "valid":true, "score_version":1, "system":"ours",
+        "command":"score", "valid":true, "score_version":1, "system":input.system,
         "gold_messages":input.messages.len(), "gold_items":input.gold.len(),
         "snapshot_items":total, "scored_items":retained, "metrics":rows.len(),
         "run_stats_available":stats_available, "exit_code_source":"stream_only",

@@ -75,11 +75,20 @@ pub fn gold(
     messages: &[impl Serialize],
     items: &[impl Serialize],
 ) -> Result<(), String> {
+    directory(out, |path| {
+        jsonl(&path.join("messages.jsonl"), messages)?;
+        jsonl(&path.join("items.jsonl"), items)
+    })
+}
+
+pub fn directory(
+    out: &Path,
+    write: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<(), String> {
     let (parent, _lock) = prepare(out)?;
     let temporary =
         TempDir::new_in(parent).map_err(|error| format!("cannot stage gold directory: {error}"))?;
-    jsonl(&temporary.path().join("messages.jsonl"), messages)?;
-    jsonl(&temporary.path().join("items.jsonl"), items)?;
+    write(temporary.path())?;
     missing(out)?;
     rename_new_directory(temporary.path(), out)
         .map_err(|error| format!("cannot publish gold directory: {error}"))?;

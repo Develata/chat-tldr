@@ -45,6 +45,8 @@ pub enum Command {
     Inbox(InboxArgs),
     /// Read topic activity, priority, mentions, deadlines and unread recap without model calls.
     Overview(OverviewArgs),
+    /// Read evidence-backed corrections, cancellations and question states.
+    Relations(MessagesArgs),
     /// Set the current preference vote for an insight.
     Feedback(FeedbackArgs),
     /// Set the lifecycle of an insight.

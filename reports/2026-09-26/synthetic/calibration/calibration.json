@@ -1,0 +1,174 @@
+{
+  "bins": 10,
+  "calibration_version": 1,
+  "duplicate_answers": 0,
+  "excluded": {
+    "unlabelled_question": 1,
+    "unlabelled_question_type": 1,
+    "unlabelled_subject": 1
+  },
+  "groups": [
+    {
+      "binary_brier": 0.0625,
+      "bins": [
+        {
+          "count": 0,
+          "lower": 0.0,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.1
+        },
+        {
+          "count": 0,
+          "lower": 0.1,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.2
+        },
+        {
+          "count": 1,
+          "lower": 0.2,
+          "mean_probability": 0.25,
+          "observed_rate": 0.0,
+          "upper": 0.3
+        },
+        {
+          "count": 0,
+          "lower": 0.3,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.4
+        },
+        {
+          "count": 0,
+          "lower": 0.4,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.5
+        },
+        {
+          "count": 0,
+          "lower": 0.5,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.6
+        },
+        {
+          "count": 0,
+          "lower": 0.6,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.7
+        },
+        {
+          "count": 1,
+          "lower": 0.7,
+          "mean_probability": 0.75,
+          "observed_rate": 1.0,
+          "upper": 0.8
+        },
+        {
+          "count": 0,
+          "lower": 0.8,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.9
+        },
+        {
+          "count": 0,
+          "lower": 0.9,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 1.0
+        }
+      ],
+      "count": 2,
+      "ece": 0.25,
+      "model": "synthetic-jev",
+      "task": "announcement"
+    },
+    {
+      "binary_brier": 0.0625,
+      "bins": [
+        {
+          "count": 0,
+          "lower": 0.0,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.1
+        },
+        {
+          "count": 0,
+          "lower": 0.1,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.2
+        },
+        {
+          "count": 1,
+          "lower": 0.2,
+          "mean_probability": 0.25,
+          "observed_rate": 0.0,
+          "upper": 0.3
+        },
+        {
+          "count": 0,
+          "lower": 0.3,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.4
+        },
+        {
+          "count": 0,
+          "lower": 0.4,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.5
+        },
+        {
+          "count": 0,
+          "lower": 0.5,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.6
+        },
+        {
+          "count": 0,
+          "lower": 0.6,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.7
+        },
+        {
+          "count": 1,
+          "lower": 0.7,
+          "mean_probability": 0.75,
+          "observed_rate": 1.0,
+          "upper": 0.8
+        },
+        {
+          "count": 0,
+          "lower": 0.8,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 0.9
+        },
+        {
+          "count": 0,
+          "lower": 0.9,
+          "mean_probability": null,
+          "observed_rate": null,
+          "upper": 1.0
+        }
+      ],
+      "count": 2,
+      "ece": 0.25,
+      "model": "synthetic-jev",
+      "task": "todo"
+    }
+  ],
+  "included": 4,
+  "sample_unit": "unique model/request_key/question_id",
+  "status": "ok",
+  "total_answers": 7
+}

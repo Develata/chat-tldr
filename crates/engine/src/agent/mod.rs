@@ -1,4 +1,5 @@
 //! Bounded, synchronous analysis. Provider calls happen outside write transactions.
+mod baseline;
 mod lifecycle;
 mod merge;
 mod runtime;
@@ -28,6 +29,7 @@ pub struct AnalyzeOptions {
     pub max_steps: u32,
     pub budget_usd: f64,
     pub decider: String,
+    pub strategy: String,
 }
 impl AnalyzeOptions {
     pub fn from_config(config: &Config) -> Self {
@@ -37,6 +39,7 @@ impl AnalyzeOptions {
             max_steps: config.agent.max_steps,
             budget_usd: config.agent.budget_usd,
             decider: "jev".into(),
+            strategy: "ours".into(),
         }
     }
     pub fn validate(&self) -> Result<()> {
@@ -45,6 +48,7 @@ impl AnalyzeOptions {
             || self.budget_usd <= 0.0
             || self.since.zip(self.until).is_some_and(|(a, b)| a > b)
             || !matches!(self.decider.as_str(), "jev" | "llm")
+            || !matches!(self.strategy.as_str(), "ours" | "b0")
         {
             return Err(EngineError::Usage(
                 "invalid analysis bounds, budget, step count or decider".into(),
@@ -62,6 +66,9 @@ pub struct AnalysisResult {
 pub fn plan(path: &Path, chat: &ChatId, options: &AnalyzeOptions) -> Result<serde_json::Value> {
     options.validate()?;
     let snapshot = store::analysis_snapshot(path, chat)?;
+    if options.strategy == "b0" {
+        return baseline::plan(&snapshot, options);
+    }
     let pending: Vec<_> = eligible(&snapshot, options);
     let dirty: BTreeSet<_> = pending.iter().filter_map(|m| m.topic_id.clone()).collect();
     let merges = merge::candidate_count(&snapshot, options);
@@ -108,6 +115,9 @@ pub fn analyze(
     sink: &mut dyn FnMut(EventBody) -> Result<()>,
 ) -> Result<AnalysisResult> {
     options.validate()?;
+    if options.strategy == "b0" {
+        return baseline::analyze(path, chat, run, config, options, models, cancel, sink);
+    }
     let start = Instant::now();
     let preflight = store::analysis_snapshot(path, chat)?;
     let mut stats = RunStats {
@@ -173,10 +183,11 @@ pub fn analyze(
         models,
         options,
         stats: &mut stats,
-        reserved: 0.0,
+        budget: Default::default(),
         steps: 0,
         fallback_active,
         fallback_warned: false,
+        fallback_cause: None,
         cancel,
     };
     // Every execution error, including event sinks between checkpoints, leaves
@@ -204,22 +215,22 @@ pub fn analyze(
                 interleaving.remaining(backlog_len - unassigned.len()),
             );
             if !unassigned.is_empty() {
-                let direct = unassigned.len() <= config.agent.direct_max as usize
-                && observation.interleave < config.agent.direct_interleave_max
+                let direct_allowed = unassigned.len() <= config.agent.direct_max as usize
                 // Direct extraction creates fresh topics. Existing historical
                 // candidates must get attribution even for a small backlog.
                 && !unassigned.iter().any(|message| {
                     links.has_candidates(std::slice::from_ref(message), &known_topics, &config.segment)
                 });
+                let direct =
+                    direct_allowed && observation.interleave < config.agent.direct_interleave_max;
                 let count = if direct {
                     unassigned.len()
                 } else {
                     (config.agent.segment_batch as usize).min(unassigned.len())
                 };
-                let batch: Vec<_> = unassigned.drain(..count).collect();
                 let range = MessageRange {
                     after: None,
-                    up_to: batch.last().expect("nonempty batch").cursor,
+                    up_to: unassigned[count - 1].cursor,
                 };
                 let action = if direct {
                     AgentAction::AnalyzeDirect {
@@ -232,12 +243,40 @@ pub fn analyze(
                         range,
                     }
                 };
-                runtime.decision(
-                    action,
-                    observation,
-                    "Deterministic backlog and interleave rule",
-                    sink,
-                )?;
+                let mut allowed = vec![action];
+                let mut descriptions = vec![
+                    if direct {
+                        "Extract all messages as a small coherent batch"
+                    } else {
+                        "Segment messages before extracting individual topics"
+                    }
+                    .into(),
+                ];
+                if direct_allowed && !direct {
+                    allowed.push(AgentAction::AnalyzeDirect {
+                        chat_id: chat.clone(),
+                        range: MessageRange {
+                            after: None,
+                            up_to: unassigned.back().expect("nonempty").cursor,
+                        },
+                    });
+                    descriptions.push("Extract all small-backlog messages directly, grouping their topics in one request".into());
+                }
+                let chosen = match runtime.select_action(allowed, descriptions, observation, sink) {
+                    Ok(action) => action,
+                    Err(EngineError::BudgetExceeded) => {
+                        reason = FinishReason::BudgetExceeded;
+                        break;
+                    }
+                    Err(EngineError::Cancelled) => {
+                        reason = FinishReason::Cancelled;
+                        break;
+                    }
+                    Err(error) => return Err(error),
+                };
+                let direct = matches!(chosen, AgentAction::AnalyzeDirect { .. });
+                let count = if direct { unassigned.len() } else { count };
+                let batch: Vec<_> = unassigned.drain(..count).collect();
                 let outcome: Result<()> = if direct {
                     let mut context = extract::request(&batch, &[], &[], "", true);
                     context.identify_viewer(&snapshot.chat);
@@ -410,7 +449,45 @@ pub fn analyze(
                 runtime.flush_warnings(sink)?;
                 continue;
             }
-            let mut pending = queue.pop_front().expect("work exists");
+            // Ready drafts must verify first, including empty extractions. Otherwise
+            // Jev chooses among a bounded prefix of executable dirty-topic actions.
+            let index = if let Some(index) =
+                queue.iter().position(|pending| pending.output.is_some())
+            {
+                index
+            } else {
+                let candidates: Vec<_> = queue.iter().take(16).collect();
+                let allowed = candidates
+                    .iter()
+                    .map(|pending| AgentAction::AnalyzeTopic {
+                        topic_id: pending.topic.id.clone(),
+                    })
+                    .collect();
+                let descriptions = candidates
+                    .iter()
+                    .map(|pending| {
+                        format!(
+                            "Extract pending messages for topic: {}",
+                            pending.topic.title
+                        )
+                    })
+                    .collect();
+                let chosen =
+                    match runtime.select_action(allowed, descriptions, observation.clone(), sink) {
+                        Ok(action) => action,
+                        Err(EngineError::BudgetExceeded) => {
+                            reason = FinishReason::BudgetExceeded;
+                            break;
+                        }
+                        Err(EngineError::Cancelled) => {
+                            reason = FinishReason::Cancelled;
+                            break;
+                        }
+                        Err(error) => return Err(error),
+                    };
+                queue.iter().position(|pending| matches!(&chosen, AgentAction::AnalyzeTopic { topic_id } if *topic_id == pending.topic.id)).expect("validated controller candidate")
+            };
+            let mut pending = queue.remove(index).expect("work exists");
             // A later burst may have closed an earlier topic while its draft was
             // still queued. Refresh metadata without changing the draft or members.
             if let Some(current) = lifecycle.current(&known_topics, &pending.topic.id) {
@@ -425,7 +502,7 @@ pub fn analyze(
                 .messages
                 .iter()
                 .filter(|m| {
-                    m.topic_id.as_ref() == Some(&pending.topic.id)
+                    assignments.get(&m.message.id) == Some(&pending.topic.id)
                         && !ids.contains(&m.message.id)
                         && !m.message.recalled
                 })
@@ -439,15 +516,20 @@ pub fn analyze(
                 .filter(|i| i.topic_id.as_ref() == Some(&pending.topic.id))
                 .cloned()
                 .collect();
+            let pending_questions = session.pending_questions(&pending.topic.id)?;
+            let required_sources: BTreeSet<_> = existing
+                .iter()
+                .flat_map(|i| &i.evidence)
+                .map(|e| e.message_id.clone())
+                .chain(pending_questions.iter().map(|e| e.message_id.clone()))
+                .collect();
             // Updating an item appends evidence. Include its current source rows even
             // when older than the short conversational context window.
-            for source in snapshot.messages.iter().filter(|m| {
-                existing
-                    .iter()
-                    .filter(|i| i.lifecycle == Lifecycle::Open)
-                    .flat_map(|i| &i.evidence)
-                    .any(|e| e.message_id == m.message.id)
-            }) {
+            for source in snapshot
+                .messages
+                .iter()
+                .filter(|m| required_sources.contains(&m.message.id) && !m.message.recalled)
+            {
                 if !ids.contains(&source.message.id)
                     && !context_messages
                         .iter()
@@ -464,16 +546,19 @@ pub fn analyze(
                 false,
             );
             context.identify_viewer(&snapshot.chat);
+            let refs: BTreeMap<_, _> = context.messages.iter().map(|(r, m)| (&m.id, r)).collect();
+            let questions: Vec<_> = pending_questions
+                .iter()
+                .filter_map(|q| {
+                    refs.get(&q.message_id)
+                        .map(|r| json!({"source_ref":r,"quote":q.quote}))
+                })
+                .collect();
+            let mut request: serde_json::Value = serde_json::from_str(&context.request.user)?;
+            request["pending_questions"] = json!(questions);
+            context.request.user = request.to_string();
             let result: Result<()> = (|| {
                 if pending.output.is_none() {
-                    runtime.decision(
-                        AgentAction::AnalyzeTopic {
-                            topic_id: pending.topic.id.clone(),
-                        },
-                        observation,
-                        "Extract the next dirty topic",
-                        sink,
-                    )?;
                     pending.output = Some(runtime.restore_or_extract(&context)?);
                 }
                 if cancel.load(Ordering::Relaxed) {
@@ -557,6 +642,16 @@ pub fn analyze(
                     "Verify and atomically commit the pending topic, including empty extraction",
                     sink,
                 )?;
+                let relations = output.relations.as_ref().map(|rows| {
+                    crate::relations::proposals(rows, &context, chat, &pending.topic.id, run)
+                });
+                if relations.is_none() {
+                    warning(
+                        "W_RELATIONS_UNCOVERED",
+                        "Model response omitted relations; this checkpoint is not counted as relation coverage",
+                        sink,
+                    )?;
+                }
                 pending.topic.title = output.title;
                 pending.topic.provisional = false;
                 pending.topic.is_chitchat = signals.chitchat;
@@ -568,7 +663,12 @@ pub fn analyze(
                         .max()
                         .expect("nonempty topic"),
                 );
-                let committed = session.commit_topic(&pending.topic, &ids, insights)?;
+                let committed = session.commit_topic_with_relations(
+                    &pending.topic,
+                    &ids,
+                    insights,
+                    relations.as_deref(),
+                )?;
                 completed.extend(ids.iter().cloned());
                 if let Some(known) = known_topics.iter_mut().find(|t| t.id == pending.topic.id) {
                     *known = pending.topic.clone();
@@ -755,10 +855,22 @@ pub fn analyze(
 }
 
 fn remap_extraction(mut output: TopicExtraction, refs: &[String]) -> TopicExtraction {
+    let mapping: BTreeMap<_, _> = refs
+        .iter()
+        .enumerate()
+        .map(|(n, r)| (r.as_str(), format!("n{}", n + 1)))
+        .collect();
     for item in &mut output.items {
         for evidence in &mut item.evidence {
-            if let Some(index) = refs.iter().position(|r| r == &evidence.reference) {
-                evidence.reference = format!("n{}", index + 1);
+            if let Some(new) = mapping.get(evidence.reference.as_str()) {
+                evidence.reference = new.clone();
+            }
+        }
+    }
+    for relation in output.relations.iter_mut().flatten() {
+        for evidence in std::iter::once(&mut relation.source).chain(relation.target.iter_mut()) {
+            if let Some(new) = mapping.get(evidence.reference.as_str()) {
+                evidence.reference = new.clone();
             }
         }
     }

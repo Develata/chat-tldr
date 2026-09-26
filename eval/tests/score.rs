@@ -223,7 +223,10 @@ fn scores_nonperfect_snapshot_with_gold_ideal_and_single_run_cost() {
         scores["raw_unsupported_rate"]["status"],
         "unavailable_raw_proposals"
     );
-    assert_eq!(scores["thread_one_to_one"]["value"], "");
+    assert_eq!(number("thread_one_to_one"), 1.0);
+    assert_eq!(number("thread_exact_f1"), 1.0);
+    assert_eq!(number("ari"), 1.0);
+    assert_eq!(number("nmi"), 1.0);
     let csv = fs::read_to_string(case.dir.path().join("scores.csv")).unwrap();
     assert!(!csv.contains(PRIVATE));
     assert!(!csv.contains(A));
@@ -232,6 +235,51 @@ fn scores_nonperfect_snapshot_with_gold_ideal_and_single_run_cost() {
         fs::read(case.dir.path().join("gold/items.jsonl")).unwrap()
     );
     assert!(!case.dir.path().join("run/profile").exists());
+}
+
+#[test]
+fn b0_retains_rejections_and_scores_model_order_instead_of_inbox_order() {
+    let mut case = Case::new();
+    let mut rows = vec![frame(
+        "r_analysis",
+        0,
+        "ack",
+        json!({"command":"analyze.strategy","target":"qq:group:synthetic-score","changed":false,
+        "detail":{"strategy":"b0","ranking":"model_order"}}),
+    )];
+    // Reverse the model order so an accidental shared inbox sort is observable.
+    for row in case
+        .inbox
+        .iter()
+        .rev()
+        .filter(|row| row["event"] == "insight")
+    {
+        rows.push(frame(
+            "r_analysis",
+            rows.len(),
+            "insight",
+            row["payload"].clone(),
+        ));
+    }
+    rows.push(frame(
+        "r_analysis",
+        rows.len(),
+        "stats",
+        case.analyze[0]["payload"].clone(),
+    ));
+    rows.push(done("r_analysis", rows.len()));
+    case.analyze = rows;
+    let report = pass(&case.run());
+    assert_eq!(report["system"], "b0");
+    assert_eq!(report["scored_items"], 4);
+    let scores = case.scores();
+    assert_eq!(
+        scores["snapshot_rejected_rate_after_filter"]["value"],
+        "0.25"
+    );
+    assert_eq!(scores["todo_precision"]["value"], "0.5");
+    assert_eq!(scores["announcement_recall"]["value"], "1");
+    assert_eq!(scores["run_calls"]["system"], "b0");
 }
 
 #[test]

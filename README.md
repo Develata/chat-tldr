@@ -3,8 +3,8 @@
 > Turn unread QQ group chats into a personal, traceable action inbox.
 > 把未读群聊变成可追溯的个人行动收件箱。
 
-**状态 / Status（2026-09-26）**：文件导入、增量分析、话题合并/自动关闭/历史回填、个人收件箱及六个分析总览视图已实现，支持 CLI、原生 GUI 和 HTML。eval 已提供标注表格、协议校验与 Ours 离线抽取/排序评分。当前仅支持 `ours`；更正/取消关系、待回应语义、完整评估和真实云模型效果仍待完成。当前分工与待交付项见 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md)。
-*File import, incremental analysis, topic merging/closure/backfill, the personal inbox and six overview views are implemented in CLI, native GUI and HTML. Offline annotation and Ours extraction/ranking tools are available. Change/cancellation links, unanswered-question semantics, remaining evaluation metrics and real-model acceptance are pending.*
+**状态 / Status（2026-09-26）**：文件导入、增量分析、话题合并/自动关闭/历史回填、收件箱及六个总览已实现。CLI 新增更正/取消/冲突关联与待回应查询；eval 支持 Ours/B0、话题切分和概率校准。真实云调用记录见 [ACCEPTANCE](docs/ACCEPTANCE.md)，真实质量评分与 Jev 校准曲线仍为**待标注**。CLI/Docker 发布见 [RELEASING](docs/RELEASING.md)，分工见 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md)。
+*The CLI supports import, incremental analysis, topic lifecycle, inbox/overview and evidence-backed changes and question states. Ours/B0 scoring, partition metrics and calibration tools are available. Real-data quality and Jev calibration await independent human labels. CLI/Docker packaging is documented in the release guide; GUI packaging comes later.*
 
 [![CI](https://github.com/Develata/chat-tldr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Develata/chat-tldr/actions/workflows/ci.yml)
 
@@ -33,23 +33,25 @@
 - 证据校验：LLM 提出，Rust 验证
 - P0–P3 分层收件箱 + 有界的反馈校准
 - 分析总览：最近热门话题、优先话题、与我有关、截止事项、未读回顾和资料入口；只读 `overview`、原生 GUI 与 HTML 共用结果，见 [分析视图](docs/ANALYSIS_VIEWS.md)
-- 基于规则选择动作的控制器，具有步数上限、费用预估、取消检查和决策日志
+- 控制器先以规则限定合法动作，多候选时由 Jev 选择下一步，失败回退规则；具有步数/费用上限、取消检查和决策日志
 - 本地 SQLite 检查点、模型响应缓存与用量记录；部分失败后可继续处理未完成消息
 - 同步 Jev 和 DeepSeek 客户端、OpenAI / Anthropic 兼容接口与 Mock；模型协议和流程用合成数据、Mock 及本地假服务器验证
 - Rust CLI 的 `analyze/inbox/feedback/resolve/mark-read`，以及 `analyze --html` / `inbox --html` 导出
 - 只读 `stats`、`decisions --run`、`jev-log --run`：查询累计用量或历史运行，重放决策与带归属的模型回答
-- eval 的 `check-stream`、`export-sheet`、`import-sheet` 和 `score`：协议检查、人工标注 CSV 往返与 Ours 离线抽取/排序评分；缺少的指标明确标记不可用
+- 更正/取消/冲突与完整/部分回答：独立关系表及只读 `relations`，两端引用重验，不自动更改用户 done/dismissed，见 [ADR-0010](docs/decisions/0010-semantic-relations.md)
+- eval 的 `check-stream`、`export-sheet`、`import-sheet`、`score`、`calibrate`：Ours/B0、最优话题匹配/ARI/NMI、ECE/Brier 和 SVG；缺标注不造分数
+- 极简非 root scratch [Docker 镜像](docs/DOCKER.md)；push 模拟 CLI/Docker 发布，正式 tag 才公开 Release 与推送 GHCR
 
-尚未实现安排更正/取消的关联、待回应问题的语义识别、控制器用 Jev 选择下一步动作、embedding 候选筛选，以及 eval 的话题/校准等其余指标、`agreement/calibrate/summarize` 和基线比较。当前仅支持 `--strategy ours`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成。QCE 管理组件目前仅有接入说明；JSON 导入适配器已可独立使用。
+尚未实现 B1/sim-*、embedding、burst/边界与人工支持率指标、`agreement/summarize` 和 GUI 正式打包。当前策略为 `--strategy ours|b0`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成。QCE 管理组件仅有接入说明；JSON 适配器可独立使用。
 
 ### 已验证到哪里
 
 | 范围 | 已有证据 | 尚未证明 |
 |---|---|---|
-| 主线逻辑与协议 | 401 项 Rust 测试；fmt、严格 clippy；模型使用 Mock/本地假服务 | 真实云模型的准确率与费用 |
+| 主线逻辑与协议 | Rust 回归、fmt、严格 clippy；当前证据集中在 ACCEPTANCE | 真实准确率；费用是配置费率估算，非账单 |
 | 输入兼容 | 一个 200 条真实 QCE 单文件通过 51 项离线检查；另有 100 条主样本 + 4 条回填合成样本 | 未出现的真实导出形态、JSON 卡片正文、附件内容 |
 | GUI | Windows 原生收件箱截图与交互回归；新增总览通过 reducer/egui 交互测试 | 新总览截图、真实聊天云分析的完整交互、Linux/macOS 原生窗口 |
-| 评估 | 标注 CSV 往返、Ours 已实现指标的手算与 CLI 回归 | 独立人工 gold、完整基线比较和真实效果报告 |
+| 评估 | 标注往返、Ours/B0 合成流程、话题匹配和校准手算回归 | 独立人工 gold、真实质量比较和真实 Jev 校准曲线 |
 
 CI 按模块并行，覆盖 Windows 六模块、Linux CLI/eval、macOS CLI/GUI/eval，保留 `fmt`、`clippy`、`test` 必需检查名称。Actions 使用 Node.js 24、Linux 使用 Ubuntu 26.04；版本固定完整 SHA，由每周 Dependabot 更新 PR 跟进。运行结果见上方 CI，维护规则见 [CONTRIBUTING](CONTRIBUTING.md#ci-依赖维护)，验收细节见 [ACCEPTANCE](docs/ACCEPTANCE.md) 与 [REVIEW_FIXES](docs/REVIEW_FIXES.md)。
 
@@ -227,7 +229,7 @@ How it differs from pasting the chat into a general-purpose LLM:
 
 `ours` currently provides this workflow. Change/cancellation links, unanswered-question semantics, Jev-based controller action selection, embedding candidates, topic/calibration metrics and baseline comparisons remain pending. QCE management is still a reserved external component; the JSON importer already works independently.
 
-There are 401 passing Rust regression tests using synthetic data, mocks and local fake services. The Windows inbox has native screenshot and interaction evidence; the new overview has reducer/egui interaction coverage, with native screenshots still pending. One real QCE JSON export with 200 messages passed 51 offline checks. The shared 100-message scenario and four-message backfill fixture are available for regression and independent annotation; they are not formal gold or evidence of model quality. Real cloud-model acceptance and independent evaluation remain pending.
+Rust regressions use synthetic data, mocks and local fake services; current validation is recorded in docs/ACCEPTANCE.md. The Windows inbox has native interaction evidence; overview screenshots remain pending. One real 200-message QCE export passed offline checks. The shared 100-message scenario and four-message backfill fixture support regression and independent annotation. Real cloud runs are recorded separately from quality evaluation: independent human labels are required before publishing real-data quality or calibration scores.
 
 CI runs Windows modules in parallel, with Linux CLI/eval and macOS CLI/GUI/eval checks. Actions use Node.js 24 and Linux uses Ubuntu 26.04; pinned action revisions are maintained through weekly Dependabot PRs. Required check names remain `fmt`, `clippy` and `test`.
 

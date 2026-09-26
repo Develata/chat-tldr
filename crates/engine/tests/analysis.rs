@@ -28,6 +28,11 @@ const FIXTURE: &[u8] = include_bytes!("../../../fixtures/qce/synthetic-group.jso
 #[path = "analysis/scenario.rs"]
 mod scenario;
 
+#[path = "analysis/baseline.rs"]
+mod baseline;
+#[path = "analysis/relations.rs"]
+mod relations;
+
 struct Workspace {
     _directory: TempDir,
     database: PathBuf,

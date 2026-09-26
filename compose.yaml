@@ -1,0 +1,20 @@
+services:
+  cli:
+    image: ${CHAT_TLDR_IMAGE:-ghcr.io/develata/chat-tldr:latest}
+    build:
+      context: .
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    volumes:
+      - chat-tldr-data:/data
+      - ./exports:/imports:ro
+    environment:
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      CHAT_TLDR_LLM_API_KEY: ${CHAT_TLDR_LLM_API_KEY:-}
+    command: [version]
+
+volumes:
+  chat-tldr-data:

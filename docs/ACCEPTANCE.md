@@ -2,6 +2,15 @@
 
 验收分为输入兼容性、真实云调用和原生平台三部分。每次使用独立数据目录，并记录实际运行的二进制；合成样本通过不代表真实群聊质量通过。
 
+## 2026-09-26 首版 CLI/Docker 验收
+
+- 当前 workspace **427 项 Rust 测试通过**；新增关系事务/迁移回滚、用户反馈/游标保留、完整/部分回答、撤回与时间窗口、B0、Jev 控制器、话题指标和校准回归。严格 clippy、fmt 按当前提交核验，远程 CI 是合并门槛。
+- 真实 Ours/B0 在全新独立 profile 各完成 200 条，分析退出码均为 0；估算费用分别 $0.040238394 / $0.0103278。Ours 有 15 次 Jev 控制器选择，也记录了一次 Jev 降级。完整运行与限制见 [报告](../reports/2026-09-26/README.md)。
+- 真实质量与 Jev 校准曲线为**待标注**。已导出 200 条未标注 CSV 给同学 C；禁止 LLM 生成真实 gold。合成对比表与校准 SVG 只证明工具流程/手算一致。
+- 发布范围为 Windows CLI、Linux 静态 CLI 和 scratch Docker；GUI 打包后续补齐。分支模拟和 tag 正式发布规则见 [RELEASING](RELEASING.md)。模拟成功不能代替真实平台/云质量验收。
+- 本机 Windows release exe 与最终 Docker 镜像各通过 **22 次 CLI 调用**的本地假服务验收。镜像大小 **4,646,233 bytes**，UID/GID 10001，scratch、只读根文件系统；Windows ZIP 打包及 SHA-256 生成通过。远程 Linux/Windows 模拟发布结果仍需对照实际 CI。
+- Compose 配置校验及隔离命名卷验收通过：第一次容器导入合成数据，第二次容器查询到同一会话。仅清理本次验收创建的卷，未操作用户数据卷。
+
 ## QCE 单文件离线验收
 
 先在 QCE 中选择 JSON、关闭流式导出，等待完成并下载。不要把尚在写入的文件或 chunked manifest 当成完整导出。
@@ -42,7 +51,7 @@ pwsh -NoProfile -File .\scripts\verify-qce.ps1 -InputFile .\fixtures\qce\templat
 
 原始导出位于本机 `private/exports/qce-actual-20260926T144303Z-d6adbf43/export.json`，导出回执在同目录；离线验收回执为 `private/acceptance/20260926T144429318Z-caeacdec82cb48ca9d803ec442a74aab/receipt.json`。这些文件和数据库全部忽略，不提交真实内容、身份或密钥。通用脚本自身不证明导出来源（仍保留 `export_provenance_not_verified`）；本次来源由另存的 QCE 创建/完成任务记录与下载回执支持。
 
-验收只覆盖该样本。没有 @me/@all 阳性、跨导出边界回复、撤回、系统或合并转发消息，不代表这些真实形态已验证；媒体附件没有下载。未运行云模型分析、GUI 真实数据交互或人工质量评分。
+这次离线验收只覆盖该输入样本；未出现的 @me/@all、跨导出边界回复、撤回、系统或合并转发不能据此视为真实形态已验证，媒体附件没有下载。后续云调用见本页首版记录；GUI 真实数据交互和人工质量评分仍未验收。
 
 ## 标注后的离线评分
 
@@ -52,7 +61,7 @@ pwsh -NoProfile -File .\scripts\verify-qce.ps1 -InputFile .\fixtures\qce\templat
 chat-tldr-eval score --gold eval/private/gold/course-demo --run eval/private/runs/exp-01/ours --out eval/private/results/exp-01/ours.csv
 ```
 
-当前计算 Ours 的抽取/截止日期/排序、保存快照的 rejected 比例与单次运行用量。零分母、缺失统计和未实现指标留空并标记状态；不把合成测试分数当作模型质量，不把快照 rejected 比例当作所有原始提案或人工语义的幻觉率。输入范围、公式与不可机械验证的快照边界见 [eval/README](../eval/README.md#已实现离线评分)。尚不能生成话题/校准/基线对比的完整报告。
+当前支持 Ours/B0 的抽取/截止日期/排序、话题匹配/ARI/NMI、保存快照的 rejected 比例与单次运行用量；`calibrate` 单独生成 ECE、binary Brier 与 SVG。零分母、缺失统计和未实现指标留空并标记状态；不把合成测试分数当作模型质量，不把快照 rejected 比例当作所有原始提案或人工语义的幻觉率。输入范围、公式与不可机械验证的快照边界见 [eval/README](../eval/README.md#已实现离线评分)。真实质量报告需等待人工 gold。
 
 ## 真实云服务的小范围联调
 

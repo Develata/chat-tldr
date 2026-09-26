@@ -3,7 +3,7 @@
 > 用途：定义 `chat-tldr` 命令行的命令、参数、stdout 上的 JSON Lines 事件、错误码、退出码和版本兼容规则。
 > 读者：@Develata（实现 CLI）、同学 B（GUI 解析输出）、同学 C（eval 调用 CLI）。信封类型的定义见 [DATA_MODEL.md](DATA_MODEL.md) §4。
 
-> 状态：2026-09-26 用户已采纳 [CLI v1 评审稿](CLI_V1_REVIEW.md)，本页是同步后的 v1 契约。基础、分析、收件箱、六视图总览 `overview`、状态操作及 `stats/decisions/jev-log` 查询均已实现；当前策略仅 `ours`、Decider 为 `jev/llm`。完整分析策略仍有缺口，见 [ANALYSIS_EXECUTION](ANALYSIS_EXECUTION.md)；实际可用能力以 `version.capabilities` 为准。
+> 状态：已采纳的 [CLI v1 评审稿](CLI_V1_REVIEW.md) 及 [ADR-0010](decisions/0010-semantic-relations.md) 已落地。策略为 `ours/b0`，Decider 为 `jev/llm`；新增只读 `relations`。实际能力以 `version.capabilities` 为准。
 
 ## 1. 总规则
 
@@ -43,6 +43,7 @@
 | `analyze --chat <ID>` | 运行智能体控制器，分析待处理消息 | `progress`, `decision`, `topic`, `insight`, `stats`(scope=run), `done` |
 | `inbox --chat <ID>` | 查询收件箱（供 GUI 展示） | `inbox`, `topic`*, `insight`*, `done` |
 | `overview --chat <ID> [--since TIME] [--until TIME] [--html FILE]` | 只读分析总览：热门、优先、相关、截止、未读、资料 | `ack`（头部及逐行数据）, `done` |
+| `relations --chat <ID> [--since TIME] [--until TIME]` | 更正/取消/冲突关系、问题与完整/部分回答；只读 | `ack`（头部及逐行数据）, `done` |
 | `messages --chat <ID> [--since] [--until]` | 按时间顺序列出消息及其话题归属（供评估和 GUI 浏览原文） | `message`*, `done` |
 | `feedback <INSIGHT_ID> --useful \| --not-important` | 设置当前有效反馈，不重复计票 | `ack`, `done` |
 | `resolve <INSIGHT_ID> --done \| --dismiss \| --reopen` | 修改结论的 `lifecycle` | `ack`, `done` |
@@ -57,7 +58,7 @@
 
 **`config init [--out FILE]` 与 `doctor`**
 - 配置默认写入 `<data-dir>/config.toml`；现有目标不覆盖，配置中只有环境变量名，不含密钥。
-- `doctor` 不联网、不创建数据库，不打印环境变量的值；分别报告 `read`、`import`、`analyze` 的就绪情况。缺少必需的 LLM key 时返回 `E_CONFIG` / 退出 4，同时说明离线能力是否可用。模型 key 存在不代表尚未实现的分析命令已可用。
+- `doctor` 不联网、不创建数据库，不打印环境变量的值；分别报告 `read`、`import`、`analyze` 的就绪情况。缺少必需的 LLM key 时返回 `E_CONFIG` / 退出 4，同时说明离线能力是否可用。模型 key 存在不证明云服务连通性或模型效果。
 - `doctor` 的 `ack.detail.paths` 包含解析后的 `data_dir`、`config_file`、`database`、`outputs_dir`、`qce_exports_dir`，GUI 复用这些路径。
 
 **`import <PATH>... [--self-uid UID] [--self-uin UIN]`**
@@ -74,7 +75,7 @@
 |---|---|---|
 | `--since <RFC3339>` / `--until <RFC3339>` | 无 | 指定时间范围；不指定时处理全部待切分消息和脏话题（PIPELINE §1.1） |
 | `--decider <jev\|llm>` | `jev` | Jev 不可用（未配置 key 或连续失败）时自动降级为 `llm` 并发 `warning` |
-| `--strategy <ours\|b0\|b1\|sim-tfidf\|sim-embed>` | `ours` | 评估用的基线开关，见 [EVALUATION.md](EVALUATION.md) §2；GUI 不使用 |
+| `--strategy <ours\|b0>` | `ours` | B0 需独立新导入的数据目录；B1/sim-* 未实现。见 EVALUATION §2；GUI 不使用 |
 | `--max-steps <N>` | 配置值（默认 64） | 控制器最大步数 |
 | `--budget-usd <X>` | 配置值（默认 0.50） | 本次运行费用上限 |
 | `--html <FILE>` | 无 | 运行结束后把收件箱渲染成 HTML（演示备用） |
@@ -122,6 +123,12 @@
 - `--chat` 与 `--run` 互斥。以上命令均不要求模型 key、不调用模型、不创建数据目录；旧记录的信息不足通过 warning 标明，不写回修补数据库。
 
 ## 3. 事件与 payload
+
+`relations` 首个 ack 的 `command=relations`，detail 含窗口、未撤回消息数 `messages`、已作关系抽取数 `analyzed_messages`、缺口 `uncovered_messages`、关系/问题行数。默认查看全部已导入时间；边界为 `[since,until)`。后续 `command=relations.row` 的 detail 为 `{relation: SemanticRelation}`，`relations.question` 为 `{question: QuestionState}`，target 始终为 chat ID，changed=false，最后 done。
+
+关系种类为 question/answers/replaces/cancels/conflicts；source 是原问题/安排，target 是后续回答/修改/取消/冲突证据。answers 的 answer_completeness 为 full/partial。问题状态 pending/partially_answered/answered，只由当前有效引用且早于 until 的完整回答关闭；普通回复不自动算回答。since 过滤问题源时间及变更目标时间，目标之前的原安排仍随关系保留证据。
+
+`verification_status=verified` 只表示同群、消息顺序、未撤回和逐字引用通过，不等于人工语义确认。无效关系仍输出 rejected，但不参与问题状态。用户 done/dismissed 不受影响。v1 数据库及旧模型未返回 relations 的记录计为未覆盖；0 个待回应不能证明未分析消息没有问题。新关系引用也受未脱敏数据边界约束。
 
 信封：`{"schema_version","run_id","seq","event","payload"}`。下文只列 payload。
 

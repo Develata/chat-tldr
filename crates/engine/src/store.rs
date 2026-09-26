@@ -13,6 +13,9 @@ use serde_json::json;
 use crate::{EngineError, Result, render::render};
 
 const MIGRATION: &str = include_str!("../migrations/0001_initial.sql");
+const RELATIONS_MIGRATION: &str = include_str!("../migrations/0002_relations.sql");
+mod relations;
+pub use relations::{RelationsReport, relations};
 mod analysis;
 pub use analysis::*;
 mod history;
@@ -56,7 +59,7 @@ fn check_version(connection: &Connection) -> Result<u32> {
     let version = version
         .parse::<u32>()
         .map_err(|_| EngineError::DatabaseFormat("invalid db_version".into()))?;
-    if version != DB_VERSION {
+    if !(1..=DB_VERSION).contains(&version) {
         return Err(EngineError::DatabaseFormat(format!(
             "database version {version}; this binary requires {DB_VERSION}"
         )));
@@ -77,7 +80,19 @@ fn open_read(path: &Path) -> Result<Option<Connection>> {
 }
 
 pub fn inspect(path: &Path) -> Result<Option<u32>> {
-    Ok(open_read(path)?.map(|_| DB_VERSION))
+    open_read(path)?.as_ref().map(check_version).transpose()
+}
+
+/// Called only inside a write transaction. Failed migrations preserve v1 intact.
+fn migrate(connection: &Connection) -> Result<()> {
+    if check_version(connection)? == 1 {
+        connection.execute_batch(RELATIONS_MIGRATION)?;
+        connection.execute(
+            "UPDATE meta SET value=?1 WHERE key='db_version'",
+            [DB_VERSION.to_string()],
+        )?;
+    }
+    Ok(())
 }
 
 pub fn import_batches(
@@ -118,12 +133,13 @@ pub fn import_batches(
     )?;
     if existing == 0 {
         tx.execute_batch(MIGRATION)?;
+        tx.execute_batch(RELATIONS_MIGRATION)?;
         tx.execute(
             "INSERT INTO meta(key,value) VALUES('db_version',?1)",
             [DB_VERSION.to_string()],
         )?;
     } else {
-        check_version(&tx)?;
+        migrate(&tx)?;
     }
     let now = Utc::now().to_rfc3339();
     let mut ids = BTreeSet::new();

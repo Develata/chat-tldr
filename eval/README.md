@@ -75,13 +75,13 @@ chat-tldr-eval score --gold eval/private/gold/course-demo --run eval/private/run
 
 输入为 gold 目录的 `messages.jsonl` / `items.jsonl`，以及 run 目录的 `messages.jsonl` / `inbox.jsonl` / `analyze.jsonl`。gold 可由 `import-sheet` 生成；运行目录按 [EVALUATION](../docs/EVALUATION.md#6-实验流程) 导出。`inbox` 必须使用 `--all --include-resolved --include-rejected`，保存完整快照。消息范围应覆盖整个独立实验 profile，不能只导出一页或某个子时间窗。
 
-目前只评分 **Ours（含 LLM decider）**：排除 rejected 后，在其余条目的原始收件箱顺序上计算。其他基线未实现；文件格式不记录 strategy，工具无法自动识别把 B0/B1 输出误放到该目录的情况，不能据此做基线比较。工具不读 SQLite、不联网、不调用模型。
+支持 **Ours（含 LLM decider）和 B0**。Ours 排除 rejected 后按收件箱顺序评分；B0 保留 rejected 并使用模型输出顺序。B0 必须含 `ack(command=analyze.strategy)`，且分析流的模型输出 ID 与 inbox 一一对应；旧流默认 ours，不得删除 B0 策略头来冒充 Ours。工具不读 SQLite、不联网、不调用模型。
 
 输入检查包括：三份主 CLI 事件流成功且完整、连续 seq/同一 run_id/唯一 done、gold 完整且无重复、所有未撤回消息 ID 与 gold **集合完全相等**、证据引用范围、inbox 顺序与计数、分析统计的 run/chat 身份。未来 MINOR 未知事件可以忽略，但仍验证信封。partial、截断、dry-run、计数与输出不符的快照不能评分；缺少运行统计或出现 `W_HISTORY_INCOMPLETE` 时成本指标记不可用。
 
 事件流不记录 `--all` / `--include-resolved`，因此计数一致**不能证明所有事项已导出**；也无法证明三份文件来自同一数据库快照、真实进程退出码或其语义正确性。调用方须遵循上述导出参数、保存实际退出码并单独 `check-stream --exit-code`，实验期间不要修改该 profile。工具检查引用 ID 的覆盖，不重新执行 engine 的逐字证据验证；合法 Unverified 话题摘要可以包含部分失效证据。
 
-CSV 每行一个聚合指标，固定列为 `score_version,system,metric,value,numerator,denominator,status`，当前版本 `1`、system 为 `ours`。不包含正文、证据原文、账号、消息/结论 ID 或输入路径。输出采用与 CSV 标注相同的不覆盖发布，现有文件原样保留。stdout 恰好一条工具 JSON 摘要，退出 0 表示完成评分；输入/输出错误退出 1，用法错误退出 2。**完成评分不表示效果达到验收门槛**。
+CSV 每行一个聚合指标，列为 `score_version,system,metric,value,numerator,denominator,status`，版本 `1`，system 为 `ours` 或 `b0`。不包含正文、证据、账号、消息/结论 ID 或输入路径。现有输出不覆盖；stdout 为一条 JSON 摘要，退出 0 表示评分完成、1 表示输入/输出错误、2 表示用法错误。**评分完成不表示质量达标。**
 
 | 指标 | 当前计算规则 |
 |---|---|
@@ -92,8 +92,29 @@ CSV 每行一个聚合指标，固定列为 `score_version,system,metric,value,n
 | `snapshot_rejected_rate`、`snapshot_rejected_rate_after_filter` | 当前保存的 inbox 条目中 rejected 的比例，分别在过滤前/后计算；**不是所有 LLM 原始提案的幻觉率，也不是人工语义支持率** |
 | `run_input_tokens/output_tokens/calls/cache_hits/elapsed_ms/estimated_cost_usd` | `analyze.jsonl` 中单次运行的已报告统计；不推断整个增量历史总和，费用不等于账单 |
 
-零分母用空 `value` + `status=undefined`，包括无 gold 相关条目的 NDCG。F1 直接计算 `2TP/(预测数+标注数)`，两边都为空时同样 undefined。缺失运行统计标为 `unavailable_run_stats`；无法由现存快照重建的原始提案比例标为 `unavailable_raw_proposals`。话题匹配/ARI/NMI/burst/边界、MentionMe 正确率、人工支持率和校准指标目前列为 `not_implemented`，不填 0 或伪造分数。
+零分母为空值/`undefined`；F1 为 `2TP/(预测数+标注数)`。缺统计标 `unavailable_run_stats`，无法重建原始提案标 `unavailable_raw_proposals`。话题匹配/ARI/NMI 已实现；缺归属不假设单例，最优匹配超过 512 个话题时仅该指标标为限额不可用。burst/边界、MentionMe 正确率、人工支持率仍未实现；ECE/Brier 由单独 calibrate 命令输出，不填伪造零分。
 
 匹配通过 kind + 锚点倒排索引生成候选，再排序贪心；不为互无交集的条目逐对扫描。NDCG 的理想排序只需四档直方图。没有进行真实性能基准，不宣称提速比例。
 
-`agreement`、`calibrate`、`summarize`、其余评估指标和实验自动执行尚未实现，未知子命令会报错。测试中的合成预期分数只验证算法，不能写成真实群聊或模型效果。
+`agreement`、`summarize` 和其他未列出的指标尚未实现，未知命令报错。合成预期只验证算法，不能写成真实模型效果。
+
+## 话题与概率校准
+
+话题最优一对一 overlap 使用矩形 Hungarian 匹配（最多 512 个话题，复杂度 O(min(K,G)² max(K,G))），不能用贪心替代。Exact thread F1 比较消息集合完全相等；ARI 使用 Hubert–Arabie 调整，NMI 使用两侧熵的算术平均归一化。定义可对照 [ARI](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.adjusted_rand_score.html) 与 [NMI](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.normalized_mutual_info_score.html)。
+
+```powershell
+cargo run -p chat-tldr-eval -- calibrate --gold ./private/gold --jev ./private/run/jev-log.jsonl --out ./private/calibration
+```
+
+输出目录必须不存在，原子发布 `calibration.json` 和 `reliability.svg`。按实际 model/task 分组，以 model/request_key/question_id 去重；冲突、截断和失败流拒绝。Todo/Announcement noul 按消息 ID 关联明确布尔 gold，缺标注或未知问题单独计数排除。10 个等宽概率箱输出 ECE 和 binary Brier；空组明确不可用。ECE 口径参见 [Guo 等，2017](https://proceedings.mlr.press/v70/guo17a.html)。
+
+choice 需要额外 `--choice-gold <JSONL>`：每行 `{"request_key":"...","question_id":"...","choice":"正确选项"}`，必须独立人工判断。采用**被选中选项的概率**对照是否正确，输出 top-label 的二元 Brier，不把 Jev 的归一化 confidence 当概率，也不声称是多类 Brier。没有 choice 标签则不计算该类分数。旧的真实 200 条没有人工 gold，质量与校准均为“待标注”。
+
+完整合成流程可复现：
+
+```powershell
+cargo build -p chat-tldr -p chat-tldr-eval --locked
+python scripts/release/evaluate_synthetic.py --cli target/debug/chat-tldr.exe --eval target/debug/chat-tldr-eval.exe --out ./tmp/new-synthetic-evaluation
+```
+
+该脚本只用两个固定合成消息、源文本明确编写的 gold、本地 Jev/LLM 假服务。它运行实际 CLI 的两种策略与 score/calibrate，并核对手算 ECE=0.25、Brier=0.0625；不是模型质量实验。真实云运行脚本 `scripts/release/compare_cloud.py` 仅在明确授权下手动执行，从不进入 CI。

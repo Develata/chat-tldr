@@ -1,0 +1,17 @@
+# Allow only CLI build inputs. In particular, never send .env, chat exports,
+# local databases, Git history, the CodeGraph index, or GUI fonts to the builder.
+**
+!Cargo.toml
+!Cargo.lock
+!config.example.toml
+!LICENSE
+!crates/*/Cargo.toml
+!crates/*/src/**/*.rs
+!crates/engine/migrations/*.sql
+!apps/cli/Cargo.toml
+!apps/cli/src/**/*.rs
+# Cargo resolves every workspace manifest, but does not compile these packages.
+!apps/gui/Cargo.toml
+!apps/gui/src/main.rs
+!eval/Cargo.toml
+!eval/src/main.rs

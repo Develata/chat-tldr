@@ -1,6 +1,6 @@
 # 文档导航
 
-> 2026-09-26：主线已实现 QCE 单文件导入、当前 Ours 分析闭环、话题合并/关闭/回填、六个总览、CLI/GUI/HTML 和部分离线评估。401 项 Rust 回归通过；真实云模型质量、独立人工 gold、同学外围交付仍待完成。功能入口见 [项目 README](../README.md)，责任与状态见 [TEAM_ASSIGNMENTS](TEAM_ASSIGNMENTS.md)。
+> 2026-09-26：主线已实现 QCE 导入、Ours/B0 分析、Jev 控制器、话题生命周期、六个总览、更正/取消与待回应关系，以及离线 score/calibrate。真实 200 条 Ours/B0 调用已跑通，质量与真实校准曲线待人工标注。CLI/Docker 发布验证见 [ACCEPTANCE](ACCEPTANCE.md)；功能入口见 [项目 README](../README.md)，责任与状态见 [TEAM_ASSIGNMENTS](TEAM_ASSIGNMENTS.md)。
 
 | 想了解什么 | 文档 | 当前定位 |
 |---|---|---|

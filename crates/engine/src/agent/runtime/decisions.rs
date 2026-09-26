@@ -6,6 +6,7 @@ use crate::decider::DecisionResponse;
 enum Stage {
     Decide,
     TopicReview,
+    Controller,
 }
 
 impl Stage {
@@ -13,11 +14,20 @@ impl Stage {
         match self {
             Self::Decide => "decide",
             Self::TopicReview => "topic_review",
+            Self::Controller => "controller",
         }
     }
 }
 
 impl Runtime<'_, '_> {
+    pub(super) fn decide_controller(
+        &mut self,
+        request: &DecisionRequest,
+        subjects: &BTreeMap<String, AnswerSubject>,
+    ) -> Result<DecisionResponse> {
+        self.decide_stage(request, subjects, Stage::Controller)
+    }
+
     pub(super) fn decide(
         &mut self,
         request: &DecisionRequest,
@@ -125,7 +135,13 @@ impl Runtime<'_, '_> {
                         &error.usage(),
                         false,
                     )?;
+                    if matches!(stage, Stage::Controller) {
+                        // The controller's documented fallback is the safe rule choice.
+                        // A failed scheduling request must not switch all topic decisions.
+                        return Err(error.into());
+                    }
                     self.fallback_active = true;
+                    self.fallback_cause = Some(error.code());
                     return self.decide_stage(request, subjects, stage);
                 }
                 Err(error) => {

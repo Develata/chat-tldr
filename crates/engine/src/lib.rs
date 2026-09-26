@@ -7,6 +7,7 @@ pub mod extract;
 pub mod llm;
 mod overview;
 pub mod rank;
+mod relations;
 pub mod render;
 mod segment;
 pub mod store;

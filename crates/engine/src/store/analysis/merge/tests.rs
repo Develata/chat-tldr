@@ -477,6 +477,7 @@ fn duplicate_missing_and_oversized_evidence_cannot_manufacture_reply_edges() {
 fn legacy_v1_gets_merge_indexes_only_on_write_and_queries_use_them() {
     let fixture = Fixture::new();
     let old = Connection::open(&fixture.path).unwrap();
+    old.execute_batch("DROP TABLE relation_coverage; DROP TABLE semantic_relations; UPDATE meta SET value='1' WHERE key='db_version';").unwrap();
     let indexes = |connection: &Connection| -> Vec<String> {
         connection.prepare("SELECT name FROM sqlite_schema WHERE type='index' AND name IN ('idx_topic_messages_topic','idx_insights_topic') ORDER BY name")
             .unwrap().query_map([], |row| row.get(0)).unwrap().collect::<std::result::Result<_,_>>().unwrap()
@@ -489,8 +490,11 @@ fn legacy_v1_gets_merge_indexes_only_on_write_and_queries_use_them() {
     );
     let connection = fixture.connection();
     assert_eq!(indexes(&connection).len(), 2);
-    assert_eq!(super::super::super::check_version(&connection).unwrap(), 1);
-    // Opening a second write connection is idempotent for existing DB v1.
+    assert_eq!(
+        super::super::super::check_version(&connection).unwrap(),
+        DB_VERSION
+    );
+    // Reopening a migrated database is idempotent.
     assert_eq!(indexes(&fixture.connection()), indexes(&connection));
     for (sql, index) in [
         (INVALID_ASSIGNMENT_SQL, "idx_topic_messages_topic"),
