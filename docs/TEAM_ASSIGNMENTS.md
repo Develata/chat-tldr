@@ -58,7 +58,7 @@
 
 ### C：合成数据与交付验收
 
-先按 EVALUATION §5 标注已导出的真实 200 条 CSV，再由第二位同学复核 50 条。字段 thread/todo/announcement/items_json 均需明确填写；源文本列的 `text:` 前缀保留。不得读取模型结果后照抄 gold，不得用 LLM 自动生成真实 gold。CSV 和源聊天留在 private/，通过 `import-sheet` 校验后再交付；未完成前真实质量和校准曲线写“待标注”。
+先按 EVALUATION §5 独立标注真实 200 条 CSV，第二位同学独立标预先随机固定的 50 条，可阅读全量上下文。两人的工作目录只含原始材料，不附模型预测；保留独立版本和分歧记录，人工裁决后再形成完整 gold。字段 thread/todo/announcement/items_json 均需明确填写；源文本列的 `text:` 前缀保留。不得读取模型结果后照抄 gold，不得用 LLM 自动生成真实 gold。CSV 和源聊天留在 private/，用 `import-sheet --messages <协调者保管的原始流>` 核对源列、消息范围和标签格式后再交付；第二人未填完整的工作表不能直接导入。未完成前真实质量和校准曲线写“待标注”。
 
 合成补充参考 [100 条主样本与 4 条回填样本](../fixtures/qce/scenario-analysis.README.md)，先看原文写独立期望，重点覆盖 @全体、同名不同身份、他人截止 P0、更正/取消、部分回答与回填。
 

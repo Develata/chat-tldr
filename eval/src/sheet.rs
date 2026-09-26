@@ -1,5 +1,11 @@
-use std::{collections::BTreeSet, fs::File, io::Write, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs::File,
+    io::Write,
+    path::Path,
+};
 
+use chat_tldr_core::MessagePayload;
 use serde_json::{Value, json};
 
 use crate::{
@@ -7,8 +13,8 @@ use crate::{
     output, stream,
 };
 
-pub fn export(messages: &Path, out: &Path, exit_code: Option<i32>) -> Result<Value, String> {
-    let messages = stream::messages(messages, exit_code)?;
+fn source_messages(path: &Path, exit_code: Option<i32>) -> Result<Vec<MessagePayload>, String> {
+    let messages = stream::messages(path, exit_code)?;
     let mut ids = BTreeSet::new();
     for message in &messages {
         annotation::message_id(message.message_id.as_ref())?;
@@ -16,6 +22,11 @@ pub fn export(messages: &Path, out: &Path, exit_code: Option<i32>) -> Result<Val
             return Err("duplicate message_id in messages stream".into());
         }
     }
+    Ok(messages)
+}
+
+pub fn export(messages: &Path, out: &Path, exit_code: Option<i32>) -> Result<Value, String> {
+    let messages = source_messages(messages, exit_code)?;
     let skipped = messages.iter().filter(|message| message.recalled).count();
     let count = messages.len() - skipped;
     output::file(out, |file| {
@@ -43,7 +54,19 @@ pub fn export(messages: &Path, out: &Path, exit_code: Option<i32>) -> Result<Val
     )
 }
 
-pub fn import(path: &Path, out: &Path) -> Result<Value, String> {
+pub fn import(path: &Path, reference: Option<&Path>, out: &Path) -> Result<Value, String> {
+    let source_rows = reference
+        .map(|path| {
+            source_messages(path, None).map(|messages| {
+                messages
+                    .into_iter()
+                    .filter(|message| !message.recalled)
+                    .map(SheetRow::unlabelled)
+                    .map(|row| (row.message_id.clone(), row))
+                    .collect::<BTreeMap<_, _>>()
+            })
+        })
+        .transpose()?;
     let file = File::open(path).map_err(|error| format!("cannot open annotation CSV: {error}"))?;
     let mut reader = csv::ReaderBuilder::new().from_reader(file);
     let headers = reader.headers().map_err(|_| "invalid CSV header")?;
@@ -66,6 +89,13 @@ pub fn import(path: &Path, out: &Path) -> Result<Value, String> {
         if !message_ids.insert(message.message_id.clone()) {
             return Err(format!("CSV record {number}: duplicate message_id"));
         }
+        if let Some(source_rows) = &source_rows {
+            let source = source_rows.get(&row.message_id).ok_or_else(|| {
+                format!("CSV record {number}: message_id is absent or recalled in reference stream")
+            })?;
+            row.check_source(source)
+                .map_err(|error| format!("CSV record {number}: {error}"))?;
+        }
         for item in &row_items {
             if !item_ids.insert(item.item_id.clone()) {
                 return Err(format!(
@@ -81,6 +111,11 @@ pub fn import(path: &Path, out: &Path) -> Result<Value, String> {
         messages.push(message);
         items.extend(row_items);
     }
+    if let Some(source_rows) = &source_rows
+        && messages.len() != source_rows.len()
+    {
+        return Err("CSV must contain every non-recalled reference message exactly once".into());
+    }
     for item in &items {
         if item
             .anchors
@@ -94,6 +129,7 @@ pub fn import(path: &Path, out: &Path) -> Result<Value, String> {
     }
     output::gold(out, &messages, &items)?;
     Ok(
-        json!({"command":"import-sheet","valid":true,"out":out,"messages":messages.len(),"items":items.len()}),
+        json!({"command":"import-sheet","valid":true,"out":out,"messages":messages.len(),"items":items.len(),
+            "source_checked":reference.is_some()}),
     )
 }

@@ -83,6 +83,17 @@ impl Workspace {
             .output()
             .unwrap()
     }
+    fn import_checked(&self) -> Output {
+        Command::new(env!("CARGO_BIN_EXE_chat-tldr-eval"))
+            .arg("import-sheet")
+            .arg(&self.sheet)
+            .arg("--messages")
+            .arg(&self.stream)
+            .arg("--out")
+            .arg(&self.gold)
+            .output()
+            .unwrap()
+    }
     fn labelled(&self) -> Vec<BTreeMap<String, String>> {
         success(&self.export());
         let mut rows = read_sheet(&self.sheet);
@@ -151,6 +162,112 @@ fn gold(path: &Path) -> Vec<Value> {
 fn item() -> Value {
     json!({"item_id":"gold-甲","kind":"todo","assignee":"other","anchors":[FIRST, SECOND],
         "deadline":{"raw":"周五前","relation":"before","bound_date":"2026-09-25"},"importance":"P0"})
+}
+
+#[test]
+fn checked_import_accepts_reordered_rows_and_columns_without_changing_sources() {
+    let workspace = Workspace::new();
+    let mut rows = workspace.labelled();
+    rows.reverse();
+    write_sheet(&workspace.sheet, &rows);
+    let stream_before = fs::read(&workspace.stream).unwrap();
+    let sheet_before = fs::read(&workspace.sheet).unwrap();
+
+    let summary = success(&workspace.import_checked());
+    assert_eq!(summary["source_checked"], true);
+    assert_eq!(summary["messages"], 2);
+    assert_eq!(summary["items"], 0);
+    assert_eq!(fs::read(&workspace.stream).unwrap(), stream_before);
+    assert_eq!(fs::read(&workspace.sheet).unwrap(), sheet_before);
+    assert_eq!(gold(&workspace.gold.join("messages.jsonl")).len(), 2);
+}
+
+#[test]
+fn changed_source_cells_fail_before_publication_without_echoing_private_values() {
+    for (field, changed) in [
+        ("sent_at", "text:2026-09-27T11:22:33-03:00"),
+        ("sender", "text:qq:PRIVATE_CHANGED_SENDER"),
+        ("sender_display", "text:PRIVATE_CHANGED_NAME"),
+        ("display_text", "text:PRIVATE_CHANGED_TEXT"),
+    ] {
+        let workspace = Workspace::new();
+        let mut rows = workspace.labelled();
+        rows[0].insert(field.into(), changed.into());
+        write_sheet(&workspace.sheet, &rows);
+        let error = failure(&workspace.import_checked());
+        assert!(error.contains(field), "{error}");
+        assert!(!error.contains(changed));
+        assert!(!error.contains("PRIVATE_CHANGED"));
+        assert!(!workspace.gold.exists());
+    }
+}
+
+#[test]
+fn checked_import_requires_the_exact_non_recalled_message_set() {
+    for mutation in ["missing", "added", "recalled"] {
+        let workspace = Workspace::new();
+        let mut rows = workspace.labelled();
+        match mutation {
+            "missing" => {
+                rows.pop();
+            }
+            "added" => {
+                let mut extra = rows[0].clone();
+                extra.insert("message_id".into(), "m_0000000000000004".into());
+                rows.push(extra);
+            }
+            "recalled" => {
+                rows[0].insert("message_id".into(), RECALLED.into());
+            }
+            _ => unreachable!(),
+        }
+        write_sheet(&workspace.sheet, &rows);
+        assert!(failure(&workspace.import_checked()).contains("reference"));
+        assert!(!workspace.gold.exists());
+    }
+}
+
+#[test]
+fn checked_import_refuses_truncated_failed_or_duplicate_reference_streams() {
+    for mutation in ["truncated", "failed", "duplicate"] {
+        let workspace = Workspace::new();
+        let rows = workspace.labelled();
+        write_sheet(&workspace.sheet, &rows);
+        let mut source = events();
+        match mutation {
+            "truncated" => {
+                source.pop();
+            }
+            "failed" => {
+                source.last_mut().unwrap()["payload"] =
+                    json!({"status":"partial","exit_code":6,"elapsed_ms":1});
+            }
+            "duplicate" => source[1]["payload"]["message_id"] = json!(FIRST),
+            _ => unreachable!(),
+        }
+        workspace.write_stream(&source);
+        failure(&workspace.import_checked());
+        assert!(!workspace.gold.exists());
+    }
+}
+
+#[test]
+fn checked_empty_import_and_legacy_import_report_their_validation_boundary() {
+    let empty = Workspace::new();
+    empty.write_stream(&[event(
+        0,
+        "done",
+        json!({"status":"complete","exit_code":0,"elapsed_ms":1}),
+    )]);
+    success(&empty.export());
+    let summary = success(&empty.import_checked());
+    assert_eq!(summary["messages"], 0);
+    assert_eq!(summary["source_checked"], true);
+
+    let legacy = Workspace::new();
+    let rows = legacy.labelled();
+    write_sheet(&legacy.sheet, &rows);
+    assert_eq!(success(&legacy.import())["source_checked"], false);
 }
 
 #[test]

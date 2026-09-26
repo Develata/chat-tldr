@@ -47,6 +47,25 @@ impl SheetRow {
         }
     }
 
+    pub fn check_source(&self, source: &Self) -> Result<(), String> {
+        for (name, actual, expected) in [
+            ("sent_at", &self.sent_at, &source.sent_at),
+            ("sender", &self.sender, &source.sender),
+            (
+                "sender_display",
+                &self.sender_display,
+                &source.sender_display,
+            ),
+            ("display_text", &self.display_text, &source.display_text),
+        ] {
+            if actual != expected {
+                // Diagnostics must not echo private source text or identities.
+                return Err(format!("{name} differs from reference messages"));
+            }
+        }
+        Ok(())
+    }
+
     pub fn labelled(&self) -> Result<(GoldMessage, Vec<GoldItem>), String> {
         if self.sheet_version != "1" {
             return Err("unsupported sheet_version".into());

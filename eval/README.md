@@ -35,7 +35,7 @@ $messagesExit = $LASTEXITCODE
 chat-tldr-eval export-sheet --messages eval/private/runs/exp-01/ours/messages.jsonl --out eval/private/sheets/course-demo.csv --exit-code $messagesExit
 
 # 在表格软件里填写标注列，保存为 UTF-8、逗号分隔 CSV，再导入到一个尚不存在的目录。
-chat-tldr-eval import-sheet eval/private/sheets/course-demo.csv --out eval/private/gold/course-demo
+chat-tldr-eval import-sheet eval/private/sheets/course-demo.csv --messages eval/private/runs/exp-01/ours/messages.jsonl --out eval/private/gold/course-demo
 ```
 
 `export-sheet --messages <PATH> --out <CSV> [--exit-code N]` 只读完整的 `message` / `done` 事件流，不打开数据库，也不调用模型。必须成功完成（`done.status=complete`、`exit_code=0`）；截断、序号错误、混入其他命令的已知事件或重复消息 ID 均失败。兼容的 MINOR 版本未知事件忽略，但仍校验其序号、run_id 和协议版本。`--exit-code` 的来源与 `check-stream` 相同：省略时只检查文件内部一致性，不能证明真实进程成功。文件必须是 UTF-8；旧版 PowerShell 的默认重定向可能写成 UTF-16，应显式选择 UTF-8 保存。
@@ -61,11 +61,21 @@ CSV 带 UTF-8 BOM，中文、逗号、双引号以及单元格内换行由 CSV �
 
 无截止信息时明确写 `"deadline":null`。无法确定日期时只写原文，例如 `"deadline":{"raw":"尽快"}`；可确定时 `relation` 与 `bound_date` 必须同时填写，分别使用 `before` / `at` / `after` 与真实存在的 `YYYY-MM-DD` 日期。工具不猜日期、不推导真假标注、不自动修改重要性。`kind` 仅为 `todo` / `announcement` / `decision`，`assignee` 仅为 `me` / `all` / `other` / `unknown`，`importance` 仅为 `P0` 至 `P3`。
 
-`import-sheet <CSV> --out <DIR>` 在全部记录验证通过后，输出 EVALUATION §5.1 约定的 `messages.jsonl` 和 `items.jsonl`。它拒绝空标注、未知字段/枚举、非法日期、重复消息 ID、重复 item ID（即使内容一致）、重复锚点和表中不存在的锚点。`item_id` 是非空稳定字符串，不允许首尾空白或控制字符；没有规定必须以 `g` 开头。标注时不要删除消息行；导入器只掌握这张表，不能与未提供的原始消息流核对被删除的行或被改写的原文。
+`import-sheet <CSV> [--messages <原始JSONL>] --out <DIR>` 在全部记录验证通过后，输出 EVALUATION §5.1 约定的 `messages.jsonl` 和 `items.jsonl`。它拒绝空标注、未知字段/枚举、非法日期、重复消息 ID、重复 item ID（即使内容一致）、重复锚点和表中不存在的锚点。`item_id` 是非空稳定字符串，不允许首尾空白或控制字符；没有规定必须以 `g` 开头。
+
+人工标注回收时应提供 `--messages`：校验参考流成功且完整，要求 CSV 覆盖恰好全部未撤回消息，并逐字比对导出后的时间、发送者、展示名和原文单元格。可重排行和列，不能增删消息或改写源列；错误只报告记录号/字段，不回显私人内容。所有核对在发布 gold 前完成，成功摘要带 `source_checked=true`。不提供时保持原有格式检查行为，返回 `source_checked=false`，不能据此证明原始数据未改动。参考流须由协调者保管；此校验不证明人工标签正确或独立，也不替代用已记录的实际退出码运行 `check-stream`。使用最新源码构建的 eval 执行此校验。
 
 导出和导入都**不覆盖**已有目标，也没有强制覆盖参数。先完整验证输入，再在同一父目录暂存、刷新并发布；CSV 使用不覆盖的文件发布，gold 两个文件使用不覆盖的原子目录重命名一起发布，发布前临时出现的空目录也会导致失败。gold 发布支持 Windows、Linux 和 macOS，其他平台返回明确错误。目标旁的 `.chat-tldr-eval.lock` 防止本工具并发写入同一目标；正常结束自动移除。若进程被强制终止，确认没有写入者后再人工处理残留锁与临时目录。输出父目录可以自动创建。
 
 两条命令与 `check-stream` 一样，stdout 只输出一条工具 JSON 摘要（不是主 CLI `CliEvent`）；失败同时写 stderr，退出 1。未填完的表不会产生半套 gold。合法空消息流可以导出只有表头的 CSV，并导入为两个空 JSONL 文件。
+
+## 真实标注交接
+
+协调者保留原始消息流、运行快照和未标注 CSV；给两位标注者分别建立仅含原始材料的目录，不附带 inbox、模型话题、概率或模型答案。第一位标注完整 200 条；第二位只标预先随机选定的 50 条，同时可阅读全部上下文。抽样 seed 与名单在看标签前固定，返回后保留两个独立版本和分歧记录，由人工裁决成完整 gold。
+
+第二人的 200 行工作表允许未选行暂时留空，因此不能直接 `import-sheet`；未选行不能填成 false 来凑完整性。导入的是裁决后的完整表，并使用协调者保存的 `--messages` 核对。只标 50 条时，item 可以引用上下文里的其他锚点；最终完整表中每个 item 仍只定义一次。消息级一致性仅针对预选的 50 条，当前工具尚不计算 `agreement`。
+
+聊天的相对日期使用实验配置时区，不能套用作业截止日期的 Santiago 时区；个人归属以导出账号为“我”。原始 CSV 的 UTC 时间和 `text:` 前缀不改写。真实标注、抽样名单、分歧记录和来源映射均留在 private/，只在人工审核后公开聚合指标。没有人工标注时只准备材料，不运行真实质量评分。
 
 ## 已实现：离线评分
 
