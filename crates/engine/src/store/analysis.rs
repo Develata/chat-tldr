@@ -201,7 +201,9 @@ impl AnalysisSession {
 
     pub fn record_decision(&self, payload: &DecisionPayload) -> Result<()> {
         let connection = open_write(&self.path)?;
-        connection.execute("INSERT INTO decisions(run_id,step,observation_json,allowed_json,chosen_json,method,probabilities_json,reason,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![self.run_id.as_ref(),payload.step,serde_json::to_string(&payload.observation)?,serde_json::to_string(&payload.allowed)?,serde_json::to_string(&payload.chosen)?,wire_string(&payload.method)?,payload.probabilities.as_ref().map(serde_json::to_string).transpose()?,payload.reason,Utc::now().to_rfc3339()])?;
+        let mut observation = serde_json::to_value(&payload.observation)?;
+        observation["_history_v1"] = serde_json::json!({"confidence":payload.confidence});
+        connection.execute("INSERT INTO decisions(run_id,step,observation_json,allowed_json,chosen_json,method,probabilities_json,reason,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![self.run_id.as_ref(),payload.step,observation.to_string(),serde_json::to_string(&payload.allowed)?,serde_json::to_string(&payload.chosen)?,wire_string(&payload.method)?,payload.probabilities.as_ref().map(serde_json::to_string).transpose()?,payload.reason,Utc::now().to_rfc3339()])?;
         Ok(())
     }
 
@@ -374,15 +376,15 @@ impl AnalysisSession {
 
     pub fn record_answer(
         &self,
-        request_key: &str,
-        id: &str,
-        qtype: &str,
-        answer: &serde_json::Value,
-        confidence: Option<f32>,
-        subject: &serde_json::Value,
+        payload: &JevAnswerPayload,
+        provider: &str,
+        cache_hit: bool,
     ) -> Result<()> {
         let connection = open_write(&self.path)?;
-        connection.execute("INSERT INTO jev_answers(run_id,request_key,question_id,qtype,answer_json,confidence,subject_json) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![self.run_id.as_ref(),request_key,id,qtype,answer.to_string(),confidence,subject.to_string()])?;
+        let mut subject = serde_json::to_value(&payload.subject)?;
+        subject["_history_v1"] =
+            serde_json::json!({"model":payload.model,"provider":provider,"cache_hit":cache_hit});
+        connection.execute("INSERT INTO jev_answers(run_id,request_key,question_id,qtype,answer_json,confidence,subject_json) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![self.run_id.as_ref(),payload.request_key,payload.question_id,payload.qtype,payload.answer.to_string(),payload.confidence,subject.to_string()])?;
         Ok(())
     }
 
@@ -396,6 +398,29 @@ impl AnalysisSession {
                 Utc::now().to_rfc3339()
             ],
         )?;
+        self.finished = true;
+        Ok(())
+    }
+
+    /// Persist exact counters and terminal status atomically without changing DB v1.
+    pub fn finish_with_stats(&mut self, status: RunStatus, stats: &RunStats) -> Result<()> {
+        if stats.run_id != self.run_id || stats.chat_id != self.chat_id {
+            return Err(EngineError::Input(
+                "statistics belong to another run".into(),
+            ));
+        }
+        let mut connection = open_write(&self.path)?;
+        let tx = connection.transaction()?;
+        tx.execute("INSERT INTO meta(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![format!("history.run_stats.v1:{}",self.run_id),serde_json::to_string(stats)?])?;
+        tx.execute(
+            "UPDATE runs SET status=?2,finished_at=?3,heartbeat_at=?3 WHERE run_id=?1",
+            params![
+                self.run_id.as_ref(),
+                wire_string(&status)?,
+                Utc::now().to_rfc3339()
+            ],
+        )?;
+        tx.commit()?;
         self.finished = true;
         Ok(())
     }

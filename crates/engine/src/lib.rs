@@ -29,6 +29,8 @@ pub enum EngineError {
     Json(#[from] serde_json::Error),
     #[error("chat not found: {0}")]
     ChatNotFound(String),
+    #[error("run not found: {0}")]
+    RunNotFound(String),
     #[error("invalid input: {0}")]
     Input(String),
     #[error("insight not found: {0}")]
@@ -60,6 +62,7 @@ impl EngineError {
                 "E_DB_BUSY"
             }
             Self::ChatNotFound(_) => "E_CHAT_NOT_FOUND",
+            Self::RunNotFound(_) => "E_RUN_NOT_FOUND",
             Self::Input(_) => "E_INPUT_PARSE",
             Self::InsightNotFound(_) => "E_INSIGHT_NOT_FOUND",
             Self::CursorInvalid(_) => "E_CURSOR_INVALID",
@@ -80,7 +83,7 @@ impl EngineError {
             Self::Cancelled => 130,
             Self::Provider(e) => e.exit_code(),
             Self::InsightNotFound(_) | Self::CursorInvalid(_) => 3,
-            Self::ChatNotFound(_) | Self::Input(_) => 3,
+            Self::ChatNotFound(_) | Self::RunNotFound(_) | Self::Input(_) => 3,
             _ => 7,
         }
     }

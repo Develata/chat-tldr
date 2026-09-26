@@ -354,6 +354,59 @@ fn process_workflow_analyzes_evidence_exports_html_and_sets_state_idempotently()
         false
     );
     let calls = server.calls.load(Ordering::Relaxed);
+    let run = analyzed[0]["run_id"].as_str().unwrap();
+    let database_before_history = fs::read(sandbox.data_dir().join("chat-tldr.db")).unwrap();
+    let saved = sandbox.run(&["stats", "--run", run], 0);
+    assert_eq!(payload(&saved, "stats")["run_id"], run);
+    assert_eq!(payload(&saved, "stats")["messages_analyzed"], 2);
+    assert_eq!(
+        payload(&saved, "stats")["insights"],
+        payload(&analyzed, "stats")["insights"]
+    );
+    assert_eq!(
+        payload(&saved, "stats")["elapsed_ms"],
+        payload(&analyzed, "stats")["elapsed_ms"]
+    );
+    for command in ["decisions", "jev-log"] {
+        let replay = sandbox.run(&[command, "--run", run], 0);
+        assert_eq!(payload(&replay, "ack")["target"], run);
+        assert_ne!(replay[0]["run_id"], run);
+        if command == "decisions" {
+            let original: Vec<_> = analyzed
+                .iter()
+                .filter(|row| row["event"] == "decision")
+                .map(|row| &row["payload"])
+                .collect();
+            let restored: Vec<_> = replay
+                .iter()
+                .filter(|row| row["event"] == "decision")
+                .map(|row| &row["payload"])
+                .collect();
+            assert_eq!(original, restored);
+        } else {
+            let answer = replay
+                .iter()
+                .find(|row| {
+                    row["event"] == "jev_answer" && row["payload"]["question_id"] == "n1_todo"
+                })
+                .unwrap();
+            assert_eq!(answer["payload"]["subject"]["kind"], "message");
+            assert!(
+                answer["payload"]["subject"]["id"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("m_")
+            );
+            assert_eq!(payload(&replay, "ack")["detail"]["unaligned_answers"], 0);
+        }
+    }
+    let scoped = sandbox.run(&["stats", "--chat", &chat], 0);
+    assert_eq!(payload(&scoped, "ack")["detail"]["chat_id"], chat);
+    assert_eq!(payload(&scoped, "stats")["counts"]["messages"], 3);
+    assert_eq!(
+        fs::read(sandbox.data_dir().join("chat-tldr.db")).unwrap(),
+        database_before_history
+    );
     sandbox.run(&["analyze", "--chat", &chat], 0);
     assert_eq!(server.calls.load(Ordering::Relaxed), calls);
 }
@@ -369,6 +422,12 @@ fn authentication_failure_exits_four_and_replaced_key_resumes_messages() {
     assert_eq!(payload(&failed, "done")["status"], "failed");
     assert_eq!(payload(&failed, "error")["code"], "E_PROVIDER_AUTH");
     assert_eq!(server.calls.load(Ordering::Relaxed), 1);
+    let historical = sandbox.run(
+        &["stats", "--run", failed[0]["run_id"].as_str().unwrap()],
+        0,
+    );
+    assert_eq!(payload(&historical, "stats")["messages_analyzed"], 0);
+    assert_eq!(payload(&historical, "stats")["usage"][0]["calls"], 1);
     let inbox = sandbox.run(&["inbox", "--chat", &chat], 0);
     assert!(payload(&inbox, "inbox")["view_cursor"].is_null());
     server.fail.store(false, Ordering::Relaxed);

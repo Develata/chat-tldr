@@ -3,8 +3,8 @@
 > Turn unread QQ group chats into a personal, traceable action inbox.
 > 把未读群聊变成可追溯的个人行动收件箱。
 
-**状态 / Status**：CLI 基础闭环已实现：QCE JSON 导入 → 分析 → 带证据的收件箱 → 反馈、处理状态与已读操作，并支持 HTML 导出。当前 `ours` 是基础实现，尚未实现完整策略、GUI 和指标评估。分工见 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md)。
-*The basic CLI workflow is implemented, including analysis, evidence-backed inbox actions and HTML export. The full strategy, GUI and evaluation metrics remain incomplete.*
+**状态 / Status**：CLI 基础闭环、HTML 导出及历史统计/日志查询已实现；eval 已有标注表格导出、导入和协议校验。原生 GUI 已接入 CLI，Windows 合成数据联调、浅色/深色/窄窗口截图及交互测试通过，见 [GUI 验证记录](docs/GUI_VERIFICATION.md)。当前 `ours` 仍是基础策略，指标评分和真实模型质量验收尚未完成。分工见 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md)。
+*The basic CLI workflow, HTML export, history queries and native GUI are implemented. Windows synthetic-data smoke checks and GUI interaction tests pass. Evaluation supports annotation-sheet conversion and stream validation; scoring and real-model acceptance remain pending.*
 
 ---
 
@@ -32,8 +32,10 @@
 - 本地 SQLite 检查点、模型响应缓存与用量记录；部分失败后可继续处理未完成消息
 - 同步 Jev 和 DeepSeek 客户端、OpenAI / Anthropic 兼容接口与 Mock；模型协议和流程用合成数据、Mock 及本地假服务器验证
 - Rust CLI 的 `analyze/inbox/feedback/resolve/mark-read`，以及 `analyze --html` / `inbox --html` 导出
+- 只读 `stats`、`decisions --run`、`jev-log --run`：查询累计用量或历史运行，重放决策与带归属的模型回答
+- eval 的 `check-stream`、`export-sheet`、`import-sheet`：协议检查与人工标注 CSV 往返，不计算模型效果分数
 
-尚未实现 `MergeTopics`、控制器用 Jev 选择下一步动作、embedding 候选筛选，以及 `stats/decisions/jev-log` 查询命令。GUI 仍是占位入口；eval 只有 `check-stream` 协议校验，尚无标注、评分、基线或校准流程。当前仅支持 `--strategy ours`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成；真实 QCE 导出与真实云模型效果仍待验收。
+尚未实现 `MergeTopics`、控制器用 Jev 选择下一步动作、embedding 候选筛选，以及 eval 的 `score/calibrate/summarize` 和基线比较。当前仅支持 `--strategy ours`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成；真实 QCE 导出与真实云模型效果仍待验收。
 
 ### 现在就能运行（无需密钥）
 
@@ -47,12 +49,37 @@ cargo run -p chat-tldr -- --data-dir ./private/demo chats
 cargo run -p chat-tldr -- --data-dir ./private/demo messages --chat qq:group:synthetic-study
 cargo run -p chat-tldr -- --data-dir ./private/demo analyze --chat qq:group:synthetic-study --dry-run
 cargo run -p chat-tldr -- --data-dir ./private/demo inbox --chat qq:group:synthetic-study --html ./private/demo/inbox.html
+cargo run -p chat-tldr -- --data-dir ./private/demo stats
 cargo run -p chat-tldr-eval -- check-stream ./fixtures/jsonl/inbox.jsonl
 ```
 
 主 CLI 的 stdout 为 JSONL，`version` 的 `capabilities` 只列出已实现命令。`--dry-run` 只报告计划与密钥就绪情况，不联网、不写数据库或缓存；上述流程尚未执行模型分析，收件箱为空是正常结果。`config init` 不覆盖已有配置；`doctor` 只做离线检查，不联系云服务，缺 LLM key 时返回 4，但仍说明导入/查询是否可用。示例中的数据库、配置和 HTML 都留在被 Git 忽略的 `private/demo/`。
 
-`fixtures/` 全为人工合成数据；适配器已按上游字段与合成样例测试，真实 QCE 导出仍需实测。GUI 当前明确提示尚未实现并退出，不显示成功假象。
+`fixtures/` 全为人工合成数据；适配器已按上游字段与合成样例测试，真实 QCE 导出仍需实测。CSV 需独立人工填写，再用 `import-sheet <CSV> --out <新目录>` 生成 gold；列格式、UTF-8 与不覆盖规则见 [eval 使用说明](eval/README.md)。这一步不生成评分。
+
+### 启动原生 GUI
+
+在仓库根目录编译；Windows 调试程序位于 `target/debug/`：
+
+```powershell
+cargo build --workspace
+.\target\debug\chat-tldr-gui.exe --demo
+
+# 正常模式：与 CLI 共用一个数据目录；GUI 默认寻找同目录的 chat-tldr.exe
+.\target\debug\chat-tldr-gui.exe --cli .\target\debug\chat-tldr.exe --data-dir .\private\my-chat
+# 可额外传 --config C:\path\config.toml；不传则使用 <data-dir>/config.toml
+```
+
+`--demo` 仅展示合成内容，不启动 CLI、不写 GUI 偏好。正常模式通过 CLI 子进程执行导入、分析、查询和状态操作；只有完整且已展示的收件箱才能标为已读。详细使用边界见 [GUI 使用说明](apps/gui/README.md)。
+
+使用自己的聊天前，先在 CLI 初始化配置并写入自己的 QQ 身份；`--self-uin` 是你本人的 QQ 号，`--self-uid` 是可选的 QQNT UID：
+
+```powershell
+.\target\debug\chat-tldr.exe --data-dir .\private\my-chat config init
+.\target\debug\chat-tldr.exe --data-dir .\private\my-chat import "C:\path\group.json" --self-uin "<你的QQ号>"
+```
+
+GUI 的导入只选择已完成的导出文件；GUI 不填写密钥或 QQ 身份。密钥按下节设置在启动 GUI 的进程环境中；首次云端分析需确认聊天原文会发送给配置的服务。仅打开 GUI、导入和查询不调用模型。`doctor` 检查本地配置和环境变量是否就绪，不验证网络连通性。
 
 ### 使用真实模型
 
@@ -71,9 +98,16 @@ cargo run -p chat-tldr -- --data-dir ./private/demo inbox --chat $chatId --html 
 cargo run -p chat-tldr -- --data-dir ./private/demo feedback "<INSIGHT_ID>" --useful
 cargo run -p chat-tldr -- --data-dir ./private/demo resolve "<INSIGHT_ID>" --done
 cargo run -p chat-tldr -- --data-dir ./private/demo mark-read --chat $chatId --up-to "<VIEW_CURSOR>"
+
+# RUN_ID 来自那次 analyze 的事件信封；这里的新命令有各自的 run_id
+cargo run -p chat-tldr -- --data-dir ./private/demo stats --run "<RUN_ID>"
+cargo run -p chat-tldr -- --data-dir ./private/demo decisions --run "<RUN_ID>"
+cargo run -p chat-tldr -- --data-dir ./private/demo jev-log --run "<RUN_ID>"
 ```
 
 反馈只调整同一优先级内的排序，处理状态与已读游标分别维护；查看或分析不会自动标为已读。HTML 可直接用浏览器打开，不需要 GUI。预算按配置单价保守估算，不是服务端账单的硬上限。
+
+历史查询无需密钥。`stats --chat <ID>` 是该会话的累计统计，`--run` 是已保存分析运行的统计。`calls` 统计逻辑模型调用，包含失败调用但不展开内部 HTTP 重试；token/费用仅记录服务响应已报告的用量，缓存命中不重复计费，不能当作账单对账。旧记录缺少精确统计或 subject 时会告警；`unknown/unavailable` 的回答不能用于校准对齐。空工作分析和 dry-run 不写运行历史。
 
 LLM 的 `base_url`、模型名和接口格式（`openai` / `anthropic`）在 `config.toml` 中配置；默认模板见 [config.example.toml](config.example.toml)，完整参数见 [CLI_PROTOCOL](docs/CLI_PROTOCOL.md) §7。
 
@@ -139,8 +173,9 @@ How it differs from pasting the chat into a general-purpose LLM:
 - A bounded controller with rule-based action selection, SQLite checkpoints, response caching and usage records
 - Synchronous Jev / DeepSeek clients, OpenAI / Anthropic-compatible interfaces, and Mock-based tests
 - CLI analysis, inbox, feedback, lifecycle and mark-read commands, plus standalone HTML export
+- Read-only run statistics, decision replay and model-answer history; annotation CSV export/import and protocol validation
 
-`ours` currently provides this basic workflow. Topic merging, Jev-based controller action selection, embedding candidates, and the `stats/decisions/jev-log` query commands are not implemented. GUI and evaluation metrics are also pending; `eval check-stream` only validates protocol streams. Real export and cloud-model acceptance remains outstanding.
+`ours` currently provides this basic workflow. Topic merging, Jev-based controller action selection, embedding candidates and evaluation scoring remain pending. The native GUI has passed Windows synthetic-data smoke checks, screenshot review and egui pointer interaction tests. Real export and cloud-model acceptance remains outstanding.
 
 ### Usage
 

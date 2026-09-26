@@ -1,13 +1,16 @@
+mod annotation;
+mod output;
+mod sheet;
+mod stream;
+
 use std::{
-    fs::File,
-    io::{self, BufRead, BufReader, Write},
+    io::{self, Write},
     path::PathBuf,
     process::ExitCode,
 };
 
-use chat_tldr_core::{CliEvent, EventBody, EventStreamValidator};
 use clap::{Parser, Subcommand};
-use serde_json::{Value, json};
+use serde_json::json;
 
 #[derive(Parser)]
 #[command(
@@ -31,12 +34,39 @@ enum Command {
         #[arg(long, allow_hyphen_values = true)]
         exit_code: Option<i32>,
     },
+    /// Export a successful, complete messages JSONL stream as an unlabelled CSV.
+    ExportSheet {
+        #[arg(long)]
+        messages: PathBuf,
+        /// New CSV file; existing outputs are never overwritten.
+        #[arg(long)]
+        out: PathBuf,
+        /// Actual process exit code, if recorded; otherwise check stream consistency only.
+        #[arg(long, allow_hyphen_values = true)]
+        exit_code: Option<i32>,
+    },
+    /// Validate a labelled CSV and publish messages.jsonl and items.jsonl together.
+    ImportSheet {
+        sheet: PathBuf,
+        /// New gold directory; must not already exist.
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
     let Args { command } = Args::parse();
-    let Command::CheckStream { path, exit_code } = command;
-    let summary = check_stream(&path, exit_code);
+    let summary = match command {
+        Command::CheckStream { path, exit_code } => stream::check_stream(&path, exit_code),
+        Command::ExportSheet {
+            messages,
+            out,
+            exit_code,
+        } => sheet::export(&messages, &out, exit_code)
+            .unwrap_or_else(|error| json!({"command":"export-sheet","valid":false,"error":error})),
+        Command::ImportSheet { sheet, out } => sheet::import(&sheet, &out)
+            .unwrap_or_else(|error| json!({"command":"import-sheet","valid":false,"error":error})),
+    };
     if let Some(error) = summary["error"].as_str() {
         eprintln!("{error}");
     }
@@ -54,45 +84,4 @@ fn main() -> ExitCode {
     } else {
         ExitCode::FAILURE
     }
-}
-
-fn check_stream(path: &std::path::Path, process_exit_code: Option<i32>) -> Value {
-    let mut validator = EventStreamValidator::new();
-    let mut events = 0_u64;
-    let mut run_id = None;
-    let mut done_exit_code = None;
-    let result = (|| -> Result<(), String> {
-        let file =
-            File::open(path).map_err(|error| format!("cannot open {}: {error}", path.display()))?;
-        for (index, line) in BufReader::new(file).lines().enumerate() {
-            let line_number = index + 1;
-            let line = line
-                .map_err(|error| format!("line {line_number}: cannot read UTF-8 JSONL: {error}"))?;
-            let event: CliEvent = serde_json::from_str(&line)
-                .map_err(|error| format!("line {line_number}: invalid event JSON: {error}"))?;
-            validator
-                .accept(&event)
-                .map_err(|error| format!("line {line_number}: {error}"))?;
-            run_id.get_or_insert_with(|| event.run_id.clone());
-            events += 1;
-            if let EventBody::Done(done) = event.body {
-                done_exit_code = Some(done.exit_code);
-            }
-        }
-        // The fallback checks file consistency only. With no done event, finish
-        // reports MissingDone before consulting this sentinel exit code.
-        validator
-            .finish(process_exit_code.or(done_exit_code).unwrap_or(0))
-            .map_err(|error| error.to_string())
-    })();
-    json!({
-        "command": "check-stream",
-        "valid": result.is_ok(),
-        "events": events,
-        "run_id": run_id,
-        "done_exit_code": done_exit_code,
-        "process_exit_code": process_exit_code,
-        "exit_code_source": if process_exit_code.is_some() { "argument" } else { "stream_only" },
-        "error": result.err(),
-    })
 }

@@ -6,7 +6,7 @@
 
 当前打通 `import → analyze → inbox → feedback/resolve/mark-read`，含 HTML 输出、SQLite 检查点、同步 Jev/LLM 客户端和离线 Mock。本轮 `ours` 先提供基本闭环：控制器按规则选择动作；小积压直接抽取，其余按时间与回复形成 burst，由规则或 Decider 归属话题。
 
-完整策略仍有缺口：MergeTopics、控制器用 Jev 选择动作、embedding 候选排序、模糊归属的 LLM 复核、跨 burst 的 @ 关系、纯占位刷屏压缩及相关阈值调优尚未接入。配置文件保留对应预定参数，不代表全部已生效。`stats/decisions/jev-log` 查询命令、GUI、指标评估也尚未提供；运行中的 decision/stats 事件和内部决策日志已经存在。不能把本轮 Mock 通过视为真实聊天分类质量验证。
+完整策略仍有缺口：MergeTopics、控制器用 Jev 选择动作、embedding 候选排序、模糊归属的 LLM 复核、跨 burst 的 @ 关系、纯占位刷屏压缩及相关阈值调优尚未接入。配置文件保留对应预定参数，不代表全部已生效。`stats/decisions/jev-log` 已提供只读历史查询；原生 GUI 接入中，截图与交互验收尚未完成。eval 已提供标注表格往返和协议检查，尚无指标评分。不能把 Mock 通过视为真实聊天分类质量验证。
 
 ## 执行阶段
 
@@ -44,6 +44,16 @@
 ## 用户状态
 
 resolve 只设置 lifecycle；feedback 只替换当前有效评价。相同值重复调用不改变状态。偏好权重从当前有效评价重算，旧评价替换后不再贡献；排序调整限制在 ±0.5，不能改变 P0–P3 层级。
+
+## 历史记录与统计口径
+
+- `store/history.rs` 在只读事务中查询历史；CLI 的 `history.rs` 只负责命令参数与 JSONL 包装。`decisions`、`jev-log` 的首个 ack 指向历史 run，后续信封属于这次查询；未知 run 返回 `E_RUN_NOT_FOUND` / 3。
+- 正常结束和已处理的全局失败分支用 `finish_with_stats` 在一个事务中保存 RunStats 与结束状态。DB v1 不改表结构：精确计数放 `meta` 的 `history.run_stats.v1:<run>`；decision confidence 放 `observation_json._history_v1`；Jev model/provider/cache_hit 放 `subject_json._history_v1`。
+- 每条新回答记录真实 message 或 burst 归属；burst 包含消息 ID 和候选 topic ID。命中模型缓存也写本轮回答，以便重放；降级后的 model 取实际响应模型，不能继续标为 Jev。
+- `usage` 按 stage/provider/model 聚合。`calls` 是逻辑模型调用数，包括返回失败的调用，不等于内部 HTTP 重试次数；token 和费用仅包含提供方返回的已知用量。缓存命中计入 `cache_hits`，本轮 token/费用记 0。这是本地用量估算，不是账单对账。
+- 旧运行或异常中断可能没有精确计数快照：返回仍可核实的存量计数，无法恢复的 insight 更新/验证计数记 0 并发 `W_HISTORY_INCOMPLETE`，不能解释为这些事件从未发生。耗时止于保存的结束或 heartbeat 时间。
+- 旧回答没有可靠 subject 时返回 `kind=unknown,id=unavailable`，发 `W_SUBJECT_UNAVAILABLE`，并在 ack 中计数；不猜测消息 ID。模型名无法从日志或缓存确认时为 `unknown` 并告警，旧 decision confidence 缺失时为 null。
+- dry-run、无待处理消息的 analyze 仍不写 run；它们的调用 ID 不能作为已保存历史查询。全局统计与按 chat 聚合不触发模型，也不创建不存在的数据库。
 
 ## 验收重点
 

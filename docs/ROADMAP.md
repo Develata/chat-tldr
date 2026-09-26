@@ -22,9 +22,11 @@
 - QCE Docker 字段核对与导出说明见 [QCE_DOCKER_EXPORT.md](QCE_DOCKER_EXPORT.md)，对应 [template-docker-export.json](../fixtures/qce/template-docker-export.json) 为手写合成模板。实际输入需在 QCE 选择 JSON、关闭流式导出、完成后下载到本机；真实容器导出尚未验收。
 - 实际调用模型需要环境变量密钥；聊天原文会发送到配置的云服务。无密钥预演、配置及 HTML 导出示例见 [README](../README.md)。
 - CI 必需检查名保持 `fmt`、`clippy`、`test`。fmt 在 Linux；clippy 和 test 各按 core/qce/engine/cli/gui/eval 六模块在 Windows 并行，`fail-fast: false`，使用 `--locked`。每次 PR/main push 全量覆盖六模块，公共依赖变更自然覆盖下游；共享规划脚本 `scripts/ci/modules.ps1` 校验 workspace 成员，新增包未登记时失败。汇总检查只接受规划与全部模块成功，失败、取消或意外跳过均不能通过。外部 Actions 固定 40 位提交，工作流仅申请只读权限。实际远程运行结果另行核验；Linux/macOS GUI 构建尚未验证。
-- 当前只支持 `--strategy ours`，它是基础闭环，**不代表完整 PIPELINE 策略已实现**。`MergeTopics`、控制器通过 Jev 选择下一步动作、embedding 候选筛选，以及 `stats/decisions/jev-log` 查询 CLI 均未实现；动作选择目前使用确定性规则。
-- GUI 仍是明确报未实现的占位入口。eval 只有 `check-stream` 协议文件校验；标注导入导出、指标评分、基线比较和校准尚未实现。QCE 管理组件也仍由同学后续接入。
-- 后续优先完成真实单文件导出兼容性验收、获授权的云模型联调、GUI 接入与评估材料。Mock 与本地 HTTP 测试不能证明真实模型质量；合并前由主线统一运行 workspace 的 fmt、clippy 和测试。
+- `stats/decisions/jev-log` 历史查询 CLI 已实现，查询不建库、不调用模型；新记录保存可重放的决策与真实 subject。旧记录缺失精确计数或归属时明确告警，不能用于伪造评估对齐。
+- 当前只支持 `--strategy ours`，它是基础闭环，**不代表完整 PIPELINE 策略已实现**。`MergeTopics`、控制器通过 Jev 选择下一步动作、embedding 候选筛选均未实现；动作选择目前使用确定性规则。
+- 原生 GUI 已通过 CLI 子进程接入导入、分析、收件箱、反馈/处理/已读和历史查询；Windows 合成数据联调、浅/深色及窄窗口截图和 egui 指针交互测试通过，详见 [GUI_VERIFICATION](GUI_VERIFICATION.md)。真实数据和云模型验收仍待完成。eval 已实现 `check-stream`、`export-sheet` / `import-sheet`，尚无 `score/calibrate/summarize`、基线比较或校准结果。QCE 管理组件仍由同学后续接入。
+- 统计 `calls` 是逻辑模型调用数，token/费用是已报告用量，缓存不重复计费；不能据此宣称实际云账单或模型质量已验证。本批已运行 `codegraph sync`，索引保留在本地。
+- 本批 workspace 219 项测试、fmt 与严格 clippy 通过；GUI 最后调整后另做 18 项定向回归。后续优先完成真实单文件导出兼容性验收、获授权的云模型联调与评估材料。Mock 与本地 HTTP 测试不能证明真实模型质量；合并前仍以当前提交的 CI 为准。
 - 下方多日清单保留为原始范围参考，时间与负责人以本页“当前安排”和 TEAM_ASSIGNMENTS 为准；混合多个功能的条目拆开标注，未完成项不作已交付宣传。
 
 ## 里程碑
@@ -42,7 +44,7 @@
 ### 上午
 
 **@Develata**
-- [x] 建六成员 workspace 并锁定依赖：`crates/core`、`crates/qce`、`crates/engine`、`apps/cli`、`apps/gui`、`eval`；GUI 目前仅占位
+- [x] 建六成员 workspace 并锁定依赖：`crates/core`、`crates/qce`、`crates/engine`、`apps/cli`、`apps/gui`、`eval`；GUI 接入与验收状态见上方
 - [x] 在 `crates/core` 实现冻结类型、`ImportBatch` / `ChatMeta`、事件 payload 与流校验，附序列化测试
 - [x] `.github/workflows/ci.yml`：保留 `fmt`、`clippy`、`test` 必需检查名称；clippy/test 分模块并行后汇总，覆盖全部 workspace 成员
 - [x] QCE 合成小样例、Docker 格式合成模板，以及 `fixtures/jsonl/` 下的分析、收件箱、会话与消息协议样例
@@ -83,7 +85,7 @@
 - [ ] GUI 骨架：三栏布局 + 中文字体 + 读取 `fixtures/jsonl/*.jsonl` 并展示
 
 **同学 C**
-- [ ] `eval` crate：`export-sheet` / `import-sheet`
+- [x] `eval` crate：`export-sheet` / `import-sheet`（由 Codex 主线实现；C 继续负责合成场景与人工验收材料）
 - [ ] 开始标注（话题 + 消息级标签）
 
 ## 第 2 天
@@ -132,7 +134,7 @@
 3. LLM 复核档（`tau_low ≤ confidence < tau_high` 改为直接归入最高项）
 4. 反馈个性化（按钮保留，只记录不生效）
 5. B1 基线
-6. GUI 决策日志面板（当前可录制 analyze 的 decision 事件；`chat-tldr decisions` 查询尚未实现）
+6. GUI 决策日志面板（CLI `chat-tldr decisions --run <ID>` 已可重放历史；GUI 展示验收另计）
 
 **原定交付底线**：证据校验、幂等导入、@我 规则、JSONL 协议、Ours vs B0 对比、Jev 校准曲线。前四项已有基础实现；后两项仍待评估工具与数据，不能以 Mock 测试替代结果。
 

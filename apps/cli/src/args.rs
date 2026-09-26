@@ -49,6 +49,12 @@ pub enum Command {
     Resolve(ResolveArgs),
     /// Mark only the safe prefix returned by inbox as reviewed.
     MarkRead(MarkReadArgs),
+    /// Replay a saved run's controller decisions.
+    Decisions(RunArgs),
+    /// Export saved model answers and their subject mappings.
+    JevLog(RunArgs),
+    /// Query stored usage and counts without contacting providers.
+    Stats(StatsArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -82,6 +88,20 @@ pub struct MessagesArgs {
     /// Exclusive RFC 3339 timestamp, including an explicit timezone offset.
     #[arg(long, value_name = "TIME")]
     pub until: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct RunArgs {
+    #[arg(long, value_name = "RUN_ID")]
+    pub run: String,
+}
+
+#[derive(Debug, Args)]
+pub struct StatsArgs {
+    #[arg(long, value_name = "ID", conflicts_with = "run")]
+    pub chat: Option<String>,
+    #[arg(long, value_name = "RUN_ID")]
+    pub run: Option<String>,
 }
 
 #[derive(Debug, Args)]

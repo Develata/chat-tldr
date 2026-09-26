@@ -1,6 +1,7 @@
 mod analyze;
 mod args;
 mod commands;
+mod history;
 mod html;
 mod output;
 mod paths;

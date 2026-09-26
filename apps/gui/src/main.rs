@@ -1,6 +1,50 @@
-fn main() {
-    eprintln!(
-        "GUI is not implemented yet. Use chat-tldr for offline import and queries; design fixtures are in fixtures/jsonl/."
-    );
-    std::process::exit(2);
+mod app;
+mod appearance;
+mod bridge;
+mod model;
+mod prefs;
+mod ui;
+
+use clap::Parser;
+use std::path::PathBuf;
+
+#[derive(Parser)]
+#[command(version, about = "群聊省流桌面端；通过本地 CLI 读写聊天数据")]
+struct Args {
+    /// Path to chat-tldr; defaults to the executable beside this GUI.
+    #[arg(long)]
+    cli: Option<PathBuf>,
+    #[arg(long)]
+    data_dir: Option<PathBuf>,
+    #[arg(long)]
+    config: Option<PathBuf>,
+    /// Show synthetic fixtures; never starts a CLI or writes preferences.
+    #[arg(long)]
+    demo: bool,
+    #[arg(long, hide = true)]
+    screenshot: Option<PathBuf>,
+    #[arg(long, hide = true, requires = "screenshot")]
+    quit_after_capture: bool,
+    #[arg(long, hide = true, default_value_t = 1280.0)]
+    width: f32,
+    #[arg(long, hide = true, default_value_t = 820.0)]
+    height: f32,
+    #[arg(long)]
+    dark: bool,
+}
+
+fn main() -> eframe::Result {
+    let args = Args::parse();
+    let options = eframe::NativeOptions {
+        viewport: eframe::egui::ViewportBuilder::default()
+            .with_inner_size([args.width, args.height])
+            .with_min_inner_size([760.0, 520.0]),
+        ..Default::default()
+    };
+    let startup = app::Startup::load(args);
+    eframe::run_native(
+        "群聊省流",
+        options,
+        Box::new(move |cc| Ok(Box::new(app::App::new(cc, startup)))),
+    )
 }

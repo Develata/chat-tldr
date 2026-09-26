@@ -245,7 +245,11 @@ impl Runtime<'_, '_> {
         }
         unreachable!("bounded retry returns")
     }
-    fn decide(&mut self, request: &DecisionRequest) -> Result<DecisionResponse> {
+    fn decide(
+        &mut self,
+        request: &DecisionRequest,
+        subjects: &BTreeMap<String, AnswerSubject>,
+    ) -> Result<DecisionResponse> {
         if self.cancel.load(Ordering::Relaxed) {
             return Err(EngineError::Cancelled);
         }
@@ -279,46 +283,58 @@ impl Runtime<'_, '_> {
         )
         .to_hex()
         .to_string();
-        let response = if let Some(response) = self.session.cache_get::<DecisionResponse>(&key)? {
-            self.usage("decide", provider, decider.name(), &response.usage, true)?;
-            response
-        } else {
-            self.reserve(
-                prompt.len() + 512,
-                prepared.as_ref().map_or(0, |p| p.max_tokens),
-                primary.is_some(),
-            )?;
-            let response = match decider.decide(request) {
-                Ok(response) => response,
-                Err(error) if primary.is_some() => {
-                    self.usage("decide", provider, decider.name(), &error.usage(), false)?;
-                    self.fallback_active = true;
-                    return self.decide(request);
-                }
-                Err(error) => {
-                    self.usage("decide", provider, decider.name(), &error.usage(), false)?;
-                    return Err(error.into());
-                }
+        let (response, cache_hit) =
+            if let Some(response) = self.session.cache_get::<DecisionResponse>(&key)? {
+                self.usage("decide", provider, decider.name(), &response.usage, true)?;
+                (response, true)
+            } else {
+                self.reserve(
+                    prompt.len() + 512,
+                    prepared.as_ref().map_or(0, |p| p.max_tokens),
+                    primary.is_some(),
+                )?;
+                let response = match decider.decide(request) {
+                    Ok(response) => response,
+                    Err(error) if primary.is_some() => {
+                        self.usage("decide", provider, decider.name(), &error.usage(), false)?;
+                        self.fallback_active = true;
+                        return self.decide(request, subjects);
+                    }
+                    Err(error) => {
+                        self.usage("decide", provider, decider.name(), &error.usage(), false)?;
+                        return Err(error.into());
+                    }
+                };
+                self.usage("decide", provider, decider.name(), &response.usage, false)?;
+                crate::decider::validate_response(request, &response)?;
+                self.session
+                    .cache_put(&key, "decide", provider, decider.name(), &response)?;
+                (response, false)
             };
-            self.usage("decide", provider, decider.name(), &response.usage, false)?;
-            crate::decider::validate_response(request, &response)?;
-            self.session
-                .cache_put(&key, "decide", provider, decider.name(), &response)?;
-            response
-        };
         for (id, answer) in &response.answers {
             let (qtype, confidence) = match answer {
                 Answer::Noul { .. } => ("noul", None),
                 Answer::Choice { confidence, .. } => ("choice", Some(*confidence)),
                 Answer::Score { confidence, .. } => ("score", Some(*confidence)),
             };
+            let subject = subjects
+                .get(id)
+                .ok_or_else(|| {
+                    EngineError::Input("decision answer is missing its source mapping".into())
+                })?
+                .clone();
             self.session.record_answer(
-                &key,
-                id,
-                qtype,
-                &serde_json::to_value(answer)?,
-                confidence,
-                &request.state,
+                &JevAnswerPayload {
+                    model: response.model.clone(),
+                    request_key: key.clone(),
+                    question_id: id.clone(),
+                    qtype: qtype.into(),
+                    answer: serde_json::to_value(answer)?,
+                    confidence,
+                    subject,
+                },
+                provider,
+                cache_hit,
             )?;
         }
         Ok(response)
@@ -349,11 +365,19 @@ impl Runtime<'_, '_> {
     }
     fn classify_batch(&mut self, messages: &[StoredMessage], chat: &ChatMeta) -> Result<Signals> {
         let mut questions = BTreeMap::new();
+        let mut subjects = BTreeMap::new();
         let mut rows = Vec::new();
         for (n, message) in messages.iter().enumerate() {
             let reference = format!("n{}", n + 1);
+            let subject = AnswerSubject {
+                kind: SubjectKind::Message,
+                id: message.message.id.to_string(),
+                message_ids: Vec::new(),
+                candidates: Vec::new(),
+            };
             rows.push(json!({"ref":reference,"message_id":message.message.id,"text":crate::render::render(&message.message)}));
             for label in ["todo", "announcement"] {
+                subjects.insert(format!("{reference}_{label}"), subject.clone());
                 questions.insert(
                     format!("{reference}_{label}"),
                     Question::Noul {
@@ -365,6 +389,7 @@ impl Runtime<'_, '_> {
                 );
             }
             if extract::mentions_me(&message.message, chat) {
+                subjects.insert(format!("{reference}_needs_action"), subject);
                 questions.insert(
                     format!("{reference}_needs_action"),
                     Question::Noul {
@@ -394,10 +419,16 @@ impl Runtime<'_, '_> {
                 ],
             },
         );
-        let response = self.decide(&DecisionRequest {
-            state: json!({"new_messages":rows}),
-            questions,
-        })?;
+        for label in ["chitchat", "urgency"] {
+            subjects.insert(label.into(), burst_subject(messages, &[])?);
+        }
+        let response = self.decide(
+            &DecisionRequest {
+                state: json!({"new_messages":rows}),
+                questions,
+            },
+            &subjects,
+        )?;
         let mut signals = Signals::default();
         for (n, message) in messages.iter().enumerate() {
             for (label, map) in [
@@ -449,7 +480,14 @@ impl Runtime<'_, '_> {
                 },
             )]),
         };
-        let response = self.decide(&request)?;
+        let subject = burst_subject(
+            messages,
+            &candidates
+                .iter()
+                .map(|topic| topic.id.clone())
+                .collect::<Vec<_>>(),
+        )?;
+        let response = self.decide(&request, &BTreeMap::from([("topic".into(), subject)]))?;
         if let Some(Answer::Choice {
             choice, confidence, ..
         }) = response.answers.get("topic")
@@ -462,4 +500,21 @@ impl Runtime<'_, '_> {
         }
         Ok(None)
     }
+}
+
+fn burst_subject(messages: &[StoredMessage], candidates: &[TopicId]) -> Result<AnswerSubject> {
+    let message_ids: Vec<_> = messages
+        .iter()
+        .map(|message| message.message.id.clone())
+        .collect();
+    let id = format!(
+        "b_{}",
+        blake3::hash(serde_json::to_string(&message_ids)?.as_bytes()).to_hex()
+    );
+    Ok(AnswerSubject {
+        kind: SubjectKind::Burst,
+        id,
+        message_ids,
+        candidates: candidates.to_vec(),
+    })
 }

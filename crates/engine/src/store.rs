@@ -15,6 +15,8 @@ use crate::{EngineError, Result, render::render};
 const MIGRATION: &str = include_str!("../migrations/0001_initial.sql");
 mod analysis;
 pub use analysis::*;
+mod history;
+pub use history::{History, decisions, jev_log, stats};
 mod inbox;
 pub use inbox::{
     InboxOptions, InboxSnapshot, decay_preferences, feedback, inbox, mark_read, resolve,

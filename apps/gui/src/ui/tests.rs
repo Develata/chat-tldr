@@ -1,0 +1,211 @@
+use super::*;
+use crate::model::Capabilities;
+
+/// Runs the production renderer without an app/bridge, so emitted actions cannot
+/// start a CLI process. All clicks use the text actually painted by egui.
+struct Harness {
+    ctx: egui::Context,
+    state: UiState,
+    model: GuiModel,
+    size: egui::Vec2,
+    demo: bool,
+    tick: u32,
+}
+
+impl Harness {
+    fn new(width: f32, demo: bool) -> Self {
+        let ctx = egui::Context::default();
+        crate::appearance::theme(&ctx, false);
+        let mut model = GuiModel::demo();
+        model.capabilities = Some(capabilities());
+        Self {
+            ctx,
+            state: UiState::new(Preferences {
+                cli: "chat-tldr.exe".into(),
+                data_dir: "synthetic-test-data".into(),
+                ..Default::default()
+            }),
+            model,
+            size: egui::vec2(width, 1000.0),
+            demo,
+            tick: 0,
+        }
+    }
+
+    fn frame(&mut self, events: Vec<egui::Event>) -> (egui::FullOutput, Vec<Action>) {
+        self.tick += 1;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, self.size)),
+            time: Some(f64::from(self.tick) / 60.0),
+            events,
+            ..Default::default()
+        };
+        let mut result = (Vec::new(), None);
+        let mut output = self.ctx.run_ui(input, |ui| {
+            result = render(ui, &mut self.state, &self.model, false, self.demo);
+        });
+        // This headless harness inspects shapes and has no GPU texture backend.
+        output.textures_delta.clear();
+        if let Some(request_id) = result.1 {
+            self.model.mark_inbox_displayed(request_id);
+        }
+        (output, result.0)
+    }
+
+    fn settled(&mut self) -> egui::FullOutput {
+        // Windows and panels need a prior layout for hit testing. No actions are
+        // synthesized here: only pointer events below can change test UI state.
+        self.frame(Vec::new());
+        self.frame(Vec::new()).0
+    }
+
+    fn click(&mut self, label: &str) -> Vec<Action> {
+        let output = self.settled();
+        let pos = text_position(&output, label)
+            .unwrap_or_else(|| panic!("painted control not found: {label}"));
+        let mut actions = self.frame(vec![egui::Event::PointerMoved(pos)]).1;
+        for pressed in [true, false] {
+            actions.extend(
+                self.frame(vec![egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                }])
+                .1,
+            );
+        }
+        actions
+    }
+}
+
+fn capabilities() -> Capabilities {
+    Capabilities {
+        commands: [
+            "chats",
+            "inbox",
+            "import",
+            "analyze",
+            "mark-read",
+            "feedback",
+            "resolve",
+            "stats",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect(),
+        strategies: vec!["ours".into()],
+        deciders: vec!["jev".into()],
+    }
+}
+
+fn text_position(output: &egui::FullOutput, label: &str) -> Option<egui::Pos2> {
+    fn collect(shape: &egui::Shape, clip: egui::Rect, label: &str, found: &mut Vec<egui::Pos2>) {
+        match shape {
+            egui::Shape::Text(text) if text.galley.job.text == label => {
+                let visible = text.visual_bounding_rect().intersect(clip);
+                if visible.is_positive() {
+                    found.push(visible.center());
+                }
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect(shape, clip, label, found);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut positions = Vec::new();
+    for shape in &output.shapes {
+        collect(&shape.shape, shape.clip_rect, label, &mut positions);
+    }
+    // Toolbar labels can also occur as window/panel headings. Prefer the top
+    // painted occurrence, which is the toolbar's clickable control.
+    positions.into_iter().min_by(|a, b| a.y.total_cmp(&b.y))
+}
+
+#[test]
+fn pointer_clicks_open_settings_change_theme_and_toggle_logs() {
+    let mut gui = Harness::new(1400.0, false);
+    assert!(!gui.state.logs);
+    assert!(gui.click("运行记录").is_empty());
+    assert!(gui.state.logs);
+    assert!(text_position(&gui.settled(), "每类保留最近 200 条").is_some());
+    assert!(gui.click("运行记录").is_empty());
+    assert!(!gui.state.logs);
+
+    assert!(!gui.state.settings);
+    assert!(gui.click("设置").is_empty());
+    assert!(gui.state.settings);
+    assert!(!gui.state.draft.dark);
+    assert!(gui.click("深色外观").is_empty());
+    assert!(gui.state.draft.dark);
+    assert!(gui.ctx.global_style().visuals.dark_mode);
+    assert_eq!(gui.click("保存并重新连接"), vec![Action::SaveSettings]);
+}
+
+#[test]
+fn narrow_layout_tabs_respond_to_pointer_clicks() {
+    let mut gui = Harness::new(900.0, false);
+    assert_eq!(gui.state.lane, 0);
+    assert!(gui.click("P1 值得关注  0").is_empty());
+    assert_eq!(gui.state.lane, 1);
+    assert!(text_position(&gui.settled(), "P1  值得关注 · 0").is_some());
+    assert!(gui.click("P2 / P3 参考  0").is_empty());
+    assert_eq!(gui.state.lane, 2);
+    assert!(gui.click("P0 必须处理  1").is_empty());
+    assert_eq!(gui.state.lane, 0);
+    assert!(text_position(&gui.settled(), "有用").is_some());
+}
+
+#[test]
+fn demo_disables_mutations_even_with_capabilities_and_displayed_cursor() {
+    let mut gui = Harness::new(1400.0, true);
+    gui.settled();
+    assert!(gui.model.handshake_ok());
+    assert!(gui.model.mark_read_cursor().is_some());
+    for label in [
+        "导入 JSON",
+        "分析新消息",
+        "标为已读",
+        "有用",
+        "不重要",
+        "完成",
+        "忽略",
+        "包含已读",
+        "包含已处理",
+    ] {
+        assert!(gui.click(label).is_empty(), "demo enabled {label}");
+    }
+    assert!(!gui.state.all);
+    assert!(!gui.state.resolved);
+    assert!(gui.click("设置").is_empty());
+    assert!(gui.state.settings);
+    assert!(gui.click("保存并重新连接").is_empty());
+}
+
+#[test]
+fn filters_require_handshake_and_capabilities_then_emit_refresh() {
+    let mut gui = Harness::new(1400.0, false);
+    gui.model.capabilities = None;
+    for label in ["包含已读", "包含已处理"] {
+        assert!(gui.click(label).is_empty());
+    }
+    assert!(!gui.state.all);
+    assert!(!gui.state.resolved);
+
+    let mut missing_inbox = capabilities();
+    missing_inbox.commands.retain(|command| command != "inbox");
+    gui.model.capabilities = Some(missing_inbox);
+    assert!(gui.click("包含已读").is_empty());
+    assert!(!gui.state.all);
+
+    gui.model.capabilities = Some(capabilities());
+    assert_eq!(gui.click("包含已读"), vec![Action::Refresh]);
+    assert!(gui.state.all);
+    assert_eq!(gui.click("包含已处理"), vec![Action::Refresh]);
+    assert!(gui.state.resolved);
+    assert_eq!(gui.click("包含已读"), vec![Action::Refresh]);
+    assert!(!gui.state.all);
+}

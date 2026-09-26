@@ -9,7 +9,11 @@ publish.workspace = true
 [dependencies]
 chat-tldr-core.workspace = true
 clap.workspace = true
+chrono.workspace = true
+csv = "1"
+serde.workspace = true
 serde_json.workspace = true
+tempfile = "3"
 
 [lints]
 workspace = true

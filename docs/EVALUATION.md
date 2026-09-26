@@ -3,6 +3,12 @@
 > 用途：定义要对比的基线、指标、标注规范和实验流程，保证 3 天后能拿出可信、可复现的数字。
 > 读者：同学 C（主要执行者）、@Develata（提供 `--strategy` 等开关）、写报告的所有人。
 
+## 当前可运行范围
+
+`chat-tldr-eval` 已实现 `check-stream`、`export-sheet`、`import-sheet`，分别负责 CLI 事件流校验与人工标注 CSV 往返。`score`、`calibrate`、`summarize`、基线策略与下文指标计算尚未实现；本页指标和完整实验流程是验收目标，空表不代表已得到实测结果。Codex 负责工具实现，同学 C 负责合成场景、人工标注和验收材料。
+
+主 CLI 已支持 `stats`、`decisions --run`、`jev-log --run`，可读取实际运行记录。真实导出与真实云模型效果仍待验收；Mock、协议检查、表格往返通过都不能替代质量评估。
+
 ## 1. 要回答的问题
 
 1. 话题拆分比“不拆”或“固定切块”更好吗？Jev 归属判断比纯相似度聚类更好吗？
@@ -14,7 +20,7 @@
 
 ## 2. 系统与基线
 
-**所有系统使用同一个 LLM（DeepSeek `deepseek-flash`，关闭 thinking 模式）、同一份配置、temperature = 0。** 所有系统都要求输出同一套 JSON（items + 证据引用），这样才能用同一套指标比较。
+**计划中的对照实验使用同一个 LLM（DeepSeek `deepseek-flash`，关闭 thinking 模式）、同一份配置、temperature = 0。** 所有系统都要求输出同一套 JSON（items + 证据引用），这样才能用同一套指标比较。当前 CLI 仅接受 `--strategy ours`；表中其他策略是待实现目标。
 
 | 名称 | CLI 参数 | 说明 |
 |---|---|---|
@@ -80,6 +86,7 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
 - 输入/输出 token、估算费用（来自 `stats` 事件）、端到端耗时。
 - **增量实验**：把一段聊天分成前后两批（两次导出有 20% 重叠），先导入并分析第一批，再导入第二批。比较 Ours 的第二次 `analyze` 与 B0 对“全部未读”重新总结的成本和耗时。同时验证幂等：重叠部分的 `inserted` 应为 0。
 - 缓存：报告冷启动（空缓存）数字；热缓存数字只作参考。
+- `stats.usage.calls` 是逻辑模型调用数，包括失败调用，不展开内部 HTTP 重试；token/费用仅含服务已报告用量，缓存命中为零新增费用。费用属于本地估算，不能宣称与云账单完全相等。旧运行缺精确计数时的 `W_HISTORY_INCOMPLETE` 必须保留并排除不适用的比较。
 
 ### 3.7 Jev 校准
 
@@ -88,6 +95,7 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
   - `n{i}_todo`、`n{i}_announcement` 等 noul：与消息级标注对齐。
 - 画**可靠性曲线**（10 个等宽区间，横轴预测概率，纵轴实际正确率），报告 **ECE** 和 **Brier score**。
 - 同样的图也画 LlmDecider 的“口头概率”，作为对照。
+- 按实际 `model` 区分 Jev 与降级 LLM 的回答；缓存命中也有本轮记录。`W_SUBJECT_UNAVAILABLE` 对应的 `kind=unknown,id=unavailable` 不能参与消息/话题对齐，须单独报告缺失数量，不能猜测 ID 或当成负例。
 - 用于调 `tau_high` / `tau_low`：选择在验证集上使切分 F1 最大、且 LLM 复核比例 ≤ 20% 的组合。
 - **风险**：Jev 官方文档说明中文精度低于英文（docs.typesafe.ai/models#language-support）。如果 ECE 明显偏高，报告里如实写明，并考虑：调整阈值、提高 LLM 复核比例。（提示词已统一用英文，见 Q-JEV-2。）
 
@@ -134,7 +142,9 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
 - 两人话题划分之间的 1-to-1 overlap；
 - 两人 item 之间的 F1（以一人为“标准答案”）。
 
-**F. 标注工具**：`chat-tldr-eval export-sheet` 把消息导出成 CSV（每行一条消息：message_id、时间、发送者、文本），用任意表格软件填写；`chat-tldr-eval import-sheet` 转回 `gold/*.jsonl`。不需要会用 Git 以外的任何工具。
+**F. 标注工具（已实现）**：先保存一次主 CLI `messages` 命令的完整 UTF-8 JSONL，包括末尾 done 与实际退出码；再执行 `chat-tldr-eval export-sheet --messages <JSONL> --out <新CSV> [--exit-code N]`。它不读数据库、不调用模型，跳过撤回消息，不预填模型判断。人工填写后用 `chat-tldr-eval import-sheet <CSV> --out <新目录>` 输出 `messages.jsonl` 和 `items.jsonl`。
+
+CSV 的 `thread/todo/announcement/items_json` 必须明确填写；无结论写 `[]`。原文列的 `text:` 防公式前缀应原样保留。两个命令都拒绝覆盖既有目标；表格字段、验证边界及 UTF-8 保存方法见 [eval/README.md](../eval/README.md)。省略 `--exit-code` 只能证明文件内部一致，不能证明真实子进程成功。
 
 ### 5.1 标注文件格式
 
@@ -148,7 +158,7 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
  "deadline":{"raw":"周五前","relation":"before","bound_date":"2026-09-25"},"importance":"P0"}
 ```
 
-## 6. 实验流程
+## 6. 实验流程（目标，评分命令尚未实现）
 
 每个系统使用独立的数据目录，避免缓存和状态互相影响。
 
@@ -162,13 +172,13 @@ chat-tldr --data-dir eval/private/runs/exp-01/ours/profile analyze --chat <CHAT_
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile inbox --chat <CHAT_ID> --include-rejected > eval/private/runs/exp-01/ours/inbox.jsonl
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile messages --chat <CHAT_ID> > eval/private/runs/exp-01/ours/messages.jsonl
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile jev-log --run <RUN_ID> > eval/private/runs/exp-01/ours/jev.jsonl
-# 3. 打分
+# 3. 未来评分入口；当前版本不支持以下命令
 chat-tldr-eval score --gold eval/private/gold/course-demo --run eval/private/runs/exp-01/ours --out eval/private/results/exp-01/ours.csv
 chat-tldr-eval calibrate --gold eval/private/gold/course-demo --jev eval/private/runs/exp-01/ours/jev.jsonl --out eval/private/results/exp-01/calibration_ours.png
 ```
 
-- 其他系统只需替换 `--strategy` / `--decider` 和目录名。
-- 汇总表：`chat-tldr-eval summarize eval/private/results/exp-01/*.csv > eval/private/results/exp-01/summary.md`。
+- 未来其他系统替换 `--strategy` / `--decider` 和目录名；当前只可切换 ours 的 decider，不能据此声称已完成各基线。
+- 规划中的汇总表命令（未实现）：`chat-tldr-eval summarize eval/private/results/exp-01/*.csv > eval/private/results/exp-01/summary.md`。
 - 结果表中只放聚合数字，**不放消息原文**，这样汇总表可以放进报告。
 
 ## 7. 报告里的结果表模板

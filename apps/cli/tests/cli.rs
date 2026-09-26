@@ -100,7 +100,9 @@ fn version_bypasses_configuration_and_reports_only_working_commands() {
         .unwrap();
     assert!(commands.contains(&Value::from("import")));
     assert!(commands.contains(&Value::from("analyze")));
-    assert!(!commands.contains(&Value::from("decisions")));
+    assert!(commands.contains(&Value::from("decisions")));
+    assert!(commands.contains(&Value::from("jev-log")));
+    assert!(commands.contains(&Value::from("stats")));
     assert!(!sandbox.data_dir().exists());
 }
 
@@ -123,6 +125,31 @@ fn empty_queries_never_initialize_the_database() {
     assert_eq!(sandbox.run(&["chats"], 0).len(), 1);
     let events = sandbox.run(&["messages", "--chat", "qq:group:missing"], 3);
     assert_eq!(payload(&events, "error")["code"], "E_CHAT_NOT_FOUND");
+    assert!(!sandbox.data_dir().exists());
+}
+
+#[test]
+fn history_commands_do_not_initialize_storage_or_require_model_keys() {
+    let sandbox = Sandbox::new();
+    let global = sandbox.run(&["stats"], 0);
+    assert_eq!(payload(&global, "stats")["scope"], "global");
+    assert_eq!(payload(&global, "stats")["counts"]["runs"], 0);
+    for args in [
+        vec!["decisions", "--run", "missing"],
+        vec!["jev-log", "--run", "missing"],
+        vec!["stats", "--run", "missing"],
+    ] {
+        assert_eq!(
+            payload(&sandbox.run(&args, 3), "error")["code"],
+            "E_RUN_NOT_FOUND"
+        );
+    }
+    assert_eq!(
+        payload(&sandbox.run(&["stats", "--chat", "missing"], 3), "error")["code"],
+        "E_CHAT_NOT_FOUND"
+    );
+    sandbox.run(&["stats", "--chat", "a", "--run", "b"], 2);
+    sandbox.run(&["decisions"], 2);
     assert!(!sandbox.data_dir().exists());
 }
 

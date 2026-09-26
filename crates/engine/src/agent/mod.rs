@@ -376,11 +376,15 @@ pub fn analyze(
                     break;
                 }
                 if !recoverable_topic_error(&error) {
-                    session.finish(if runtime.stats.messages_analyzed > 0 {
-                        RunStatus::Partial
-                    } else {
-                        RunStatus::Failed
-                    })?;
+                    runtime.stats.elapsed_ms = start.elapsed().as_millis() as u64;
+                    session.finish_with_stats(
+                        if runtime.stats.messages_analyzed > 0 {
+                            RunStatus::Partial
+                        } else {
+                            RunStatus::Failed
+                        },
+                        runtime.stats,
+                    )?;
                     return Err(error);
                 }
                 session.fail_messages(
@@ -621,11 +625,15 @@ pub fn analyze(
                 break;
             }
             if !recoverable_topic_error(&error) {
-                session.finish(if runtime.stats.messages_analyzed > 0 {
-                    RunStatus::Partial
-                } else {
-                    RunStatus::Failed
-                })?;
+                runtime.stats.elapsed_ms = start.elapsed().as_millis() as u64;
+                session.finish_with_stats(
+                    if runtime.stats.messages_analyzed > 0 {
+                        RunStatus::Partial
+                    } else {
+                        RunStatus::Failed
+                    },
+                    runtime.stats,
+                )?;
                 return Err(error);
             }
             session.fail_messages(&ids)?;
@@ -662,7 +670,7 @@ pub fn analyze(
         sink,
     )?;
     stats.elapsed_ms = start.elapsed().as_millis() as u64;
-    session.finish(status)?;
+    session.finish_with_stats(status, &stats)?;
     Ok(AnalysisResult {
         status,
         reason,
