@@ -18,13 +18,46 @@ docker compose -p docker -f E:/gitclone/qq-chat-exporter/docker/docker-compose.y
 
 原 `docker-napcat-qce` 镜像保留；直接只用原 Compose 可能再次选回未修复镜像。上游长期修复应让 shell 脚本以 LF 检出或在镜像构建时规范化换行，再正常重新构建。
 
-修复后容器保持 running、重启计数为 0，`http://localhost:6099` 返回 HTTP 200。这**不等于 QCE 导出已就绪**：本轮尚无 `qce-server` 进程或容器内 40653 监听，且 Docker 的 40653 实际发布映射为空，虽然 Compose 声明了该端口。Windows 排除端口范围和已发现监听没有证明存在冲突。QQ 登录仍需用户在本机完成，然后分别复查服务启动与端口发布；不能将后者直接归因于未登录。
+修复后容器保持 running、重启计数为 0，`http://localhost:6099` 返回 HTTP 200。这**不等于 QCE 导出已就绪**：登录前检查没有 `qce-server` 进程或容器内 40653 监听；Docker 的 40653 实际发布映射也为空，虽然 Compose 声明了该端口。Windows 排除端口范围和已发现监听没有证明存在冲突。
+
+进一步读取当前镜像中的静态源码，已确认 **QQ 登录成功是 QCE 应用启动的前置条件**。证据来自 `/app/napcat/napcat.mjs`，SHA256 为 `b161061c32acc7724381fbabd2a6ef022892cdb6038aa86c28de552c74c5dde0`；这些行号仅适用于此 bundle，镜像更新后需重新核对：
+
+| 静态源码位置 | 调用关系 |
+| --- | --- |
+| `napcat.mjs:82087–82146`、`:82445` | 主启动流程等待登录 Promise；成功登录回调才 resolve |
+| `napcat.mjs:82478`、`:82508` | 登录返回后执行 `InitNapCat()`，再初始化协议 adapters |
+| `napcat.mjs:80834–80835`、`:80869` | 注册 `plugin_manager`，随后打开 adapters |
+| `napcat.mjs:65720`、`:65508` | 插件管理器扫描插件，并调用其 `plugin_init` |
+| 上游 `plugins/qq-chat-exporter/index.mjs:287–288` | 创建 QCE launcher，并立即调用 `startApiServer()` |
+
+日志仅在本机内存中按预定义类别检查：观察到二维码登录请求，未观察到登录成功通知、插件扫描或 QCE 初始化；未观察到 QCE 初始化失败、缺少模块或地址占用类别。结合上述调用链，当前应用未启动符合登录前的流程。**Docker 发布映射为空仍需独立排查，不能用未登录解释，也不能在登录后未经复查就标记解决。**
+
+后续隔离端口探针没有挂载账号或数据卷：同一镜像仅运行 sleep，`127.0.0.1:40654 → 40653` 可正常发布；尝试绑定主机 40653 时 Docker 报 `port is already allocated`。探针容器在检查名称与专用标签后移除。原 QCE 容器重启、用相同修复镜像和 Compose 重建后，40653 空映射仍存在；QQ/QCE 两个原命名卷和配置挂载保持原路径，6099 仍可访问。此结果未定位 Docker 内部原因，也没有证明主机防火墙或 QQ 登录造成该映射状态；不继续盲目重建或修改网络配置。
+
+继续操作：
+
+1. 用户在本机打开 `http://localhost:6099`，完成 QQ 扫码并在手机上确认登录；令牌和二维码只在本机界面使用。
+2. 登录成功后分别检查应用进程、容器监听、Docker 发布映射和主机 TCP 连通性。下面命令只输出状态，不读取账号配置、令牌或聊天：
+
+   ```powershell
+   $qceProcessNames = @(docker exec napcat-qce sh -c 'for p in /proc/[0-9]*/comm; do cat "$p" 2>/dev/null; done')
+   $qceTcp = @(docker exec napcat-qce cat /proc/net/tcp /proc/net/tcp6)
+   $qcePorts = docker inspect napcat-qce --format '{{json .NetworkSettings.Ports}}' | ConvertFrom-Json
+   [ordered]@{
+       QceProcess = $qceProcessNames -contains 'qce-server'
+       ContainerListen40653 = [bool]($qceTcp | Where-Object { $_ -match '^\s*\d+:\s+[0-9A-F]+:9ECD\s+[0-9A-F]+:[0-9A-F]+\s+0A\s' })
+       DockerPublished40653 = @($qcePorts.'40653/tcp' | Where-Object { $_.HostPort -eq '40653' }).Count -gt 0
+       HostTcp40653 = Test-NetConnection -ComputerName 127.0.0.1 -Port 40653 -InformationLevel Quiet -WarningAction SilentlyContinue
+   } | ConvertTo-Json
+   ```
+
+3. 若没有进程/容器监听，继续检查登录和插件启动；若容器已监听但发布映射为空或主机无法连接，继续排查 Docker 发布层。四项通过后访问 `http://localhost:40653/qce`；页面可用仍不代表真实导出已通过验收。
 
 诊断只向终端输出预定义错误类别、状态与端口信息，未输出登录令牌、二维码或聊天正文，未调用认证导出 API。真实 JSON 下载后用 [交付验收脚本](ACCEPTANCE.md) 验证；当前不能声称真实容器导出成功。
 
 ## 从现有界面取得输入
 
-1. compose 发布主机端口 `40653` 和 `6099`；源码主界面入口为 `http://localhost:40653/qce`。按现有界面完成登录，不把令牌写进仓库或交接材料。
+1. Compose 声明主机端口 `40653` 和 `6099`。先在 `http://localhost:6099` 完成 QQ 登录并按上节复查，再打开 QCE 主界面 `http://localhost:40653/qce`；按界面要求验证访问令牌，不把令牌写进仓库或交接材料。
 2. 在 QCE 导出任务中选择目标群和时间范围，格式选 **JSON**。
 3. 在高级选项中关闭 **“流式导出（超大消息量专用）”**。源码明确显示这个开关会把 JSON 切换成分块 JSONL；当前 chat-tldr 接受单文件 JSON。
 4. 等任务完成，通过界面下载 JSON 到本机。把完成后的文件路径交给 CLI；不要把容器内路径当成本机路径，也不要读仍在写入的输出。

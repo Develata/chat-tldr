@@ -116,12 +116,23 @@ fn boolean(value: &str, field: &str) -> Result<bool, String> {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GoldMessage {
     pub message_id: String,
     pub thread: String,
     pub todo: bool,
     pub announcement: bool,
+}
+
+impl GoldMessage {
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        message_id(&self.message_id)?;
+        if self.thread.trim().is_empty() {
+            return Err("thread is required (any nonempty stable label)".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -154,7 +165,7 @@ pub struct GoldDeadline {
 }
 
 impl GoldItem {
-    fn validate(&self) -> Result<(), String> {
+    pub(crate) fn validate(&self) -> Result<(), String> {
         if self.item_id.trim().is_empty()
             || self.item_id.trim() != self.item_id
             || self.item_id.chars().any(char::is_control)

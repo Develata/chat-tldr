@@ -8,13 +8,13 @@ use chat_tldr_core::{CliEvent, EventBody, EventStreamValidator, MessagePayload, 
 use serde_json::{Value, json};
 
 #[derive(Default)]
-struct StreamState {
+pub(crate) struct StreamState {
     events: u64,
-    run_id: Option<RunId>,
+    pub(crate) run_id: Option<RunId>,
     done_exit_code: Option<i32>,
 }
 
-fn visit(
+pub(crate) fn visit(
     path: &Path,
     process_exit_code: Option<i32>,
     mut visitor: impl FnMut(EventBody) -> Result<(), String>,

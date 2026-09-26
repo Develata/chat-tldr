@@ -67,4 +67,33 @@ CSV 带 UTF-8 BOM，中文、逗号、双引号以及单元格内换行由 CSV �
 
 两条命令与 `check-stream` 一样，stdout 只输出一条工具 JSON 摘要（不是主 CLI `CliEvent`）；失败同时写 stderr，退出 1。未填完的表不会产生半套 gold。合法空消息流可以导出只有表头的 CSV，并导入为两个空 JSONL 文件。
 
-`score`、`agreement`、`calibrate`、`summarize`、评估指标计算和实验执行尚未实现，未知子命令会报错。
+## 已实现：离线评分
+
+```powershell
+chat-tldr-eval score --gold eval/private/gold/course-demo --run eval/private/runs/exp-01/ours --out eval/private/results/exp-01/ours.csv
+```
+
+输入为 gold 目录的 `messages.jsonl` / `items.jsonl`，以及 run 目录的 `messages.jsonl` / `inbox.jsonl` / `analyze.jsonl`。gold 可由 `import-sheet` 生成；运行目录按 [EVALUATION](../docs/EVALUATION.md#6-实验流程) 导出。`inbox` 必须使用 `--all --include-resolved --include-rejected`，保存完整快照。消息范围应覆盖整个独立实验 profile，不能只导出一页或某个子时间窗。
+
+目前只评分 **Ours（含 LLM decider）**：排除 rejected 后，在其余条目的原始收件箱顺序上计算。其他基线未实现；文件格式不记录 strategy，工具无法自动识别把 B0/B1 输出误放到该目录的情况，不能据此做基线比较。工具不读 SQLite、不联网、不调用模型。
+
+输入检查包括：三份主 CLI 事件流成功且完整、连续 seq/同一 run_id/唯一 done、gold 完整且无重复、所有未撤回消息 ID 与 gold **集合完全相等**、证据引用范围、inbox 顺序与计数、分析统计的 run/chat 身份。未来 MINOR 未知事件可以忽略，但仍验证信封。partial、截断、dry-run、计数与输出不符的快照不能评分；缺少运行统计或出现 `W_HISTORY_INCOMPLETE` 时成本指标记不可用。
+
+事件流不记录 `--all` / `--include-resolved`，因此计数一致**不能证明所有事项已导出**；也无法证明三份文件来自同一数据库快照、真实进程退出码或其语义正确性。调用方须遵循上述导出参数、保存实际退出码并单独 `check-stream --exit-code`，实验期间不要修改该 profile。工具检查引用 ID 的覆盖，不重新执行 engine 的逐字证据验证；合法 Unverified 话题摘要可以包含部分失效证据。
+
+CSV 每行一个聚合指标，固定列为 `score_version,system,metric,value,numerator,denominator,status`，当前版本 `1`、system 为 `ours`。不包含正文、证据原文、账号、消息/结论 ID 或输入路径。输出采用与 CSV 标注相同的不覆盖发布，现有文件原样保留。stdout 恰好一条工具 JSON 摘要，退出 0 表示完成评分；输入/输出错误退出 1，用法错误退出 2。**完成评分不表示效果达到验收门槛**。
+
+| 指标 | 当前计算规则 |
+|---|---|
+| `todo/announcement/decision_{precision,recall,f1}` | 同 kind、证据 ID 集与 gold 锚点有交集；按交集大小降序贪心一对一。交集相同时按预测在收件箱的位置、gold item_id 排序；重复引用同消息只计一次 |
+| `deadline_{precision,recall,f1}` | 仅 Todo；已匹配 Todo 的 relation + 日期一致才算 TP，gold 无规范化日期时逐字比 raw。所有带 deadline 的预测/标注 Todo 分别进入 P/R 分母 |
+| `ndcg_at_5/10` | P0/P1/P2/P3 对应 3/2/1/0，增益 `2^relevance-1`，第 r 位折损 `log2(r+1)`；IDCG 包括所有 gold。未匹配、MentionMe、TopicSummary 相关度为 0，仍占排序位置 |
+| `p0_recall_at_5/10` | 前 K 位匹配到的 gold P0 数 / 所有 gold P0 数 |
+| `snapshot_rejected_rate`、`snapshot_rejected_rate_after_filter` | 当前保存的 inbox 条目中 rejected 的比例，分别在过滤前/后计算；**不是所有 LLM 原始提案的幻觉率，也不是人工语义支持率** |
+| `run_input_tokens/output_tokens/calls/cache_hits/elapsed_ms/estimated_cost_usd` | `analyze.jsonl` 中单次运行的已报告统计；不推断整个增量历史总和，费用不等于账单 |
+
+零分母用空 `value` + `status=undefined`，包括无 gold 相关条目的 NDCG。F1 直接计算 `2TP/(预测数+标注数)`，两边都为空时同样 undefined。缺失运行统计标为 `unavailable_run_stats`；无法由现存快照重建的原始提案比例标为 `unavailable_raw_proposals`。话题匹配/ARI/NMI/burst/边界、MentionMe 正确率、人工支持率和校准指标目前列为 `not_implemented`，不填 0 或伪造分数。
+
+匹配通过 kind + 锚点倒排索引生成候选，再排序贪心；不为互无交集的条目逐对扫描。NDCG 的理想排序只需四档直方图。没有进行真实性能基准，不宣称提速比例。
+
+`agreement`、`calibrate`、`summarize`、其余评估指标和实验自动执行尚未实现，未知子命令会报错。测试中的合成预期分数只验证算法，不能写成真实群聊或模型效果。

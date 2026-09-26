@@ -3,8 +3,8 @@
 > Turn unread QQ group chats into a personal, traceable action inbox.
 > 把未读群聊变成可追溯的个人行动收件箱。
 
-**状态 / Status**：CLI 基础闭环、HTML 导出及历史统计/日志查询已实现；eval 已有标注表格导出、导入和协议校验。原生 GUI 已接入 CLI，Windows 合成数据联调、浅色/深色/窄窗口截图及交互测试通过，见 [GUI 验证记录](docs/GUI_VERIFICATION.md)。当前 `ours` 仍是基础策略，指标评分和真实模型质量验收尚未完成。分工见 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md)。
-*The basic CLI workflow, HTML export, history queries and native GUI are implemented. Windows synthetic-data smoke checks and GUI interaction tests pass. Evaluation supports annotation-sheet conversion and stream validation; scoring and real-model acceptance remain pending.*
+**状态 / Status**：CLI 基础闭环、HTML 导出及历史统计/日志查询已实现；eval 支持标注表格、协议校验与 Ours 离线抽取/排序评分。原生 GUI 已接入 CLI，Windows 合成数据联调、浅色/深色/窄窗口截图及交互测试通过，见 [GUI 验证记录](docs/GUI_VERIFICATION.md)。当前 `ours` 仍是基础策略，其余评估指标和真实模型质量验收尚未完成。分工见 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md)。
+*The basic CLI workflow, HTML export, history queries and native GUI are implemented. Windows synthetic-data smoke checks and GUI interaction tests pass. Evaluation supports annotation sheets, stream validation and offline Ours extraction/ranking scores. Remaining metrics and real-model acceptance are pending.*
 
 ---
 
@@ -33,9 +33,9 @@
 - 同步 Jev 和 DeepSeek 客户端、OpenAI / Anthropic 兼容接口与 Mock；模型协议和流程用合成数据、Mock 及本地假服务器验证
 - Rust CLI 的 `analyze/inbox/feedback/resolve/mark-read`，以及 `analyze --html` / `inbox --html` 导出
 - 只读 `stats`、`decisions --run`、`jev-log --run`：查询累计用量或历史运行，重放决策与带归属的模型回答
-- eval 的 `check-stream`、`export-sheet`、`import-sheet`：协议检查与人工标注 CSV 往返，不计算模型效果分数
+- eval 的 `check-stream`、`export-sheet`、`import-sheet` 和 `score`：协议检查、人工标注 CSV 往返与 Ours 离线抽取/排序评分；缺少的指标明确标记不可用
 
-尚未实现 `MergeTopics`、控制器用 Jev 选择下一步动作、embedding 候选筛选，以及 eval 的 `score/calibrate/summarize` 和基线比较。当前仅支持 `--strategy ours`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成；真实 QCE 导出与真实云模型效果仍待验收。
+尚未实现 `MergeTopics`、控制器用 Jev 选择下一步动作、embedding 候选筛选，以及 eval 的话题/校准等其余指标、`calibrate/summarize` 和基线比较。当前仅支持 `--strategy ours`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成；真实 QCE 导出与真实云模型效果仍待验收。
 
 ### 现在就能运行（无需密钥）
 
@@ -175,9 +175,9 @@ How it differs from pasting the chat into a general-purpose LLM:
 - A bounded controller with rule-based action selection, SQLite checkpoints, response caching and usage records
 - Synchronous Jev / DeepSeek clients, OpenAI / Anthropic-compatible interfaces, and Mock-based tests
 - CLI analysis, inbox, feedback, lifecycle and mark-read commands, plus standalone HTML export
-- Read-only run statistics, decision replay and model-answer history; annotation CSV export/import and protocol validation
+- Read-only run statistics, decision replay and model-answer history; annotation CSV export/import, protocol validation and offline Ours extraction/ranking scores
 
-`ours` currently provides this basic workflow. Topic merging, Jev-based controller action selection, embedding candidates and evaluation scoring remain pending. The native GUI has passed Windows synthetic-data smoke checks, screenshot review and egui pointer interaction tests. Real export and cloud-model acceptance remains outstanding.
+`ours` currently provides this basic workflow. Topic merging, Jev-based controller action selection, embedding candidates, topic/calibration metrics and baseline comparisons remain pending. The native GUI has passed Windows synthetic-data smoke checks, screenshot review and egui pointer interaction tests. Real export and cloud-model acceptance remains outstanding.
 
 ### Usage
 

@@ -85,8 +85,8 @@ chat-tldr/
 │     └─ README.md             # 获取/导出/管理任务与文件交接边界
 ├─ eval/
 │  ├─ Cargo.toml               # 仍是 chat-tldr-eval，不移动到 apps/
-│  ├─ src/                     # 已有协议检查、CSV/gold 转换；评分/校准待实现
-│  ├─ tests/                   # 协议和标注往返；未来补指标手算用例
+│  ├─ src/                     # 协议检查、CSV/gold 转换；score/ 分输入验证与纯指标
+│  ├─ tests/                   # 协议、标注往返和评分；纯指标手算测试与模块放一起
 │  ├─ synthetic/               # 合成评估聊天与人工校核的 gold
 │  └─ private/                 # 真实数据、标注、实验运行；忽略
 ├─ fixtures/

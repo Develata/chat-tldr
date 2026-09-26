@@ -30,6 +30,16 @@ pwsh -NoProfile -File .\scripts\verify-qce.ps1 -InputFile .\fixtures\qce\templat
 
 回执保留 `warning_codes`。`W_UNKNOWN_ELEMENT` 等提示表示保守归一化，不能解释成这些元素的全部文字均已读取。真实样本还应人工检查时间、回复、转发、撤回、系统消息和身份字段；聊天时区按配置解释，项目交付期限的 America/Santiago 时区不替代聊天时区。
 
+## 标注后的离线评分
+
+独立人工标注通过 `import-sheet` 后，保存同一实验 profile 的完整 `messages`、`analyze` 与 `inbox --all --include-resolved --include-rejected` 输出，逐份校验真实退出码，再运行：
+
+```powershell
+chat-tldr-eval score --gold eval/private/gold/course-demo --run eval/private/runs/exp-01/ours --out eval/private/results/exp-01/ours.csv
+```
+
+当前计算 Ours 的抽取/截止日期/排序、保存快照的 rejected 比例与单次运行用量。零分母、缺失统计和未实现指标留空并标记状态；不把合成测试分数当作模型质量，不把快照 rejected 比例当作所有原始提案或人工语义的幻觉率。输入范围、公式与不可机械验证的快照边界见 [eval/README](../eval/README.md#已实现离线评分)。尚不能生成话题/校准/基线对比的完整报告。
+
 ## 真实云服务的小范围联调
 
 默认密钥名为 `CHAT_TLDR_LLM_API_KEY`（DeepSeek）和 `TYPESAFE_API_KEY`（Jev），只在本机环境中配置，不写入配置文件、回执或聊天。仅检查变量存在或 `doctor` 成功不能证明云服务可用。

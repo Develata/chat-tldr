@@ -1,5 +1,6 @@
 mod annotation;
 mod output;
+mod score;
 mod sheet;
 mod stream;
 
@@ -52,6 +53,18 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Score a complete Ours evaluation snapshot against independent gold labels.
+    Score {
+        /// Directory containing labelled messages.jsonl and items.jsonl.
+        #[arg(long)]
+        gold: PathBuf,
+        /// Directory containing messages.jsonl, inbox.jsonl and analyze.jsonl.
+        #[arg(long)]
+        run: PathBuf,
+        /// New aggregate CSV file; existing outputs are never overwritten.
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -66,6 +79,8 @@ fn main() -> ExitCode {
             .unwrap_or_else(|error| json!({"command":"export-sheet","valid":false,"error":error})),
         Command::ImportSheet { sheet, out } => sheet::import(&sheet, &out)
             .unwrap_or_else(|error| json!({"command":"import-sheet","valid":false,"error":error})),
+        Command::Score { gold, run, out } => score::run(&gold, &run, &out)
+            .unwrap_or_else(|error| json!({"command":"score","valid":false,"error":error})),
     };
     if let Some(error) = summary["error"].as_str() {
         eprintln!("{error}");

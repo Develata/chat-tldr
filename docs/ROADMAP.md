@@ -24,9 +24,9 @@
 - CI 必需检查名保持 `fmt`、`clippy`、`test`。fmt 在 Linux；clippy 和 test 各按 core/qce/engine/cli/gui/eval 六模块在 Windows 并行，`fail-fast: false`，使用 `--locked`。Linux CLI/eval 检查 POSIX 发布保护、HTML 路径别名并运行合成离线验收脚本；macOS 将 CLI、GUI、eval 三模块并行检查和测试。每次 PR/main push 全量覆盖六模块，公共依赖变更自然覆盖下游；共享规划脚本 `scripts/ci/modules.ps1` 校验 workspace 成员，新增包未登记时失败。汇总检查只接受规划、全部 Windows 模块、Linux 及 macOS 检查成功，失败、取消或意外跳过均不能通过。外部 Actions 固定 40 位提交，工作流仅申请只读权限。远程结果以当前提交为准；Linux GUI 构建、Linux/macOS 原生桌面交互仍待验收。
 - `stats/decisions/jev-log` 历史查询 CLI 已实现，查询不建库、不调用模型；新记录保存可重放的决策与真实 subject。旧记录缺失精确计数或归属时明确告警，不能用于伪造评估对齐。
 - 当前只支持 `--strategy ours`，它是基础闭环，**不代表完整 PIPELINE 策略已实现**。`MergeTopics`、控制器通过 Jev 选择下一步动作、embedding 候选筛选均未实现；动作选择目前使用确定性规则。
-- 原生 GUI 已通过 CLI 子进程接入导入、分析、收件箱、反馈/处理/已读和历史查询；Windows 合成数据联调、浅/深色及窄窗口截图和 egui 指针交互测试通过，详见 [GUI_VERIFICATION](GUI_VERIFICATION.md)。真实数据和云模型验收仍待完成。eval 已实现 `check-stream`、`export-sheet` / `import-sheet`，尚无 `score/calibrate/summarize`、基线比较或校准结果。QCE 管理组件仍由同学后续接入。
+- 原生 GUI 已通过 CLI 子进程接入导入、分析、收件箱、反馈/处理/已读和历史查询；Windows 合成数据联调、浅/深色及窄窗口截图和 egui 指针交互测试通过，详见 [GUI_VERIFICATION](GUI_VERIFICATION.md)。真实数据和云模型验收仍待完成。eval 已实现 `check-stream`、`export-sheet` / `import-sheet` 和 `score` 的 Ours 抽取/Deadline/排序、快照 rejected 比例及单次运行用量；话题等其余指标、`calibrate/summarize`、基线比较和真实质量数字尚未完成。匹配采用倒排候选、确定性一对一贪心；未测量墙钟提速。QCE 管理组件仍由同学后续接入。
 - 统计 `calls` 是逻辑模型调用数，token/费用是已报告用量，缓存不重复计费；不能据此宣称实际云账单或模型质量已验证。本批已运行 `codegraph sync`，索引保留在本地。
-- 审查修复后，本地 workspace 245 项测试、fmt、严格 clippy 和构建通过；问题、回归与验证边界见 [REVIEW_FIXES](REVIEW_FIXES.md)。后续优先完成真实单文件导出兼容性验收、获授权的云模型联调与评估材料。Mock 与本地 HTTP 测试不能证明真实模型质量；合并前仍以当前提交的 CI 为准。
+- 审查修复记录见 [REVIEW_FIXES](REVIEW_FIXES.md)；新增 score 后本地 workspace 270 项测试（eval 44）、fmt、严格 clippy 和构建通过，独立复审修复了合法 Unverified 摘要被误拒的问题。后续优先完成真实单文件导出兼容性验收、获授权的云模型联调与评估材料。Mock 与本地 HTTP 测试不能证明真实模型质量；合并前仍以当前提交的 CI 为准。
 - 下方多日清单保留为原始范围参考，时间与负责人以本页“当前安排”和 TEAM_ASSIGNMENTS 为准；混合多个功能的条目拆开标注，未完成项不作已交付宣传。
 
 ## 里程碑
@@ -113,7 +113,8 @@
 
 **同学 C**
 - [ ] 完成 200 条标注；与另一位同学完成 50 条双人标注
-- [ ] `chat-tldr-eval score`（切分、抽取、排序、幻觉指标）+ 单元测试（手算的小例子）
+- [x] `chat-tldr-eval score`：Ours 抽取/Deadline/排序、快照 rejected 比例与单次运行统计，含手算和完整 CLI 回归（Codex 实现）
+- [ ] score 其余指标：话题/边界、人工支持率、所有原始提案的 unsupported 比例；真实标注与质量验收
 - [ ] README 与报告框架
 
 **第 2 天 20:00 联调**（全员）：用 C 的真实导出跑通 import → analyze → GUI，记录问题清单，分配修复。

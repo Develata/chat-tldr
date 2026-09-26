@@ -5,7 +5,7 @@
 
 ## 当前可运行范围
 
-`chat-tldr-eval` 已实现 `check-stream`、`export-sheet`、`import-sheet`，分别负责 CLI 事件流校验与人工标注 CSV 往返。`score`、`calibrate`、`summarize`、基线策略与下文指标计算尚未实现；本页指标和完整实验流程是验收目标，空表不代表已得到实测结果。Codex 负责工具实现，同学 C 负责合成场景、人工标注和验收材料。
+`chat-tldr-eval` 已实现 `check-stream`、`export-sheet`、`import-sheet` 和 `score`：协议校验、人工标注 CSV 往返，以及 Ours 的抽取/Deadline/排序、保存快照的 rejected 比例与单次运行用量。话题/边界等其余指标、`calibrate`、`summarize` 和基线策略尚未实现；评分 CSV 显式标记不可用指标。完整实验流程仍是验收目标，测试分数不代表真实效果。Codex 负责工具实现，同学 C 负责合成场景、人工标注和验收材料。当前命令的精确范围见 [eval/README.md](../eval/README.md#已实现离线评分)。
 
 主 CLI 已支持 `stats`、`decisions --run`、`jev-log --run`，可读取实际运行记录。真实导出与真实云模型效果仍待验收；Mock、协议检查、表格往返通过都不能替代质量评估。
 
@@ -54,7 +54,7 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
 
 分别对 Todo、Deadline、Announcement 计算 P/R/F1。
 
-- **匹配规则**：预测 item 与标注 item 的 `kind` 相同，且预测的证据消息集合与标注的锚点消息集合有交集，即视为候选匹配；再按交集大小贪心做一对一匹配。
+- **匹配规则**：预测 item 与标注 item 的 `kind` 相同，且预测的证据消息集合与标注的锚点消息集合有交集，即视为候选匹配；再按交集大小降序贪心做一对一匹配。相同交集按预测收件箱位置、gold item_id 决定先后；同消息的重复引用只计一次。抽取、截止日期和排序共用这次匹配。
 - **Deadline 正确**：在 Todo 已匹配的前提下，`relation` 与 `bound_date` 都和标注一致；如果标注本身无法规范化，则比较 `raw` 是否一致。
 - MentionMe 由规则产生，只报告正确率（预期接近 100%），用来检查实现有没有 bug。
 
@@ -63,12 +63,14 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
 - 标注的重要性：P0 = 3、P1 = 2、P2 = 1、P3 = 0。
 - 系统输出按收件箱顺序排列（先按层级，再按 `rank_score`）。B0/B1 要求模型按“对我的重要性”排序输出。
 - 未匹配到标注的预测 item，相关度记为 0。
-- 指标：**NDCG@5、NDCG@10**；**Recall@K**（K = 5、10）= 标注中的 P0 item 出现在前 K 位的比例。
+- 指标：**NDCG@5、NDCG@10**，增益 `2^relevance-1`、第 r 位折损 `log2(r+1)`，IDCG 由全部 gold 构造；**Recall@K**（K = 5、10）= 标注中的 P0 item 出现在前 K 位的比例。零分母或零 IDCG 记 undefined。
 
 ### 3.4 幻觉
 
 - **Unsupported claim rate（自动）** = 证据校验失败的 item 数 / 输出的 item 总数。Ours 报告两个数：过滤前（LLM 原始输出）和过滤后（进入收件箱的部分，按设计应为 0）。
 - **Unsupported claim rate（人工）**：每个系统随机抽 30 条，由人判断“证据是否真的支持这条结论”（引用存在但语义不支持，也算不支持）。
+
+当前 `score` 只能计算保存的 inbox 快照中 `rejected` 的比例（过滤前/后），命名为 `snapshot_rejected_rate` / `snapshot_rejected_rate_after_filter`。更新/合并后的已存条目不能重建所有 LLM 原始提案，因此 `raw_unsupported_rate` 记不可用；不能把过滤后的零值当成语义无幻觉证明。人工指标仍需独立判断。
 
 ### 3.5 人工打分（1–5 分）
 
@@ -158,7 +160,7 @@ CSV 的 `thread/todo/announcement/items_json` 必须明确填写；无结论写 
  "deadline":{"raw":"周五前","relation":"before","bound_date":"2026-09-25"},"importance":"P0"}
 ```
 
-## 6. 实验流程（目标，评分命令尚未实现）
+## 6. 实验流程
 
 每个系统使用独立的数据目录，避免缓存和状态互相影响。
 
@@ -169,17 +171,19 @@ CSV 的 `thread/todo/announcement/items_json` 必须明确填写；无结论写 
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile import eval/private/data/course-demo/group.json
 # 2. 分析，保存 JSONL
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile analyze --chat <CHAT_ID> --strategy ours --decider jev > eval/private/runs/exp-01/ours/analyze.jsonl
-chat-tldr --data-dir eval/private/runs/exp-01/ours/profile inbox --chat <CHAT_ID> --include-rejected > eval/private/runs/exp-01/ours/inbox.jsonl
+chat-tldr --data-dir eval/private/runs/exp-01/ours/profile inbox --chat <CHAT_ID> --all --include-resolved --include-rejected > eval/private/runs/exp-01/ours/inbox.jsonl
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile messages --chat <CHAT_ID> > eval/private/runs/exp-01/ours/messages.jsonl
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile jev-log --run <RUN_ID> > eval/private/runs/exp-01/ours/jev.jsonl
-# 3. 未来评分入口；当前版本不支持以下命令
+# 3. 已实现的 Ours 离线评分（其余指标显式不可用）
 chat-tldr-eval score --gold eval/private/gold/course-demo --run eval/private/runs/exp-01/ours --out eval/private/results/exp-01/ours.csv
+# 4. 未来校准入口；当前版本不支持
 chat-tldr-eval calibrate --gold eval/private/gold/course-demo --jev eval/private/runs/exp-01/ours/jev.jsonl --out eval/private/results/exp-01/calibration_ours.png
 ```
 
 - 未来其他系统替换 `--strategy` / `--decider` 和目录名；当前只可切换 ours 的 decider，不能据此声称已完成各基线。
 - 规划中的汇总表命令（未实现）：`chat-tldr-eval summarize eval/private/results/exp-01/*.csv > eval/private/results/exp-01/summary.md`。
 - 结果表中只放聚合数字，**不放消息原文**，这样汇总表可以放进报告。
+- `score` 要求成功的完整流和与 gold 完全相等的未撤回消息 ID 集，拒绝 partial / dry-run；保存每条 CLI 的实际退出码，用 `check-stream --exit-code` 验证后再评分。评分目前只做流内退出码自检，且不能证明跨文件快照相同或调用者确实使用了完整视图参数；导出期间不要修改 profile。用量指标只描述 `analyze.jsonl` 里该次运行，不能当作历史累计成本。
 
 ## 7. 报告里的结果表模板
 
