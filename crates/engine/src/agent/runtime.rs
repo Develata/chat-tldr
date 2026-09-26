@@ -1,5 +1,6 @@
 //! Model orchestration, cache identity, bounded cost estimates, and decision signals.
 mod decisions;
+mod merge;
 mod topic;
 
 use super::{AnalyzeOptions, Models, warning};

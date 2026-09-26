@@ -62,7 +62,7 @@ pub fn run<W: Write>(
         return Ok(());
     }
     let run = output.run_id();
-    if plan["messages"] == 0 {
+    if plan["messages"] == 0 && plan["merge_candidates"] == 0 {
         output.analysis_finished(RunStatus::Complete, FinishReason::Done);
         output.emit(EventBody::Stats(StatsPayload::Run(RunStats {
             run_id: run,

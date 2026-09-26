@@ -81,6 +81,8 @@
 
 时间参数使用带偏移的 RFC 3339，统一表示 `[since, until)`。命令启动时固定本次有资格处理的消息；范围外消息可以作上下文但不标为已分析，运行期间新导入的消息留待下次。没有工作时正常结束且不调用模型。`--max-steps` 为正整数，预算为有限正数；在请求前按输入估算、输出上限和配置单价预留预算，限制的是本地费用估算。`--dry-run` 与 `--html` 互斥，不能把计划视为完成分析。检查点提交后才输出相应结论事件；GUI 在结束后刷新 inbox，不依赖拼接过程事件构建最终视图。
 
+`ack.detail.plan.merge_candidates` 为当前已完成话题的可处理合并候选数；不预测待分析消息之后产生的候选。`messages=0` 但候选非零时仍有分析工作，按同样的密钥、步数和费用规则执行。候选至少有一条范围内的回复源；经确认合并的是整对话题（可包含窗口外已完成成员），不推进这些成员的消息状态或游标。当前先完成抽取/校验，再合并全部成员均已完成的话题，细节见 [ANALYSIS_EXECUTION](ANALYSIS_EXECUTION.md)。
+
 **`inbox --chat <ID>`**
 - `--include-resolved`：同时返回 `done` / `dismissed` 的结论。
 - `--include-rejected`：同时返回 `rejected` 的结论（仅供评估计算幻觉率；GUI 不使用）。
@@ -147,6 +149,8 @@
  "first_message_at":"2026-09-23T20:41:02+08:00","last_message_at":"2026-09-23T22:13:40+08:00",
  "is_chitchat":0.08,"merged_into":null}
 ```
+
+合并事务成功后输出目标、源各一个 `topic`。源状态为 `merged`、`message_count=0`、`merged_into` 指向目标，时间字段保留历史范围；目标计数包含迁移后的全部成员。结论 ID 不变，结束后查询 inbox 获取最终 topic_id。
 
 ### 3.5 `insight`
 payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其中 `Insight` 见 DATA_MODEL §3。

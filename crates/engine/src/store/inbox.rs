@@ -453,14 +453,14 @@ fn features(connection: &Connection, item: &Insight) -> Result<Vec<String>> {
     Ok(features)
 }
 
-fn read_weights(connection: &Connection) -> Result<BTreeMap<String, f32>> {
+pub(super) fn read_weights(connection: &Connection) -> Result<BTreeMap<String, f32>> {
     Ok(connection
         .prepare("SELECT feature,weight FROM preference_weights")?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<std::result::Result<_, _>>()?)
 }
 
-fn score_from_weights(
+pub(super) fn score_from_weights(
     connection: &Connection,
     item: &Insight,
     prior: f32,
@@ -482,7 +482,10 @@ pub(super) fn personalized_score(
     score_from_weights(connection, item, prior, &read_weights(connection)?)
 }
 
-fn rebuild_preferences(connection: &Connection, now: DateTime<FixedOffset>) -> Result<()> {
+pub(super) fn rebuild_preferences(
+    connection: &Connection,
+    now: DateTime<FixedOffset>,
+) -> Result<()> {
     let mut events: Vec<_> = decay_events(connection)?
         .into_iter()
         .map(PreferenceEvent::Decay)

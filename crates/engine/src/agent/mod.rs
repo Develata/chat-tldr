@@ -1,4 +1,5 @@
 //! Bounded, synchronous analysis. Provider calls happen outside write transactions.
+mod merge;
 mod runtime;
 use crate::segment::{
     ReplyInterleave, bursts,
@@ -65,8 +66,9 @@ pub fn plan(path: &Path, chat: &ChatId, options: &AnalyzeOptions) -> Result<serd
     let snapshot = store::analysis_snapshot(path, chat)?;
     let pending: Vec<_> = eligible(&snapshot, options);
     let dirty: BTreeSet<_> = pending.iter().filter_map(|m| m.topic_id.clone()).collect();
+    let merges = merge::candidate_count(&snapshot, options);
     Ok(
-        json!({"chat_id":chat,"messages":pending.len(),"unassigned_messages":pending.iter().filter(|m|m.topic_id.is_none()).count(),"dirty_topics":dirty.len(),"snapshot_up_to":snapshot.messages.last().map(|m|m.cursor),"since":options.since,"until":options.until,"max_steps":options.max_steps,"budget_usd":options.budget_usd,"model_calls":0,"writes":false}),
+        json!({"chat_id":chat,"messages":pending.len(),"unassigned_messages":pending.iter().filter(|m|m.topic_id.is_none()).count(),"dirty_topics":dirty.len(),"merge_candidates":merges,"snapshot_up_to":snapshot.messages.last().map(|m|m.cursor),"since":options.since,"until":options.until,"max_steps":options.max_steps,"budget_usd":options.budget_usd,"model_calls":0,"writes":false}),
     )
 }
 
@@ -121,7 +123,8 @@ pub fn analyze(
         cost_usd: 0.0,
         elapsed_ms: 0,
     };
-    if eligible(&preflight, options).is_empty() {
+    if eligible(&preflight, options).is_empty() && merge::candidate_count(&preflight, options) == 0
+    {
         return Ok(AnalysisResult {
             status: RunStatus::Complete,
             reason: FinishReason::Done,
@@ -157,6 +160,8 @@ pub fn analyze(
         })
         .collect();
     let mut known_topics = snapshot.topics.clone();
+    let mut assignments = merge::assignments(&snapshot);
+    let mut completed = BTreeSet::new();
     let mut links = TopicLinks::new(&snapshot.messages);
     let fallback_active = options.decider == "llm" || models.primary.is_none();
     store::decay_preferences(path)?;
@@ -268,6 +273,9 @@ pub fn analyze(
                             "direct",
                         )?;
                         links.assign(&members, &topic.id);
+                        for member in &members {
+                            assignments.insert(member.message.id.clone(), topic.id.clone());
+                        }
                         known_topics.push(topic.clone());
                         runtime.stats.topics_created += 1;
 
@@ -326,6 +334,9 @@ pub fn analyze(
                         let ids: Vec<_> = burst.iter().map(|m| m.message.id.clone()).collect();
                         session.assign(&topic, &ids, method)?;
                         links.assign(&burst, &topic.id);
+                        for member in &burst {
+                            assignments.insert(member.message.id.clone(), topic.id.clone());
+                        }
                         if let Some(pending) = queue.iter_mut().find(|p| p.topic.id == topic.id) {
                             pending.topic = topic;
                             pending.messages.extend(burst)
@@ -495,7 +506,10 @@ pub fn analyze(
             let observation = AgentObservation {
                 pending_messages: 0,
                 interleave: 0.0,
-                active_topics: known_topics.len() as u32,
+                active_topics: known_topics
+                    .iter()
+                    .filter(|t| t.state == TopicState::Active)
+                    .count() as u32,
                 dirty_topics: queue.len() as u32 + 1,
                 pending_verification: insights.len() as u32,
                 merge_candidates: 0,
@@ -522,6 +536,10 @@ pub fn analyze(
                     .expect("nonempty topic"),
             );
             let committed = session.commit_topic(&pending.topic, &ids, insights)?;
+            completed.extend(ids.iter().cloned());
+            if let Some(known) = known_topics.iter_mut().find(|t| t.id == pending.topic.id) {
+                *known = pending.topic.clone();
+            }
             runtime.stats.messages_analyzed += ids.len() as u64;
             runtime.stats.topics_updated += 1;
             // Count the whole committed checkpoint before writing to an event
@@ -629,6 +647,36 @@ pub fn analyze(
             message: "Topic processing checkpoint".into(),
         }))?;
     }
+    let remaining_merges = if reason == FinishReason::Done {
+        match merge::process(
+            &snapshot,
+            &assignments,
+            &completed,
+            &mut known_topics,
+            &mut runtime,
+            sink,
+        ) {
+            Ok(outcome) => {
+                reason = outcome.reason;
+                had_failure |= outcome.had_failure;
+                outcome.remaining
+            }
+            Err(error) => {
+                runtime.stats.elapsed_ms = start.elapsed().as_millis() as u64;
+                session.finish_with_stats(
+                    if runtime.stats.messages_analyzed > 0 || runtime.stats.topics_updated > 0 {
+                        RunStatus::Partial
+                    } else {
+                        RunStatus::Failed
+                    },
+                    runtime.stats,
+                )?;
+                return Err(error);
+            }
+        }
+    } else {
+        merge::settled_candidate_count(&snapshot, options, &assignments, &known_topics, &completed)
+    };
     if had_failure && reason == FinishReason::Done {
         reason = FinishReason::Error
     }
@@ -637,7 +685,7 @@ pub fn analyze(
         FinishReason::Cancelled => RunStatus::Cancelled,
         _ => RunStatus::Partial,
     };
-    let observation = observation(
+    let mut observation = observation(
         unassigned.len(),
         &queue,
         &known_topics,
@@ -645,13 +693,28 @@ pub fn analyze(
         runtime.stats.cost_usd,
         interleaving.remaining(backlog_len - unassigned.len()),
     );
-    runtime.flush_warnings(sink)?;
-    runtime.decision(
-        AgentAction::Finish { reason },
-        observation,
-        "Finish at a bounded checkpoint",
-        sink,
-    )?;
+    observation.merge_candidates = remaining_merges as u32;
+    let finishing: Result<()> = (|| {
+        runtime.flush_warnings(sink)?;
+        runtime.decision(
+            AgentAction::Finish { reason },
+            observation,
+            "Finish at a bounded checkpoint",
+            sink,
+        )
+    })();
+    if let Err(error) = finishing {
+        runtime.stats.elapsed_ms = start.elapsed().as_millis() as u64;
+        session.finish_with_stats(
+            if runtime.stats.messages_analyzed > 0 || runtime.stats.topics_updated > 0 {
+                RunStatus::Partial
+            } else {
+                RunStatus::Failed
+            },
+            runtime.stats,
+        )?;
+        return Err(error);
+    }
     stats.elapsed_ms = start.elapsed().as_millis() as u64;
     session.finish_with_stats(status, &stats)?;
     Ok(AnalysisResult {
@@ -703,7 +766,10 @@ fn observation(
     AgentObservation {
         pending_messages: pending_messages as u32,
         interleave,
-        active_topics: topics.len() as u32,
+        active_topics: topics
+            .iter()
+            .filter(|t| t.state == TopicState::Active)
+            .count() as u32,
         dirty_topics: queue.len() as u32,
         pending_verification: queue
             .iter()

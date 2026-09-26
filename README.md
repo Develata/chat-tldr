@@ -25,6 +25,7 @@
 
 - 导入 [QQChatExporter](https://github.com/shuakami/qq-chat-exporter) 导出的 JSON，幂等去重
 - 基础话题处理：小批量直接抽取，或按时间、发送者和回复规则形成消息组；跨段回复与明确身份的 @ 关系参与候选排序，[Jev](https://docs.typesafe.ai) 中等置信度的归属交由 LLM 复核
+- 话题合并：已完成分析的话题由跨话题回复形成候选，经模型确认后原子合并；保留结论、反馈和证据，记住已否决的话题对，支持中断后继续
 - 结构化抽取：@我、待办、截止日期、通知、决策、话题摘要
 - 证据校验：LLM 提出，Rust 验证
 - P0–P3 分层收件箱 + 有界的反馈校准
@@ -35,7 +36,7 @@
 - 只读 `stats`、`decisions --run`、`jev-log --run`：查询累计用量或历史运行，重放决策与带归属的模型回答
 - eval 的 `check-stream`、`export-sheet`、`import-sheet` 和 `score`：协议检查、人工标注 CSV 往返与 Ours 离线抽取/排序评分；缺少的指标明确标记不可用
 
-尚未实现 `MergeTopics`、控制器用 Jev 选择下一步动作、embedding 候选筛选，以及 eval 的话题/校准等其余指标、`calibrate/summarize` 和基线比较。当前仅支持 `--strategy ours`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成；首次 200 条真实 QCE 单文件已通过离线导入验收，真实云模型效果仍待验收。
+尚未实现话题自动关闭、控制器用 Jev 选择下一步动作、embedding 候选筛选，以及 eval 的话题/校准等其余指标、`calibrate/summarize` 和基线比较。当前仅支持 `--strategy ours`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成；首次 200 条真实 QCE 单文件已通过离线导入验收，真实云模型效果仍待验收。
 
 ### 现在就能运行（无需密钥）
 

@@ -156,6 +156,8 @@ QCE JSON ─▶ qce 适配器 ─▶ UnifiedMessage ─▶ import（去重、游
 - 新话题的临时标题 = 第一条非占位消息的前 20 个字符，`title_is_provisional=true`。`AnalyzeTopic` 时由 LLM 起正式标题。
 - 合并候选：两个活跃话题之间有 ≥ 2 条互相指向的回复边；配置了 embedding 时，另加余弦相似度 ≥ 0.85 的话题对。执行 `MergeTopics` 前先用 Jev noul 问“这两个话题是不是同一件事”，`p < 0.5` 就不合并，并记住这一对，以后不再提议。
 
+当前实现边界：回复合并已接通，不要求两个回复方向均出现。先完成本轮抽取/校验，只合并全部成员 done/skipped 的 active 话题；至少一条支持回复的源消息在本次时间窗口内。代表证据在写事务内重验，持久拒绝关系随合并继承。§8 R3 的“≥3 边时优先合并脏话题”、embedding 合并候选仍未实现，详见 [ANALYSIS_EXECUTION](ANALYSIS_EXECUTION.md)。
+
 ### 3.5 基线：相似度聚类（不用 Jev）
 
 `--strategy sim-tfidf` / `sim-embed`：第一、二层相同，第三层换成纯阈值：候选中 `score` 最高且 ≥ `sim_threshold` 的话题直接归入，否则新开话题。TF-IDF 向量用 `jieba-rs` 分词，IDF 在本 chat 已导入的消息上统计。这个基线用来衡量 Jev 归属判断带来的增益（见 EVALUATION）。
