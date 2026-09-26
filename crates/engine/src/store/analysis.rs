@@ -13,6 +13,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod lifecycle;
 mod merge;
 pub use merge::MergeResult;
 
@@ -41,6 +42,7 @@ pub struct AnalysisSnapshot {
     pub topics: Vec<TopicRecord>,
     pub insights: Vec<Insight>,
     pub rejected_merges: BTreeSet<(TopicId, TopicId)>,
+    pub closed_at: BTreeMap<TopicId, DateTime<FixedOffset>>,
 }
 
 pub fn analysis_snapshot(path: &Path, chat: &ChatId) -> Result<AnalysisSnapshot> {
@@ -84,6 +86,7 @@ pub fn analysis_snapshot(path: &Path, chat: &ChatId) -> Result<AnalysisSnapshot>
         .map(|s| serde_json::from_str(&s).map_err(Into::into))
         .collect::<Result<Vec<_>>>()?;
     let rejected_merges = merge::read_rejected(&tx, chat)?;
+    let closed_at = lifecycle::read_closed_at(&tx, chat)?;
     Ok(AnalysisSnapshot {
         chat: ChatMeta {
             chat_id: chat.clone(),
@@ -96,6 +99,7 @@ pub fn analysis_snapshot(path: &Path, chat: &ChatId) -> Result<AnalysisSnapshot>
         topics,
         insights,
         rejected_merges,
+        closed_at,
     })
 }
 
@@ -508,6 +512,13 @@ fn upsert_topic(connection: &Connection, topic: &TopicRecord, run: &RunId) -> Re
         if state == "merged" {
             return Err(EngineError::Input("cannot update a merged topic".into()));
         }
+        // Assignment and verification may hold an older in-memory state. Only
+        // dedicated lifecycle operations can transition an existing topic.
+        topic.state = match state.as_str() {
+            "active" => TopicState::Active,
+            "closed" => TopicState::Closed,
+            _ => return Err(EngineError::DatabaseFormat("unknown topic state".into())),
+        };
         let last = DateTime::parse_from_rfc3339(&last)
             .map_err(|_| EngineError::DatabaseFormat("invalid topic timestamp".into()))?;
         topic.last_message_at = topic.last_message_at.max(last);

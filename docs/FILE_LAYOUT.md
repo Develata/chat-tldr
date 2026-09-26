@@ -137,6 +137,8 @@ chat-tldr/
 
 已实现的控制器位于 `agent/mod.rs`，合并编排在 `agent/merge.rs`；模型请求/缓存/预算位于 `agent/runtime.rs` 及其 `decisions.rs`、`topic.rs`、`merge.rs` 子模块。确定性归属候选与增量连边索引在 `segment/candidates.rs`，合并候选图在 `segment/merge.rs`，事务迁移与拒绝对持久化在 `store/analysis/merge.rs`。表中的 embed、baseline 等仍是规划位置。历史统计、合并拒绝及审计的版本化 JSON 扩展使用既有 DB v1 的 meta/日志列；写入口兼容补充话题查询索引，不额外创建一份数据库或给 GUI/eval 开 SQL 入口。`.codegraph/` 是本地派生产物，代码变化后可同步，不提交。
 
+消息时间到期索引及关闭编排在 `agent/lifecycle.rs`，原子状态更新与首次关闭边界持久化在 `store/analysis/lifecycle.rs`。历史候选的 Cursor 前驱索引仍由 `segment/candidates.rs` 维护；其单元测试独立放在 `segment/candidates/tests.rs`。控制器统一保存执行错误后的统计，不让事件输出失败绕过检查点收尾。
+
 SQL 迁移、提示词与 HTML 模板在编译时嵌入。可执行文件移动后，不依赖仓库路径或当前工作目录来寻找这些资源。提示词文件变更进入缓存键；不从开发目录悄悄加载另一份模板。
 
 ## 3. 运行数据布局

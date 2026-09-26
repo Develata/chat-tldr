@@ -23,12 +23,13 @@
 - 实际调用模型需要环境变量密钥；聊天原文会发送到配置的云服务。无密钥预演、配置及 HTML 导出示例见 [README](../README.md)。
 - CI 必需检查名保持 `fmt`、`clippy`、`test`。fmt 在 Linux；clippy 和 test 各按 core/qce/engine/cli/gui/eval 六模块在 Windows 并行，`fail-fast: false`，使用 `--locked`。Linux CLI/eval 检查 POSIX 发布保护、HTML 路径别名并运行合成离线验收脚本；macOS 将 CLI、GUI、eval 三模块并行检查和测试。每次 PR/main push 全量覆盖六模块，公共依赖变更自然覆盖下游；共享规划脚本 `scripts/ci/modules.ps1` 校验 workspace 成员，新增包未登记时失败。汇总检查只接受规划、全部 Windows 模块、Linux 及 macOS 检查成功，失败、取消或意外跳过均不能通过。外部 Actions 固定 40 位提交，工作流仅申请只读权限。远程结果以当前提交为准；Linux GUI 构建、Linux/macOS 原生桌面交互仍待验收。
 - `stats/decisions/jev-log` 历史查询 CLI 已实现，查询不建库、不调用模型；新记录保存可重放的决策与真实 subject。旧记录缺失精确计数或归属时明确告警，不能用于伪造评估对齐。
-- 当前只支持 `--strategy ours`，**不代表完整 PIPELINE 策略已实现**。回复支持的话题合并已接入：已完成话题经模型确认后原子合并，保留结论/反馈/证据，拒绝关系持久化，零新增消息也可续跑；`--dry-run` 报告当前候选数。控制器通过 Jev 选择下一步动作、自动关闭与 embedding 候选筛选仍未实现；动作选择目前使用确定性规则，合并安排在抽取/校验之后。
+- 当前只支持 `--strategy ours`，**不代表完整 PIPELINE 策略已实现**。回复支持的话题合并已接入：已完成话题经模型确认后原子合并，保留结论/反馈/证据，拒绝关系持久化，零新增消息也可续跑；`--dry-run` 报告当前候选数。自动关闭与 Closed 历史回填已实现；关闭按消息时间，回填保持 Closed，首次关闭边界持久保存。控制器通过 Jev 选择下一步动作与 embedding 候选筛选仍未实现；动作选择目前使用确定性规则，合并安排在抽取/校验之后。
 - 原生 GUI 已通过 CLI 子进程接入导入、分析、收件箱、反馈/处理/已读和历史查询；Windows 合成数据联调、浅/深色及窄窗口截图和 egui 指针交互测试通过，详见 [GUI_VERIFICATION](GUI_VERIFICATION.md)。真实数据和云模型验收仍待完成。eval 已实现 `check-stream`、`export-sheet` / `import-sheet` 和 `score` 的 Ours 抽取/Deadline/排序、快照 rejected 比例及单次运行用量；话题等其余指标、`calibrate/summarize`、基线比较和真实质量数字尚未完成。匹配采用倒排候选、确定性一对一贪心；未测量墙钟提速。QCE 管理组件仍由同学后续接入。
 - 统计 `calls` 是逻辑模型调用数，token/费用是已报告用量，缓存不重复计费；不能据此宣称实际云账单或模型质量已验证。本批已运行 `codegraph sync`，索引保留在本地。
 - 审查修复记录见 [REVIEW_FIXES](REVIEW_FIXES.md)；新增 score 后本地 workspace 270 项测试（eval 44）、fmt、严格 clippy 和构建通过，独立复审修复了合法 Unverified 摘要被误拒的问题。后续优先完成真实单文件导出兼容性验收、获授权的云模型联调与评估材料。Mock 与本地 HTTP 测试不能证明真实模型质量；合并前仍以当前提交的 CI 为准。
 - 下方多日清单保留为原始范围参考，时间与负责人以本页“当前安排”和 TEAM_ASSIGNMENTS 为准；混合多个功能的条目拆开标注，未完成项不作已交付宣传。
 - 话题合并本地验收：workspace 347 项 Rust 测试通过，新增 46 项覆盖候选图、模型确认、原子事务、反馈等价/查询计划、CLI 及中断恢复。所有数据为合成数据、模型为 Mock 或本地假服务；该结果不代表真实云模型合并质量。
+- 自动关闭与历史回填本地验收：workspace 376 项测试、fmt、严格 clippy 与构建通过。本批新增 29 项，覆盖首次关闭边界、回填保持 Closed、历史前驱/范围隔离、待验证草稿恢复及归属/关闭提交后输出中断；用户决定已写入 Q-DEC-7，详见 [REVIEW_FIXES](REVIEW_FIXES.md)。
 
 ## 里程碑
 
@@ -98,7 +99,8 @@
 - [x] `extract`（AnalyzeTopic、AnalyzeDirect、MentionMe 规则）
 - [x] 基于规则动作选择的 `agent`、检查点、决策日志与 `rank`
 - [x] `MergeTopics`：已完成 active 话题的回复候选、Decider 确认、原子迁移与拒绝记忆、恢复与预算约束
-- [ ] 完整策略：控制器 Jev 动作选择、优先合并脏话题、自动关闭与 embedding 候选
+- [x] 消息时间驱动的自动关闭、Closed 历史候选与小积压归属、首次关闭边界持久化及回填不复活
+- [ ] 完整策略：控制器 Jev 动作选择、优先合并脏话题与 embedding 候选
 - [x] CLI：`analyze`、`inbox`、`messages`、`feedback`、`resolve`、`mark-read`
 - [ ] 查询 CLI：`stats`、`decisions`、`jev-log`
 - [ ] 审核并合并 A、B、C 的 PR（尽量在 2 小时内响应）

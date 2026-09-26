@@ -83,6 +83,10 @@
 
 `ack.detail.plan.merge_candidates` 为当前已完成话题的可处理合并候选数；不预测待分析消息之后产生的候选。`messages=0` 但候选非零时仍有分析工作，按同样的密钥、步数和费用规则执行。候选至少有一条范围内的回复源；经确认合并的是整对话题（可包含窗口外已完成成员），不推进这些成员的消息状态或游标。当前先完成抽取/校验，再合并全部成员均已完成的话题，细节见 [ANALYSIS_EXECUTION](ANALYSIS_EXECUTION.md)。
 
+分析过程中按本次成功处理的消息时间自动关闭过期话题，成功提交后输出 `topic(state=closed)` 并计入 `topics_updated`；关闭不改变消息状态或游标。历史回填可补入首次关闭时间之前相关的消息，保持 Closed。首次边界持久保存，之后的新消息不能因回填而继续进入 Closed；dry-run 和无工作调用不执行关闭维护。
+
+消息归属成功提交时也会输出 `topic`，以区分“尚无持久结果”和“已分配但尚未 Verify”。该事件本身不表示消息已分析；以消息状态及 `stats.messages_analyzed` 为准。后续失败会保留归属和恢复所需草稿，并报告 partial；GUI 仍在结束后刷新 inbox。
+
 **`inbox --chat <ID>`**
 - `--include-resolved`：同时返回 `done` / `dismissed` 的结论。
 - `--include-rejected`：同时返回 `rejected` 的结论（仅供评估计算幻觉率；GUI 不使用）。

@@ -58,6 +58,7 @@ QCE JSON ─▶ qce 适配器 ─▶ UnifiedMessage ─▶ import（去重、游
 **回填（backfill）**：两次导出有重叠，或者后导入了更早的文件时，可能插入早于 `last_analyzed` 的消息。
 - `import` 统计这类消息数量（`imports.backfilled`），并发出 `W_BACKFILL`。
 - 这类消息自然会成为“待切分消息”，下次 `analyze` 会处理。归属候选取**该消息发送时刻**仍然活跃的话题（可能包括现在已经关闭的话题）。
+- **2026-09-26 用户决定（Q-DEC-7）**：补入历史消息时，已关闭话题保持关闭，只补消息和结论，不自动重新激活。Closed 候选必须有首次关闭的消息时间记录，整个 burst 的非撤回消息均早于该边界；缺失边界不推断。
 - 此时 `last_analyzed` 会按定义回退，处理完后再前进。不会有消息被静默跳过。
 
 **悬空引用补全**：每次 `import` 后，对 `reply_resolved IS NULL` 的消息，按 `reply_source_id` 查找是否已有被引用的消息，有则补全。
@@ -125,6 +126,8 @@ QCE JSON ─▶ qce 适配器 ─▶ UnifiedMessage ─▶ import（去重、游
 ### 3.2 第二层：候选话题（增量在线聚类）
 
 维护活跃话题列表：`state=active`，并且 `last_message_at` 距当前 burst 不超过 `topic_close_secs`（6 小时）。超过这个时间的话题自动置为 `closed`。
+
+实现按成功分配的 burst/Direct 批次或 Verify 成员的最大发送时间关闭，严格超过阈值才生效，不按电脑时钟清理，也不使用范围外未处理消息推进关闭。历史候选资格、衰减和时间排序使用 burst 首 Cursor 之前最近的真实非撤回成员，而非当前全局 `last_message_at` 的绝对距离。Closed 的首次关闭边界持久保存，回填不能改变；无过去成员、历史空档超时或未来才出现的话题不参与当时归属。
 
 对每个 burst：
 
@@ -430,6 +433,8 @@ pub fn find_quote(haystack: &str, quote: &str) -> Option<(usize, usize)>;
 GUI 三栏：“需要你处理”= P0，“值得知道”= P1，“其他话题”= P2 + P3（P3 默认折叠）。
 
 ## 8. 智能体控制器
+
+当前规则实现有一项归属保护：小积压中只要存在历史话题候选，即走 Segment，避免 AnalyzeDirect 绕过归属直接新建话题。表中多动作 Jev 选择仍是目标策略，当前实现边界以 [ANALYSIS_EXECUTION](ANALYSIS_EXECUTION.md) 为准。
 
 ### 8.1 形式
 
