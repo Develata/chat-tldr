@@ -24,7 +24,7 @@
 ### 当前已实现
 
 - 导入 [QQChatExporter](https://github.com/shuakami/qq-chat-exporter) 导出的 JSON，幂等去重
-- 基础话题处理：小批量直接抽取，或按时间、发送者和回复规则形成消息组，再由 [Jev](https://docs.typesafe.ai) 或 LLM 判断归属
+- 基础话题处理：小批量直接抽取，或按时间、发送者和回复规则形成消息组；跨段回复与明确身份的 @ 关系参与候选排序，[Jev](https://docs.typesafe.ai) 中等置信度的归属交由 LLM 复核
 - 结构化抽取：@我、待办、截止日期、通知、决策、话题摘要
 - 证据校验：LLM 提出，Rust 验证
 - P0–P3 分层收件箱 + 有界的反馈校准
@@ -84,6 +84,8 @@ GUI 的导入只选择已完成的导出文件；GUI 不填写密钥或 QQ 身�
 ### 使用真实模型
 
 下面的 `analyze` 会把聊天原文发送到配置的云服务。默认使用 Jev 做分类与话题归属、DeepSeek 做抽取；LLM 密钥必需，Jev 密钥缺失或服务不可用时会警告并改用 LLM。也可显式传入 `--decider llm`。密钥只从环境变量读取。
+
+也可以在本地 `.env` 中填写 [.env.example](.env.example) 的两个变量，然后用 `./scripts/with-env.ps1 cargo run -p chat-tldr -- doctor` 检查配置。脚本只为本次子进程加载密钥，不执行文件内容；CLI 本身不自动读取 `.env`。用法与格式见 [本地模型密钥](docs/ENVIRONMENT.md)。
 
 ```powershell
 $env:TYPESAFE_API_KEY = "<你的 Jev 密钥>"
@@ -168,7 +170,7 @@ How it differs from pasting the chat into a general-purpose LLM:
 ### Current scope
 
 - Imports JSON exported by [QQChatExporter](https://github.com/shuakami/qq-chat-exporter); idempotent deduplication
-- Basic topic assignment using time, sender and reply rules plus the [Jev](https://docs.typesafe.ai) structured-decision model or LLM fallback
+- Topic assignment using temporal bursts, indexed reply/mention links and ranked candidates; ambiguous [Jev](https://docs.typesafe.ai) decisions receive LLM review with the same candidates
 - Structured extraction: mentions of you, to-dos, deadlines, announcements, decisions, topic summaries
 - Evidence verification: the LLM proposes, Rust verifies
 - P0–P3 tiered inbox with bounded feedback calibration
@@ -182,6 +184,8 @@ How it differs from pasting the chat into a general-purpose LLM:
 ### Usage
 
 See the PowerShell examples above. Import, queries and `analyze --dry-run` need no keys; dry-run does not contact services or write analysis state. Real analysis requires `CHAT_TLDR_LLM_API_KEY`; `TYPESAFE_API_KEY` enables Jev, otherwise decisions fall back to the LLM. Real analysis sends unredacted chat text to the configured services. Synthetic Docker-format input is at `fixtures/qce/template-docker-export.json`; export instructions are in [QCE_DOCKER_EXPORT](docs/QCE_DOCKER_EXPORT.md).
+
+For local `.env` files, use [.env.example](.env.example) and run `./scripts/with-env.ps1 cargo run -p chat-tldr -- doctor`. The wrapper supplies keys only to its child process, preserves existing environment values and treats the file as literal data. The CLI does not load `.env` automatically; see [environment setup](docs/ENVIRONMENT.md).
 
 ### Privacy
 

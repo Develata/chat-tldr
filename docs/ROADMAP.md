@@ -92,6 +92,7 @@
 
 **@Develata**
 - [x] `render` 与基础话题处理（burst、时间候选、回复归属和 Decider 归属）
+- [x] active 话题候选的回复/@增量索引、连边/时间排序、请求预算裁剪、中等置信度 LLM 复核及可重放的实际归属日志
 - [x] `JevDecider`、`LlmDecider`、`OpenAiCompatClient`、`AnthropicCompatClient`、Mock；缓存与用量记录
 - [x] `extract`（AnalyzeTopic、AnalyzeDirect、MentionMe 规则）
 - [x] 基于规则动作选择的 `agent`、检查点、决策日志与 `rank`

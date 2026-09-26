@@ -624,10 +624,10 @@ fn time_window_is_half_open_and_leaves_unselected_messages_pending() {
     let mut options = workspace.options();
     options.since = Some(snapshot.messages[1].message.sent_at);
     options.until = Some(snapshot.messages[2].message.sent_at);
-    // This reply points outside the selected window; the agent requests a
-    // single topic extraction on the segmented path.
+    // An external reply target does not establish interleaving in this window.
+    // The single eligible message can therefore use direct extraction.
     let llm = MockLlm::new(vec![response(
-        json!({"title":"单条合成回复","summary":"","items":[]}),
+        json!({"topics":[{"refs":["n1"],"title":"单条合成回复","summary":"","items":[]}]}),
     )]);
     let (result, _) = workspace.analyze(
         "r_time_window",
@@ -642,6 +642,114 @@ fn time_window_is_half_open_and_leaves_unselected_messages_pending() {
         workspace.inbox(false).meta.view_cursor.is_none(),
         "an unanalyzed prefix cannot be marked read"
     );
+}
+
+#[test]
+fn interleaved_replies_inside_one_burst_select_segment_and_are_logged() {
+    let mut source: Value = serde_json::from_slice(FIXTURE).unwrap();
+    let template = source["messages"][0].clone();
+    source["messages"] = Value::Array(["a", "c", "d", "e", "b"].iter().enumerate().map(|(index, sender)| {
+        let mut message = template.clone();
+        message["id"] = json!(format!("interleave-{index}"));
+        message["seq"] = json!(index.to_string());
+        message["timestamp"] = json!(1790400000000_i64 + index as i64 * 1000);
+        message["sender"] = json!({"uid":format!("u_{sender}"),"name":sender});
+        message["content"] = json!({"text":"Synthetic message", "elements":[{"type":"text","data":{"text":"Synthetic message"}}]});
+        if index == 4 {
+            message["content"]["elements"].as_array_mut().unwrap().push(json!({"type":"reply","data":{"referencedMessageId":"interleave-0"}}));
+        }
+        message
+    }).collect());
+    let workspace = Workspace::from_source(&serde_json::to_vec(&source).unwrap());
+    let llm = MockLlm::new(vec![response(
+        json!({"title":"Interleaved topic","summary":"","items":[]}),
+    )]);
+    let (result, events) = workspace.analyze(
+        "r_interleave",
+        &llm,
+        &SyntheticDecider::default(),
+        &workspace.options(),
+    );
+    assert_eq!(result.status, RunStatus::Complete);
+    assert_eq!(result.stats.messages_analyzed, 5);
+    let decision = events
+        .iter()
+        .find_map(|event| {
+            if let EventBody::Decision(decision) = event {
+                Some(decision)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert!(matches!(
+        decision.chosen,
+        chat_tldr_core::AgentAction::Segment { .. }
+    ));
+    assert_eq!(decision.observation.interleave, 1.0);
+}
+
+#[test]
+fn cross_burst_mention_keeps_linked_older_topic_when_candidate_count_is_limited() {
+    let mut source: Value = serde_json::from_slice(FIXTURE).unwrap();
+    source["messages"][2]["recalled"] = json!(false);
+    source["messages"][2]["sender"] = json!({"uid":"u_third_fixture","name":"合成丙"});
+    source["messages"][2]["content"] = json!({"text":"@合成甲 继续项目讨论。", "elements":[
+        {"type":"at","data":{"uid":"u_alice_fixture","name":"合成甲"}},
+        {"type":"text","data":{"text":" 继续项目讨论。"}}
+    ]});
+    let mut workspace = Workspace::from_source(&serde_json::to_vec(&source).unwrap());
+    workspace.config.agent.direct_max = 0;
+    workspace.config.segment.all_candidates_max = 1;
+    workspace.config.segment.candidate_k = 1;
+    let snapshot = store::analysis_snapshot(&workspace.database, &workspace.chat).unwrap();
+    let session = AnalysisSession::begin(
+        &workspace.database,
+        &workspace.chat,
+        &"r_seed_topics".into(),
+        &json!({}),
+    )
+    .unwrap();
+    for (index, id) in ["older_linked", "newer_unlinked"].into_iter().enumerate() {
+        let topic = TopicRecord {
+            id: id.into(),
+            chat_id: workspace.chat.clone(),
+            title: id.into(),
+            provisional: false,
+            state: TopicState::Active,
+            last_message_at: snapshot.messages[index].message.sent_at,
+            is_chitchat: None,
+        };
+        let ids = [snapshot.messages[index].message.id.clone()];
+        session.assign(&topic, &ids, "synthetic").unwrap();
+        session.commit_topic(&topic, &ids, vec![]).unwrap();
+    }
+    drop(session);
+    let llm = MockLlm::new(vec![response(
+        json!({"title":"Continued discussion","summary":"","items":[]}),
+    )]);
+    let (result, _) = workspace.analyze(
+        "r_linked_topic",
+        &llm,
+        &SyntheticDecider::default(),
+        &workspace.options(),
+    );
+    assert_eq!(result.status, RunStatus::Complete);
+    assert_eq!(result.stats.messages_analyzed, 1);
+    assert_eq!(result.stats.topics_created, 0);
+    let after = store::analysis_snapshot(&workspace.database, &workspace.chat).unwrap();
+    assert_eq!(
+        after.messages[2].topic_id.as_ref().unwrap().as_ref(),
+        "older_linked"
+    );
+    assert_eq!(after.messages[1].topic_id, Some("newer_unlinked".into()));
+    let history = store::jev_log(&workspace.database, &"r_linked_topic".into()).unwrap();
+    let attribution = history
+        .rows
+        .iter()
+        .find(|answer| answer.question_id == "topic")
+        .unwrap();
+    assert_eq!(attribution.subject.candidates, vec!["older_linked".into()]);
 }
 
 #[test]

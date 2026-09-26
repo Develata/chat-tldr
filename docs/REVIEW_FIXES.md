@@ -41,3 +41,14 @@ CI 保留 Windows 六模块并发和 `fmt`、`clippy`、`test` 必需检查，�
 ![裁切内容保持未读](verification/gui/review-clipped.png)
 
 800×680：[完整窄窗口](verification/gui/review-narrow.png)。1280×820：[深色三栏](verification/gui/review-wide.png)。演示模式禁用所有业务写操作；已读按钮的实际启用条件由非 demo 的交互回归验证。
+
+## 后续话题归属与本地密钥检查（2026-09-26）
+
+补齐 active 候选的回复/@索引、时间/连边排序、Jev 请求预算裁剪与中等置信度 LLM 复核。审查并修复了三处边界：交错度按文档的参与者消息数计算；后缀索引避免每批反复扫描全部积压；请求预算按实际 wire JSON 计量。完整恢复测试另抓到取消后丢失已收到回答的回归，修复为保存有效回答/缓存/用量后再取消后续动作，原测试断言保持不变。
+
+- Windows workspace fmt、strict clippy、build 及 **301 项测试**通过（CLI 31、core 7、engine 170、eval 44、GUI 31、QCE 18），日志 `tmp/topic-workspace-tests.log`。
+- 新增归属专项 13 项、切分/索引专项 16 项及两项控制器集成测试；其中 1088 个消息后缀与独立朴素算法交叉核对。复杂度依据代码与访问结构，未测具体墙钟提速。
+- `.env` 启动脚本的 **17 项合成检查**通过，覆盖字面值解析、变量优先级、参数边界、流与退出码、非法内容不回显。现有 CLI 的实际离线 `doctor` 正常报告缺少密钥 / 退出 4，不等于云服务已验通。
+- `actionlint` 与六模块/macOS 矩阵规划通过。脚本检查加入现有 Windows CLI、Linux job，保持模块并行及稳定汇总名称。
+
+只使用合成数据、Mock 与本地测试服务；未调用真实云模型。当前 Closed 话题的历史回填、自动关闭、MergeTopics、控制器模型动作选择与 embedding 仍待实现；跨进程复核缓存恢复沿用持久化通道，尚无该阶段的独立崩溃注入测试。远程 CI 以 PR 当前提交为准。

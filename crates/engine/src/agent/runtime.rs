@@ -1,11 +1,14 @@
 //! Model orchestration, cache identity, bounded cost estimates, and decision signals.
+mod decisions;
+mod topic;
+
 use super::{AnalyzeOptions, Models, warning};
 use crate::{
     Config, EngineError, Result,
-    decider::{Answer, DecisionRequest, DecisionResponse, Question},
+    decider::{Answer, DecisionRequest, Question},
     extract::{self, ExtractionContext, Signals, TopicExtraction},
     llm::{LlmResponse, Usage},
-    store::{AnalysisSession, StoredMessage, TopicRecord},
+    store::{AnalysisSession, StoredMessage},
 };
 use chat_tldr_core::*;
 use serde_json::json;
@@ -257,100 +260,6 @@ impl Runtime<'_, '_> {
         }
         unreachable!("bounded retry returns")
     }
-    fn decide(
-        &mut self,
-        request: &DecisionRequest,
-        subjects: &BTreeMap<String, AnswerSubject>,
-    ) -> Result<DecisionResponse> {
-        if self.cancel.load(Ordering::Relaxed) {
-            return Err(EngineError::Cancelled);
-        }
-        let primary = if self.fallback_active {
-            None
-        } else {
-            self.models.primary
-        };
-        let decider = primary.unwrap_or(self.models.fallback);
-        let provider = if primary.is_some() { "typesafe" } else { "llm" };
-        let config = if primary.is_some() {
-            &self.config.jev
-        } else {
-            &self.config.llm
-        };
-        let prepared = if primary.is_none() {
-            Some(crate::decider::LlmDecider::new(self.models.llm, &config.model).prepare(request)?)
-        } else {
-            None
-        };
-        let prompt = match &prepared {
-            Some(value) => serde_json::to_string(value)?,
-            None => serde_json::to_string(request)?,
-        };
-        let key = blake3::hash(
-            format!(
-                "decide-v1:r1:{provider}:{config:?}:{}:{prompt}",
-                decider.name()
-            )
-            .as_bytes(),
-        )
-        .to_hex()
-        .to_string();
-        let (response, cache_hit) =
-            if let Some(response) = self.session.cache_get::<DecisionResponse>(&key)? {
-                self.usage("decide", provider, decider.name(), &response.usage, true)?;
-                (response, true)
-            } else {
-                self.reserve(
-                    prompt.len() + 512,
-                    prepared.as_ref().map_or(0, |p| p.max_tokens),
-                    primary.is_some(),
-                )?;
-                let response = match decider.decide(request) {
-                    Ok(response) => response,
-                    Err(error) if primary.is_some() => {
-                        self.usage("decide", provider, decider.name(), &error.usage(), false)?;
-                        self.fallback_active = true;
-                        return self.decide(request, subjects);
-                    }
-                    Err(error) => {
-                        self.usage("decide", provider, decider.name(), &error.usage(), false)?;
-                        return Err(error.into());
-                    }
-                };
-                self.usage("decide", provider, decider.name(), &response.usage, false)?;
-                crate::decider::validate_response(request, &response)?;
-                self.session
-                    .cache_put(&key, "decide", provider, decider.name(), &response)?;
-                (response, false)
-            };
-        for (id, answer) in &response.answers {
-            let (qtype, confidence) = match answer {
-                Answer::Noul { .. } => ("noul", None),
-                Answer::Choice { confidence, .. } => ("choice", Some(*confidence)),
-                Answer::Score { confidence, .. } => ("score", Some(*confidence)),
-            };
-            let subject = subjects
-                .get(id)
-                .ok_or_else(|| {
-                    EngineError::Input("decision answer is missing its source mapping".into())
-                })?
-                .clone();
-            self.session.record_answer(
-                &JevAnswerPayload {
-                    model: response.model.clone(),
-                    request_key: key.clone(),
-                    question_id: id.clone(),
-                    qtype: qtype.into(),
-                    answer: serde_json::to_value(answer)?,
-                    confidence,
-                    subject,
-                },
-                provider,
-                cache_hit,
-            )?;
-        }
-        Ok(response)
-    }
     pub(super) fn classify(
         &mut self,
         messages: &[StoredMessage],
@@ -462,55 +371,6 @@ impl Runtime<'_, '_> {
             signals.urgency = Some(*score)
         }
         Ok(signals)
-    }
-    pub(super) fn choose_topic(
-        &mut self,
-        messages: &[StoredMessage],
-        topics: &[TopicRecord],
-    ) -> Result<Option<TopicRecord>> {
-        if topics.is_empty() {
-            return Ok(None);
-        }
-        let candidates: Vec<_> = topics
-            .iter()
-            .rev()
-            .take(self.config.segment.all_candidates_max.min(254) as usize)
-            .collect();
-        let mut options: BTreeMap<_, _> = candidates
-            .iter()
-            .enumerate()
-            .map(|(n, _)| (format!("T{n}"), format!("Continue candidate T{n}")))
-            .collect();
-        options.insert("new_topic".into(), "Start a new topic".into());
-        let request = DecisionRequest {
-            state: json!({"candidate_topics":candidates.iter().enumerate().map(|(n,t)|json!({"ref":format!("T{n}"),"title":t.title})).collect::<Vec<_>>(),"new_messages":messages.iter().map(|m|crate::render::render(&m.message)).collect::<Vec<_>>()}),
-            questions: BTreeMap::from([(
-                "topic".into(),
-                Question::Choice {
-                    instructions: "Which candidate topic do these messages continue?".into(),
-                    options,
-                },
-            )]),
-        };
-        let subject = burst_subject(
-            messages,
-            &candidates
-                .iter()
-                .map(|topic| topic.id.clone())
-                .collect::<Vec<_>>(),
-        )?;
-        let response = self.decide(&request, &BTreeMap::from([("topic".into(), subject)]))?;
-        if let Some(Answer::Choice {
-            choice, confidence, ..
-        }) = response.answers.get("topic")
-            && *confidence >= self.config.segment.tau_high
-            && let Some(index) = choice
-                .strip_prefix('T')
-                .and_then(|s| s.parse::<usize>().ok())
-        {
-            return Ok(candidates.get(index).map(|t| (*t).clone()));
-        }
-        Ok(None)
     }
 }
 

@@ -4,6 +4,7 @@
 |---|---|---|
 | 当前分工、接入方法与验收 | [TEAM_ASSIGNMENTS.md](TEAM_ASSIGNMENTS.md) | 当前唯一分工依据；A/B/C 是待绑定的任务席位 |
 | 执行输入、云服务及平台验收 | [ACCEPTANCE.md](ACCEPTANCE.md) | 独立数据目录、离线验收脚本、真实联调及结果边界 |
+| 本地模型密钥与启动 | [ENVIRONMENT.md](ENVIRONMENT.md) | `.env` 模板、子进程环境及离线 doctor |
 | 文件放哪里、谁读写、哪些可清理 | [FILE_LAYOUT.md](FILE_LAYOUT.md) | 目录与存储设计；规划目录按实现逐步建立 |
 | 模块边界与依赖 | [ARCHITECTURE.md](ARCHITECTURE.md) | 架构依据 |
 | CLI 当前字段与事件 | [CLI_PROTOCOL.md](CLI_PROTOCOL.md) | 现有协议规格 |

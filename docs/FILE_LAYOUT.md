@@ -135,7 +135,7 @@ chat-tldr/
 
 小模块可先用同名 `.rs` 文件或只有 `mod.rs` 的目录，内容长到需要按职责拆分时再增加文件。`core::lib.rs` 重导出公开协议类型，内部拆文件不改变调用方的导入路径。
 
-已实现的控制器位于 `agent/mod.rs`，模型请求/缓存/预算位于 `agent/runtime.rs`；表中的 embed、baseline 等仍是规划位置。历史统计的版本化 JSON 扩展使用既有 DB v1 的 meta/日志列，不额外创建一份数据库或给 GUI/eval 开 SQL 入口。当前批次代码变更后的 `.codegraph/` 同步仍待执行，索引不作为已同步的验收证据。
+已实现的控制器位于 `agent/mod.rs`，模型请求/缓存/预算位于 `agent/runtime.rs` 及其 `decisions.rs`、`topic.rs` 子模块；确定性候选与增量连边索引在 `segment/candidates.rs`。表中的 embed、baseline 等仍是规划位置。历史统计的版本化 JSON 扩展使用既有 DB v1 的 meta/日志列，不额外创建一份数据库或给 GUI/eval 开 SQL 入口。`.codegraph/` 是本地派生产物，代码变化后可同步，不提交。
 
 SQL 迁移、提示词与 HTML 模板在编译时嵌入。可执行文件移动后，不依赖仓库路径或当前工作目录来寻找这些资源。提示词文件变更进入缓存键；不从开发目录悄悄加载另一份模板。
 

@@ -1,6 +1,9 @@
 //! Bounded, synchronous analysis. Provider calls happen outside write transactions.
 mod runtime;
-use crate::segment::{bursts, interleave};
+use crate::segment::{
+    ReplyInterleave, bursts,
+    candidates::{TopicLinks, eligible as candidate_eligible},
+};
 use crate::{
     Config, EngineError, Result,
     decider::Decider,
@@ -133,6 +136,8 @@ pub fn analyze(
         .filter(|m| m.topic_id.is_none())
         .cloned()
         .collect();
+    let backlog_len = unassigned.len();
+    let interleaving = ReplyInterleave::new(unassigned.make_contiguous());
     let mut groups = BTreeMap::<TopicId, Vec<StoredMessage>>::new();
     for message in messages.iter().filter(|m| m.topic_id.is_some()) {
         groups
@@ -152,15 +157,7 @@ pub fn analyze(
         })
         .collect();
     let mut known_topics = snapshot.topics.clone();
-    let mut assignment: BTreeMap<_, _> = snapshot
-        .messages
-        .iter()
-        .filter_map(|m| {
-            m.topic_id
-                .as_ref()
-                .map(|t| (m.message.id.clone(), t.clone()))
-        })
-        .collect();
+    let mut links = TopicLinks::new(&snapshot.messages);
     let fallback_active = options.decider == "llm" || models.primary.is_none();
     store::decay_preferences(path)?;
     let mut runtime = Runtime {
@@ -188,16 +185,16 @@ pub fn analyze(
             break;
         }
         let observation = observation(
-            &unassigned,
+            unassigned.len(),
             &queue,
             &known_topics,
             runtime.steps,
             runtime.stats.cost_usd,
+            interleaving.remaining(backlog_len - unassigned.len()),
         );
         if !unassigned.is_empty() {
             let direct = unassigned.len() <= config.agent.direct_max as usize
-                && interleave(unassigned.make_contiguous(), &config.segment)
-                    < config.agent.direct_interleave_max;
+                && observation.interleave < config.agent.direct_interleave_max;
             let count = if direct {
                 unassigned.len()
             } else {
@@ -270,9 +267,7 @@ pub fn analyze(
                             &member_ids.into_iter().collect::<Vec<_>>(),
                             "direct",
                         )?;
-                        for m in &members {
-                            assignment.insert(m.message.id.clone(), topic.id.clone());
-                        }
+                        links.assign(&members, &topic.id);
                         known_topics.push(topic.clone());
                         runtime.stats.topics_created += 1;
 
@@ -287,39 +282,20 @@ pub fn analyze(
             } else {
                 (|| {
                     for burst in bursts(&batch, &config.segment) {
-                        let refs: BTreeSet<_> = burst
-                            .iter()
-                            .filter_map(|m| {
-                                m.message
-                                    .reply_to
-                                    .as_ref()
-                                    .and_then(|r| r.resolved.as_ref())
-                            })
-                            .filter_map(|id| assignment.get(id))
-                            .cloned()
-                            .collect();
-                        let candidates: Vec<_> = known_topics
-                            .iter()
-                            .filter(|t| {
-                                t.state != TopicState::Merged
-                                    && (burst[0].message.sent_at - t.last_message_at)
-                                        .num_seconds()
-                                        .abs()
-                                        <= config.segment.topic_close_secs as i64
-                            })
-                            .cloned()
-                            .collect();
-                        let rule_topic = if refs.len() == 1 {
-                            candidates.iter().find(|t| refs.contains(&t.id)).cloned()
-                        } else {
-                            None
-                        };
+                        let rule_topic = links.reply_topic(&burst).and_then(|id| {
+                            known_topics
+                                .iter()
+                                .find(|topic| {
+                                    &topic.id == id
+                                        && candidate_eligible(topic, &burst, &config.segment)
+                                })
+                                .cloned()
+                        });
                         let chosen = if let Some(topic) = rule_topic {
                             Some((topic, "rule_reply"))
                         } else {
-                            runtime
-                                .choose_topic(&burst, &candidates)?
-                                .map(|t| (t, "jev"))
+                            let candidates = links.select(&burst, &known_topics, &config.segment);
+                            runtime.choose_topic(&burst, &candidates)?
                         };
                         let (mut topic, method) = if let Some(pair) = chosen {
                             pair
@@ -349,9 +325,7 @@ pub fn analyze(
                         }
                         let ids: Vec<_> = burst.iter().map(|m| m.message.id.clone()).collect();
                         session.assign(&topic, &ids, method)?;
-                        for id in ids {
-                            assignment.insert(id, topic.id.clone());
-                        }
+                        links.assign(&burst, &topic.id);
                         if let Some(pending) = queue.iter_mut().find(|p| p.topic.id == topic.id) {
                             pending.topic = topic;
                             pending.messages.extend(burst)
@@ -664,11 +638,12 @@ pub fn analyze(
         _ => RunStatus::Partial,
     };
     let observation = observation(
-        &unassigned,
+        unassigned.len(),
         &queue,
         &known_topics,
         runtime.steps,
         runtime.stats.cost_usd,
+        interleaving.remaining(backlog_len - unassigned.len()),
     );
     runtime.flush_warnings(sink)?;
     runtime.decision(
@@ -718,15 +693,16 @@ fn new_topic(
     }
 }
 fn observation(
-    unassigned: &VecDeque<StoredMessage>,
+    pending_messages: usize,
     queue: &VecDeque<PendingTopic>,
     topics: &[TopicRecord],
     steps: u32,
     cost: f64,
+    interleave: f32,
 ) -> AgentObservation {
     AgentObservation {
-        pending_messages: unassigned.len() as u32,
-        interleave: 0.0,
+        pending_messages: pending_messages as u32,
+        interleave,
         active_topics: topics.len() as u32,
         dirty_topics: queue.len() as u32,
         pending_verification: queue

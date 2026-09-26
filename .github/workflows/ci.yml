@@ -99,6 +99,9 @@ jobs:
         env:
           CI_PACKAGE: ${{ matrix.package }}
         run: cargo test -p $env:CI_PACKAGE --locked
+      - name: Verify literal env loading and subprocess argument forwarding
+        if: matrix.module == 'cli'
+        run: ./scripts/tests/test-with-env.ps1
 
   platform-unix:
     name: CLI / eval (Linux)
@@ -122,6 +125,8 @@ jobs:
         run: cargo test -p chat-tldr -p chat-tldr-eval --locked
       - name: Verify the offline acceptance script using synthetic QCE input
         run: ./scripts/verify-qce.ps1 -InputFile ./fixtures/qce/template-docker-export.json
+      - name: Verify literal env loading and subprocess argument forwarding
+        run: ./scripts/tests/test-with-env.ps1
 
   platform-macos:
     name: ${{ matrix.module }} (macOS)
