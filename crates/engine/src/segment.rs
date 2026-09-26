@@ -1,5 +1,6 @@
 //! Deterministic temporal bursts and reply interleaving; no I/O or model calls.
 pub(crate) mod candidates;
+pub(crate) mod merge;
 
 use crate::store::StoredMessage;
 use std::collections::BTreeMap;

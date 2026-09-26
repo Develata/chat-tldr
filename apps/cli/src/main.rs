@@ -4,6 +4,7 @@ mod commands;
 mod history;
 mod html;
 mod output;
+mod overview;
 mod paths;
 
 use std::io;

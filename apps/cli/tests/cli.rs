@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use chat_tldr_core::{CliEvent, EventStreamValidator};
 use serde_json::Value;
 
+mod merging;
+mod overview;
 mod workflow;
 
 static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);

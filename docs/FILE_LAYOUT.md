@@ -1,7 +1,7 @@
 # 目录与文件存放设计
 
 > 2026-09-26。本文统一规定源码、协作材料和运行文件放在哪里、由谁读写，以及哪些可以清理。
-> 用户已于 2026-09-26 采纳此布局。当前 CLI 基础分析闭环、历史查询与 eval 表格往返已实现，原生 GUI 已接入 CLI 并完成 Windows 合成数据截图与交互验收，见 [GUI_VERIFICATION](GUI_VERIFICATION.md)。下列树仍包含规划位置，文件随功能创建，不预建大量空模块。
+> 用户已于 2026-09-26 采纳此布局。当前已实现 CLI 分析闭环、话题生命周期、六个分析总览、历史查询与部分 eval。GUI 的 Windows 收件箱有合成截图，新增总览有交互回归；验收边界见 [GUI_VERIFICATION](GUI_VERIFICATION.md) 和 [REVIEW_FIXES](REVIEW_FIXES.md)。下列树仍包含规划位置，文件随功能创建，不预建大量空模块。
 > 保留现有六个 workspace 成员和 `--data-dir` 约定。QCE 管理组件单独预留位置，尚未加入 workspace。
 
 ## 1. 三个根目录
@@ -27,6 +27,8 @@ chat-tldr/
 ├─ .gitignore
 ├─ .github/
 │  ├─ workflows/ci.yml         # fmt / clippy / test
+│  ├─ dependabot.yml           # Actions 版本更新 PR
+│  ├─ actionlint.yaml          # 新版官方 runner 标签的暂时兼容配置
 │  ├─ CODEOWNERS
 │  └─ ISSUE_TEMPLATE/
 ├─ crates/
@@ -127,6 +129,7 @@ chat-tldr/
 | `store.rs` | 连接、迁移、原子导入与基础消息查询 |
 | `store/analysis.rs`、`store/inbox.rs` | 分析会话、提交与证据来源读取；收件箱、反馈、生命周期 |
 | `store/history.rs` | stats/decisions/jev-log 的只读事务查询与旧记录兼容，测试在 `store/history/` |
+| `overview.rs`、`store/overview.rs` | 六种分析视图的纯聚合算法与同一只读快照；复用 inbox 证据重验，单元测试在 `overview/` |
 | `render/`、`segment/` | 渲染、burst、话题候选与归属 |
 | `decider/`、`llm/`、`embed/` | provider trait、真实客户端与 Mock |
 | `extract/`、`temporal/`、`verify/` | 抽取、日期规范化、证据校验 |
@@ -135,7 +138,9 @@ chat-tldr/
 
 小模块可先用同名 `.rs` 文件或只有 `mod.rs` 的目录，内容长到需要按职责拆分时再增加文件。`core::lib.rs` 重导出公开协议类型，内部拆文件不改变调用方的导入路径。
 
-已实现的控制器位于 `agent/mod.rs`，模型请求/缓存/预算位于 `agent/runtime.rs` 及其 `decisions.rs`、`topic.rs` 子模块；确定性候选与增量连边索引在 `segment/candidates.rs`。表中的 embed、baseline 等仍是规划位置。历史统计的版本化 JSON 扩展使用既有 DB v1 的 meta/日志列，不额外创建一份数据库或给 GUI/eval 开 SQL 入口。`.codegraph/` 是本地派生产物，代码变化后可同步，不提交。
+已实现的控制器位于 `agent/mod.rs`，合并编排在 `agent/merge.rs`；模型请求/缓存/预算位于 `agent/runtime.rs` 及其 `decisions.rs`、`topic.rs`、`merge.rs` 子模块。确定性归属候选与增量连边索引在 `segment/candidates.rs`，合并候选图在 `segment/merge.rs`，事务迁移与拒绝对持久化在 `store/analysis/merge.rs`。表中的 embed、baseline 等仍是规划位置。历史统计、合并拒绝及审计的版本化 JSON 扩展使用既有 DB v1 的 meta/日志列；写入口兼容补充话题查询索引，不额外创建一份数据库或给 GUI/eval 开 SQL 入口。`.codegraph/` 是本地派生产物，代码变化后可同步，不提交。
+
+消息时间到期索引及关闭编排在 `agent/lifecycle.rs`，原子状态更新与首次关闭边界持久化在 `store/analysis/lifecycle.rs`。历史候选的 Cursor 前驱索引仍由 `segment/candidates.rs` 维护；其单元测试独立放在 `segment/candidates/tests.rs`。控制器统一保存执行错误后的统计，不让事件输出失败绕过检查点收尾。
 
 SQL 迁移、提示词与 HTML 模板在编译时嵌入。可执行文件移动后，不依赖仓库路径或当前工作目录来寻找这些资源。提示词文件变更进入缓存键；不从开发目录悄悄加载另一份模板。
 

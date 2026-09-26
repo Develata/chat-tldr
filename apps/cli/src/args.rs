@@ -43,6 +43,8 @@ pub enum Command {
     Analyze(AnalyzeArgs),
     /// Read a consistent inbox snapshot with evidence.
     Inbox(InboxArgs),
+    /// Read topic activity, priority, mentions, deadlines and unread recap without model calls.
+    Overview(OverviewArgs),
     /// Set the current preference vote for an insight.
     Feedback(FeedbackArgs),
     /// Set the lifecycle of an insight.
@@ -136,6 +138,20 @@ pub struct InboxArgs {
     pub include_resolved: bool,
     #[arg(long)]
     pub include_rejected: bool,
+    #[arg(long, value_name = "FILE")]
+    pub html: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct OverviewArgs {
+    #[arg(long, value_name = "ID")]
+    pub chat: String,
+    /// Inclusive RFC 3339 time. Defaults to 24 hours before --until.
+    #[arg(long, value_name = "TIME")]
+    pub since: Option<String>,
+    /// Exclusive RFC 3339 time and deadline observation time. Defaults to now.
+    #[arg(long, value_name = "TIME")]
+    pub until: Option<String>,
     #[arg(long, value_name = "FILE")]
     pub html: Option<PathBuf>,
 }

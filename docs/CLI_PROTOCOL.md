@@ -3,7 +3,7 @@
 > 用途：定义 `chat-tldr` 命令行的命令、参数、stdout 上的 JSON Lines 事件、错误码、退出码和版本兼容规则。
 > 读者：@Develata（实现 CLI）、同学 B（GUI 解析输出）、同学 C（eval 调用 CLI）。信封类型的定义见 [DATA_MODEL.md](DATA_MODEL.md) §4。
 
-> 状态：2026-09-26 用户已采纳 [CLI v1 评审稿](CLI_V1_REVIEW.md)，本页是同步后的首次 v1 契约。命令表中的基础、分析、收件箱、状态操作及 `stats/decisions/jev-log` 查询均已实现；当前策略仅 `ours`、Decider 为 `jev/llm`。完整分析策略仍有缺口，见 [ANALYSIS_EXECUTION](ANALYSIS_EXECUTION.md)；实际可用能力以 `version.capabilities` 为准。
+> 状态：2026-09-26 用户已采纳 [CLI v1 评审稿](CLI_V1_REVIEW.md)，本页是同步后的 v1 契约。基础、分析、收件箱、六视图总览 `overview`、状态操作及 `stats/decisions/jev-log` 查询均已实现；当前策略仅 `ours`、Decider 为 `jev/llm`。完整分析策略仍有缺口，见 [ANALYSIS_EXECUTION](ANALYSIS_EXECUTION.md)；实际可用能力以 `version.capabilities` 为准。
 
 ## 1. 总规则
 
@@ -42,6 +42,7 @@
 | `chats` | 列出已导入的会话及三个游标、未读数 | `chat`*, `done` |
 | `analyze --chat <ID>` | 运行智能体控制器，分析待处理消息 | `progress`, `decision`, `topic`, `insight`, `stats`(scope=run), `done` |
 | `inbox --chat <ID>` | 查询收件箱（供 GUI 展示） | `inbox`, `topic`*, `insight`*, `done` |
+| `overview --chat <ID> [--since TIME] [--until TIME] [--html FILE]` | 只读分析总览：热门、优先、相关、截止、未读、资料 | `ack`（头部及逐行数据）, `done` |
 | `messages --chat <ID> [--since] [--until]` | 按时间顺序列出消息及其话题归属（供评估和 GUI 浏览原文） | `message`*, `done` |
 | `feedback <INSIGHT_ID> --useful \| --not-important` | 设置当前有效反馈，不重复计票 | `ack`, `done` |
 | `resolve <INSIGHT_ID> --done \| --dismiss \| --reopen` | 修改结论的 `lifecycle` | `ack`, `done` |
@@ -81,6 +82,12 @@
 
 时间参数使用带偏移的 RFC 3339，统一表示 `[since, until)`。命令启动时固定本次有资格处理的消息；范围外消息可以作上下文但不标为已分析，运行期间新导入的消息留待下次。没有工作时正常结束且不调用模型。`--max-steps` 为正整数，预算为有限正数；在请求前按输入估算、输出上限和配置单价预留预算，限制的是本地费用估算。`--dry-run` 与 `--html` 互斥，不能把计划视为完成分析。检查点提交后才输出相应结论事件；GUI 在结束后刷新 inbox，不依赖拼接过程事件构建最终视图。
 
+`ack.detail.plan.merge_candidates` 为当前已完成话题的可处理合并候选数；不预测待分析消息之后产生的候选。`messages=0` 但候选非零时仍有分析工作，按同样的密钥、步数和费用规则执行。候选至少有一条范围内的回复源；经确认合并的是整对话题（可包含窗口外已完成成员），不推进这些成员的消息状态或游标。当前先完成抽取/校验，再合并全部成员均已完成的话题，细节见 [ANALYSIS_EXECUTION](ANALYSIS_EXECUTION.md)。
+
+分析过程中按本次成功处理的消息时间自动关闭过期话题，成功提交后输出 `topic(state=closed)` 并计入 `topics_updated`；关闭不改变消息状态或游标。历史回填可补入首次关闭时间之前相关的消息，保持 Closed。首次边界持久保存，之后的新消息不能因回填而继续进入 Closed；dry-run 和无工作调用不执行关闭维护。
+
+消息归属成功提交时也会输出 `topic`，以区分“尚无持久结果”和“已分配但尚未 Verify”。该事件本身不表示消息已分析；以消息状态及 `stats.messages_analyzed` 为准。后续失败会保留归属和恢复所需草稿，并报告 partial；GUI 仍在结束后刷新 inbox。
+
 **`inbox --chat <ID>`**
 - `--include-resolved`：同时返回 `done` / `dismissed` 的结论。
 - `--include-rejected`：同时返回 `rejected` 的结论（仅供评估计算幻觉率；GUI 不使用）。
@@ -94,6 +101,14 @@
 - `<CURSOR>` **必须**是 GUI 最近一次完整显示的 `inbox` 事件里的非空 `view_cursor`，原样回传；空值时禁用标为已读。
 - CLI 校验游标格式、会话归属和连续 `done/skipped` 前缀形成的安全上界，不能跨越 `failed/pending`。CLI 不能仅凭 Cursor 证明用户看过界面，“只回传已展示位置”由 GUI 契约保证。
 - 如果 `<CURSOR>` 早于当前 `last_reviewed`，则不做任何改动，返回 `ack`（`changed=false`）。
+
+**`overview --chat <ID>`**
+- 用户于 2026-09-26 要求推进分析视图后新增的兼容命令。`--until` 为带偏移的 RFC 3339 排他终点，默认当前时间；`--since` 为包含下界，默认 until 前 24 小时，必须早于 until。GUI 提供 6/24/168 小时窗口。`--html` 使用与 inbox 相同的路径保护和原子发布。
+- 不读取密钥、不调用模型、不创建数据库、不保存运行或推进任何游标。单个只读事务中完成查询和证据重验。热榜只统计 done、非系统/撤回、已归属的窗口消息；原始提及及资料也可显示 pending，必须标识。优先/相关/截止保留窗口前 open 事项；未读回顾按 last_reviewed。until 同时用于截止状态，未归一或仅模型猜测的时间列为待确认。
+- 首个 `ack.command=overview`，`changed=false`，`target=ChatId`，`detail={overview:<头部>,counts:<各节行数>}`。头部 `version=1`，包括 chat_id、since/until、generated_at、data_start/end、window_messages、pending_messages（全群）、window_pending、last_reviewed，以及空的九节数组。
+- 后续每个 `ack.command=overview.rows` 的 target 仍为同一 ChatId、changed=false；`detail={section:<节名>,row:<对应类型>}`。节名为 hot_topics、priority_topics、related、mentions、deadlines、unread_topics、resources、topics、insights；类型见 `core/overview.rs`。归属引用可先于被引用的行，消费者在结束时检查计数和引用完整性。
+- v1 信封、既有事件、DB 版本均不变。GUI 通过 capabilities 判断入口，仅在 done/真实进程退出均成功、每节计数匹配且引用有效后发布，不把部分流或重复头部当成完整结果。单行数据上限 900,000 字节，超限返回 E_OUTPUT_WRITE/8；GUI 每节最多 50,000 行并明确拒绝超限，不能截断后宣称完整。
+- 总览不返回可用于标已读的 view_cursor。读取和展示它不代表完整阅读收件箱；仍需按既有 inbox 契约标读。报告是当前状态在消息窗口上的视图，不是历史版本快照；完整统计口径见 [ANALYSIS_VIEWS](ANALYSIS_VIEWS.md)。
 
 **`feedback` 与 `resolve`**
 - 相同评价重复提交时 `changed=false`；切换评价替换当前有效值，不能累计成多次有效投票。审计记录可另存。
@@ -148,6 +163,8 @@
  "is_chitchat":0.08,"merged_into":null}
 ```
 
+合并事务成功后输出目标、源各一个 `topic`。源状态为 `merged`、`message_count=0`、`merged_into` 指向目标，时间字段保留历史范围；目标计数包含迁移后的全部成员。结论 ID 不变，结束后查询 inbox 获取最终 topic_id。
+
 ### 3.5 `insight`
 payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其中 `Insight` 见 DATA_MODEL §3。
 
@@ -196,7 +213,7 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
 ```json
 {"command":"resolve","target":"i_7c2d9e01ab34","changed":true,"detail":{"lifecycle":"done"}}
 ```
-`version` 命令的 `ack`：`{"command":"version","target":null,"changed":false,"detail":{"cli_version":"0.1.0","schema_version":"1.0","db_version":1,"capabilities":{"commands":["version","config init","doctor","import","chats","messages","analyze","inbox","feedback","resolve","mark-read","stats","decisions","jev-log"],"strategies":["ours"],"deciders":["jev","llm"]}}}`。capabilities 只列实际已实现的能力，不能广告空桩。
+`version` 命令的 `ack`：`{"command":"version","target":null,"changed":false,"detail":{"cli_version":"0.1.0","schema_version":"1.0","db_version":1,"capabilities":{"commands":["version","config init","doctor","import","chats","messages","analyze","inbox","overview","feedback","resolve","mark-read","stats","decisions","jev-log"],"strategies":["ours"],"deciders":["jev","llm"]}}}`。capabilities 只列实际已实现的能力，不能广告空桩。
 
 ### 3.9 `warning`
 ```json

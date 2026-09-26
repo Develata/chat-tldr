@@ -1,0 +1,6 @@
+# actionlint 1.7.12 predates this GitHub-hosted label. Allow only this exact
+# label until a release knows it; this does not configure a self-hosted runner.
+# https://github.blog/changelog/2026-09-17-ubuntu-26-generally-available-and-latest-migration/
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

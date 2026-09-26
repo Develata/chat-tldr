@@ -1,0 +1,274 @@
+use super::*;
+use crate::model::OverviewView;
+use chat_tldr_core::{DeadlineStatus, InsightId, TopicId};
+
+pub(super) fn render(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    model: &GuiModel,
+    enabled: bool,
+    busy: bool,
+    actions: &mut Vec<Action>,
+) {
+    ui.heading("群聊分析总览");
+    if state.overview_hours == 0 {
+        state.overview_hours = 24;
+    }
+    ui.horizontal_wrapped(|ui| {
+        for (hours, label) in [(6, "近 6 小时"), (24, "近 24 小时"), (168, "近 7 天")] {
+            if ui
+                .add_enabled(
+                    enabled,
+                    egui::Button::selectable(state.overview_hours == hours, label),
+                )
+                .clicked()
+            {
+                state.overview_hours = hours;
+                state.overview_page = 0;
+                actions.push(Action::Overview(hours));
+            }
+        }
+        if ui
+            .add_enabled(enabled, egui::Button::new("刷新总览"))
+            .clicked()
+        {
+            actions.push(Action::Overview(state.overview_hours));
+        }
+    });
+    let Some(view) = &model.overview else {
+        ui.label(if busy {
+            "正在读取分析结果…"
+        } else {
+            "点击刷新总览，读取这个群的分析结果。"
+        });
+        return;
+    };
+    let report = &view.report;
+    ui.weak(format!(
+        "{} 至 {} · 窗口内 {} 条，{} 条待分析 · 全群 {} 条待分析",
+        report.since.format("%m-%d %H:%M %:z"),
+        report.until.format("%m-%d %H:%M %:z"),
+        report.window_messages,
+        report.window_pending,
+        report.pending_messages
+    ));
+    ui.weak(format!(
+        "已导入记录截至 {}；总览不会标为已读。",
+        report
+            .data_end
+            .map(|d| d.format("%m-%d %H:%M %:z").to_string())
+            .unwrap_or_else(|| "无记录".into())
+    ));
+    let old = state.overview_tab;
+    ui.horizontal_wrapped(|ui| {
+        for (index, label) in [
+            "热门话题",
+            "优先话题",
+            "与我有关",
+            "截止事项",
+            "未读回顾",
+            "资料入口",
+        ]
+        .iter()
+        .enumerate()
+        {
+            ui.selectable_value(&mut state.overview_tab, index, *label);
+        }
+    });
+    if old != state.overview_tab {
+        state.overview_page = 0;
+    }
+    let total = match state.overview_tab {
+        0 => report.hot_topics.len(),
+        1 => report.priority_topics.len(),
+        2 => report.related.len() + report.mentions.len(),
+        3 => report.deadlines.len(),
+        4 => report.unread_topics.len(),
+        _ => report.resources.len(),
+    };
+    let pages = total.div_ceil(20).max(1);
+    state.overview_page = state.overview_page.min(pages - 1);
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(state.overview_page > 0, egui::Button::new("上一页"))
+            .clicked()
+        {
+            state.overview_page -= 1;
+        }
+        ui.label(format!(
+            "{} 项 · 第 {} / {} 页",
+            total,
+            state.overview_page + 1,
+            pages
+        ));
+        if ui
+            .add_enabled(state.overview_page + 1 < pages, egui::Button::new("下一页"))
+            .clicked()
+        {
+            state.overview_page += 1;
+        }
+    });
+    egui::ScrollArea::vertical()
+        .id_salt(("overview", state.overview_tab, state.overview_page))
+        .show(ui, |ui| {
+            if total == 0 {
+                ui.label("当前没有符合条件的内容。尚未分析的消息需要先运行分析。");
+            }
+            for index in (state.overview_page * 20..total).take(20) {
+                ui.push_id(index, |ui| match state.overview_tab {
+                    0 => {
+                        let row = &report.hot_topics[index];
+                        ui.heading(title(view, Some(&row.topic_id)));
+                        ui.label(format!(
+                            "{} 人参与 · {} 条有效讨论 / {} 条已分析消息",
+                            row.participants, row.meaningful_messages, row.message_count
+                        ));
+                        ui.weak(format!(
+                            "最近活动 {} · 已限制单人刷屏贡献",
+                            row.last_message_at.format("%m-%d %H:%M %:z")
+                        ));
+                        if let Some(group) = report
+                            .priority_topics
+                            .iter()
+                            .find(|g| g.topic_id.as_ref() == Some(&row.topic_id))
+                        {
+                            items(ui, view, &group.insight_ids, enabled, model, actions);
+                        }
+                    }
+                    1 | 4 => {
+                        let groups = if state.overview_tab == 1 {
+                            &report.priority_topics
+                        } else {
+                            &report.unread_topics
+                        };
+                        let group = &groups[index];
+                        ui.heading(format!(
+                            "{:?} · {}",
+                            group.priority,
+                            title(view, group.topic_id.as_ref())
+                        ));
+                        ui.label(group.reasons.join(" · "));
+                        items(ui, view, &group.insight_ids, enabled, model, actions);
+                    }
+                    2 => {
+                        if index < report.related.len() {
+                            let row = &report.related[index];
+                            ui.label(row.reasons.join(" · "));
+                            items(
+                                ui,
+                                view,
+                                std::slice::from_ref(&row.insight_id),
+                                enabled,
+                                model,
+                                actions,
+                            );
+                        } else {
+                            let row = &report.mentions[index - report.related.len()];
+                            ui.label(format!(
+                                "{} · {} · {}",
+                                row.sender_display,
+                                row.reasons.join(" · "),
+                                if row.analyzed {
+                                    "已分析"
+                                } else {
+                                    "待分析"
+                                }
+                            ));
+                            ui.label(&row.text);
+                        }
+                    }
+                    3 => {
+                        let row = &report.deadlines[index];
+                        ui.heading(match row.status {
+                            DeadlineStatus::Overdue => "已逾期",
+                            DeadlineStatus::Upcoming => "尚未到期",
+                            _ => "时间待确认",
+                        });
+                        items(
+                            ui,
+                            view,
+                            std::slice::from_ref(&row.insight_id),
+                            enabled,
+                            model,
+                            actions,
+                        );
+                    }
+                    _ => {
+                        let row = &report.resources[index];
+                        ui.label(format!(
+                            "{} · {}",
+                            row.source.sender_display,
+                            row.source.sent_at.format("%m-%d %H:%M %:z")
+                        ));
+                        ui.label(&row.source.text);
+                        for attachment in &row.attachments {
+                            ui.label(format!(
+                                "附件：{}",
+                                attachment.name.as_deref().unwrap_or("未命名")
+                            ));
+                        }
+                        for link in &row.links {
+                            if link.starts_with("http://") || link.starts_with("https://") {
+                                ui.hyperlink_to(link, link);
+                            } else {
+                                ui.label(link);
+                            }
+                        }
+                        ui.weak("仅附件元数据，未读取文件正文。");
+                    }
+                });
+                ui.separator();
+            }
+        });
+}
+
+fn title<'a>(view: &'a OverviewView, id: Option<&TopicId>) -> &'a str {
+    id.and_then(|id| view.titles.get(id))
+        .map(String::as_str)
+        .unwrap_or("未归属话题")
+}
+
+fn items(
+    ui: &mut egui::Ui,
+    view: &OverviewView,
+    ids: &[InsightId],
+    enabled: bool,
+    model: &GuiModel,
+    actions: &mut Vec<Action>,
+) {
+    let page_id = ui.make_persistent_id("overview-insight-page");
+    let pages = ids.len().div_ceil(20).max(1);
+    let mut page = ui
+        .data(|data| data.get_temp::<usize>(page_id))
+        .unwrap_or(0)
+        .min(pages - 1);
+    if pages > 1 {
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(page > 0, egui::Button::new("上一组结论"))
+                .clicked()
+            {
+                page -= 1;
+            }
+            ui.small(format!("{} 项结论 · {} / {}", ids.len(), page + 1, pages));
+            if ui
+                .add_enabled(page + 1 < pages, egui::Button::new("下一组结论"))
+                .clicked()
+            {
+                page += 1;
+            }
+        });
+    }
+    ui.data_mut(|data| data.insert_temp(page_id, page));
+    for id in ids.iter().skip(page * 20).take(20) {
+        if let Some(index) = view.items.get(id) {
+            let row = &view.report.insights[*index];
+            ui.push_id(id.as_ref(), |ui| {
+                ui.collapsing(
+                    format!("{:?} · {}", row.insight.priority, row.insight.title),
+                    |ui| insight(ui, row, enabled, model, actions),
+                );
+            });
+        }
+    }
+}

@@ -1,7 +1,9 @@
-# 任务 B：egui 图形界面
+# GUI 主线规格与设计协作
 
-> 用途：同学 B 的任务 issue 正文。可以直接复制到 GitHub issue。
+> 原任务 B 的实现规格与验收目标，保留作主线参考，不是要求同学重新实现整个 GUI。下方验收清单不作为实时完成台账。
 > 当前安排：Codex 负责主线实现与 CLI 接入，同学先协助 GUI 设计，具体实现范围按任务分派。审核：@Develata。
+
+**当前状态（2026-09-26）**：原生收件箱、证据/状态操作、历史查询和六个分析总览已实现；Windows 收件箱有原生截图，GUI 当前 36 项测试通过。新总览截图、真实云分析的界面验收和同学独立设计稿仍待完成。实际使用见 [apps/gui/README](../../apps/gui/README.md)，同学 B 从 [docs/ui](../ui/README.md) 的设计复核开始；状态以 [TEAM_ASSIGNMENTS](../TEAM_ASSIGNMENTS.md) 为准。
 
 设计稿放 `docs/ui/`，正式程序资源放 `apps/gui/assets/`，运行中的界面偏好放 `<data-dir>/gui-state.json`；完整归属见 [FILE_LAYOUT.md](../FILE_LAYOUT.md)。
 
@@ -9,9 +11,11 @@
 
 做一个桌面面板：用户点“开始汇总”，看到进度；汇总完成后看到三栏收件箱（需要你处理 / 值得知道 / 其他话题）；点开任意结论能看到原始消息，引用片段被高亮；可以反馈、标记完成、标为已读；可以查看本次智能体的决策和运行统计。
 
-## 你可以修改的目录
+## 主线源码范围
 
 - `apps/gui/`
+
+同学 B 默认交付目录是 `docs/ui/`；若需要参与源码，先按具体任务分配文件，避免覆盖主线实现。
 
 **GUI 只依赖 `crates/core`**，永远不直接读写数据库，也不依赖 `engine` / `qce`。所有数据都来自运行 `chat-tldr` 子进程后 stdout 上的 JSON Lines。
 
@@ -27,6 +31,7 @@ GUI 会调用的命令：
 |---|---|
 | 启动 | `chat-tldr version`（检查 MAJOR 版本）→ `chat-tldr chats` |
 | 选择群 | `chat-tldr inbox --chat <ID>` |
+| 分析总览/切换窗口 | `chat-tldr overview --chat <ID> --since <TIME> --until <TIME>`；总览不授予已读权限 |
 | 开始汇总 | `chat-tldr analyze --chat <ID>`，结束后自动刷新 `inbox` |
 | 有用 / 不重要 | `chat-tldr feedback <INSIGHT_ID> --useful` / `--not-important` |
 | 完成 / 忽略 | `chat-tldr resolve <INSIGHT_ID> --done` / `--dismiss` |
@@ -40,11 +45,11 @@ GUI 会调用的命令：
 2. **中文字体**：通过 `egui::FontDefinitions` 加载打包进程序的中文字体（`include_bytes!`），放在 proportional 和 monospace 字体族的首位。字体必须是 OFL 等允许再分发的许可证，许可证文件一起放在 `apps/gui/assets/fonts/`。
 3. **子进程与线程**：
    - 后台线程用 `std::process::Command` 启动 CLI，`stdout(Stdio::piped())`、`stderr(Stdio::piped())`；
-   - 用 `BufReader::lines()` 逐行读取 stdout，`serde_json::from_str::<CliEvent>` 解析，然后通过 `std::sync::mpsc::Sender` 发给 UI 线程；
+   - 按上限逐行读取 stdout（当前单行最多 1 MiB），解析并验证 JSONL 信封，再通过有界队列发给 UI 线程；
    - stderr 用另一个线程读取，只用于“日志”面板；
    - UI 线程在 `update()` 中循环 `try_recv()` 直到队列为空，收到事件后调用 `ctx.request_repaint()`；
    - **UI 线程绝不阻塞**：不能在 `update()` 里调用 `wait()`、`read_line()` 或任何网络、文件操作。
-4. **协议健壮性**：未知的 `event`、无法解析的行 → 写入日志面板，跳过，不崩溃。以 `done` 事件判断命令结束；进程退出但没有收到 `done` → 显示“CLI 异常退出（退出码 X）”。
+4. **协议健壮性**：兼容 MINOR 的未知事件可以忽略，但仍校验信封、序号与 run_id。坏 JSON、版本不兼容、缺少 `done`、退出码不符或不完整总览必须报错，不发布部分结果。命令结束同时要求合法 `done` 与真实进程退出。
 5. **版本握手**：`version` 返回的 `schema_version` 中，MAJOR 与编译时的常量不一致 → 显示“CLI 协议版本不兼容，请更新”，并禁用所有操作。
 6. **CLI 路径**：默认取与 GUI 可执行文件同目录下的 `chat-tldr`（Windows 上为 `chat-tldr.exe`），可在设置中修改。
 

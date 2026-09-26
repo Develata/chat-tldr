@@ -3,6 +3,8 @@
 > 用途：定义跨模块共享的四个类型（UnifiedMessage、Insight、CliEvent、AgentAction）及 SQLite 字段含义。
 > 读者：全体成员。qce 适配器、GUI、eval 都只依赖这里定义的类型。
 
+2026-09-26 分析视图扩展：`core/overview.rs` 新增 `Overview` / `OverviewPart` 等共享类型，用于既有 `AckPayload.detail` 的版本化内容（`version=1`）。它们是只读派生结果，不修改下述四个冻结类型、事件枚举或 DB v1。`overview` 的头部/逐行计数和引用约束见 [CLI_PROTOCOL](CLI_PROTOCOL.md)，统计口径见 [ANALYSIS_VIEWS](ANALYSIS_VIEWS.md)。
+
 ## 0. 冻结规则
 
 - 本文 §2–§5 的类型实现在 `crates/core`，**冻结后只有 @Develata 能修改**。

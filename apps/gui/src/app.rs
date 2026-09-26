@@ -249,7 +249,37 @@ impl App {
             return;
         }
         let chat = self.model.selected_chat.clone();
+        if matches!(
+            action,
+            Action::Select(_)
+                | Action::Analyze
+                | Action::Refresh
+                | Action::PickImport
+                | Action::Feedback(..)
+                | Action::Resolve(..)
+        ) {
+            self.state.overview = false;
+        }
         match action {
+            Action::Overview(hours) => {
+                if let Some(chat) = chat {
+                    let until = chrono::Utc::now();
+                    let since = until - chrono::Duration::hours(i64::from(hours));
+                    self.start(
+                        CommandKind::Overview,
+                        Some(chat.clone()),
+                        [
+                            "overview".into(),
+                            "--chat".into(),
+                            chat.0.into(),
+                            "--since".into(),
+                            since.to_rfc3339().into(),
+                            "--until".into(),
+                            until.to_rfc3339().into(),
+                        ],
+                    );
+                }
+            }
             Action::Select(chat) => {
                 self.state.cloud_notice = false;
                 self.state.cloud_target = None;
@@ -288,6 +318,9 @@ impl App {
                 self.analyze();
             }
             Action::MarkRead => {
+                if self.state.overview {
+                    return;
+                }
                 if let (Some(chat), Some(cursor)) = (chat, self.model.mark_read_cursor()) {
                     self.start(
                         CommandKind::MarkRead,

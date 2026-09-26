@@ -90,6 +90,7 @@ fn capabilities() -> Capabilities {
             "feedback",
             "resolve",
             "stats",
+            "overview",
         ]
         .into_iter()
         .map(str::to_owned)
@@ -123,6 +124,21 @@ fn text_position(output: &egui::FullOutput, label: &str) -> Option<egui::Pos2> {
     // Toolbar labels can also occur as window/panel headings. Prefer the top
     // painted occurrence, which is the toolbar's clickable control.
     positions.into_iter().min_by(|a, b| a.y.total_cmp(&b.y))
+}
+
+#[test]
+fn overview_entry_switches_windows_and_never_enables_mark_read() {
+    let mut gui = Harness::new(1100.0, false);
+    gui.settled();
+    assert_eq!(gui.click("分析总览"), vec![Action::Overview(24)]);
+    assert!(gui.state.overview);
+    assert!(gui.click("标为已读").is_empty());
+    assert_eq!(gui.click("近 6 小时"), vec![Action::Overview(6)]);
+    assert_eq!(gui.state.overview_hours, 6);
+    assert_eq!(gui.click("刷新总览"), vec![Action::Overview(6)]);
+    assert!(gui.click("收件箱").is_empty());
+    assert!(!gui.state.overview);
+    assert_eq!(gui.click("分析总览"), vec![Action::Overview(6)]);
 }
 
 #[test]

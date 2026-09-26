@@ -2,20 +2,42 @@
 
 本页细化已批准的 PIPELINE，保留 core 1.0 类型与 CLI 命令契约；内部模块和状态可以演进。当前实现进度以 CLI capabilities 和测试为准。
 
+用户后续授权的六种分析视图已接入 `overview`，从当前已持久化结果生成，不触发新的模型请求。热门统计、优先话题、提及、截止、未读和资料口径见 [ANALYSIS_VIEWS](ANALYSIS_VIEWS.md)；`core/overview.rs` 只新增 ack.detail 的版本化共享类型，既有 v1 事件与分析事务不变。
+
 ## 本轮实现范围
 
-当前打通 `import → analyze → inbox → feedback/resolve/mark-read`，含 HTML 输出、SQLite 检查点、同步 Jev/LLM 客户端和离线 Mock。本轮 `ours` 先提供基本闭环：控制器按规则选择动作；小积压直接抽取，其余按时间与回复形成 burst，由规则或 Decider 归属话题。
+当前打通 `import → analyze → inbox → feedback/resolve/mark-read`，含 HTML 输出、SQLite 检查点、同步 Jev/LLM 客户端和离线 Mock。本轮 `ours` 先提供基本闭环：控制器按规则选择动作；没有历史候选的小积压直接抽取，其余按时间与回复形成 burst，由规则或 Decider 归属话题。
 
-完整策略仍有缺口：MergeTopics、控制器用 Jev 选择动作、embedding 候选排序、纯占位刷屏压缩及相关阈值调优尚未接入。配置文件保留对应预定参数，不代表全部已生效。`stats/decisions/jev-log` 已提供只读历史查询；原生 GUI 已接入 CLI，Windows 合成数据截图与交互验收见 [GUI_VERIFICATION](GUI_VERIFICATION.md)。eval 已提供标注表格往返、协议检查和 Ours 离线抽取/排序评分；话题指标、校准等仍待实现。不能把 Mock 通过视为真实聊天分类质量验证。
+完整策略仍有缺口：控制器用 Jev 选择动作、embedding 候选排序、纯占位刷屏压缩及相关阈值调优尚未接入。MergeTopics 已实现下述回复候选与确认流程。配置文件保留对应预定参数，不代表全部已生效。`stats/decisions/jev-log` 已提供只读历史查询；原生 GUI 已接入 CLI，Windows 合成数据截图与交互验收见 [GUI_VERIFICATION](GUI_VERIFICATION.md)。eval 已提供标注表格往返、协议检查和 Ours 离线抽取/排序评分；话题指标、校准等仍待实现。不能把 Mock 通过视为真实聊天分类质量验证。
 
 ## 话题归属
 
-话题自动关闭、历史回填关联当前已 Closed 的旧话题尚未接入；本轮只补齐 active 话题的候选与复核，不代表 PIPELINE 的完整话题生命周期已完成。
+话题自动关闭与 Closed 历史回填已接入。关闭采用本次成功分配/提交的消息时间，不按电脑时钟定时清理；无工作与 dry-run 仍不修改数据库。
 
 - 交错度按当前待处理窗口中已解析回复计算：回复双方之间至少有三条其他参与者消息才计为交错边。窗口外、撤回、未解析或非向前引用不进入分子或分母；其他参与者排除回复双方。同一个时间 burst 内也可能交错，实际值写入 decision observation。
 - 跨 burst 的回复和 @ 边使用增量索引。@ 只匹配明确 uid/uin 与发送者身份，不按昵称推断、不由 `@全体成员` 生成话题连边；未来或撤回消息不提供连边。全部外部回复均已解析且指向同一候选话题时才走 `rule_reply`，有未知目标则交给模型判断。
-- 候选仅取 active 且距 burst 首消息在 `topic_close_secs` 内的话题。没有 embedding 时按 `beta × min(edges,3)/3 − gamma × 时间距离比例` 排序，同分再按最新时间和 ID 稳定排序。候选数过多用 `candidate_k`；请求超出 `state_token_budget` 时先缩到 top-k，再逐个裁尾，放不下任何候选则新开话题。
+- 候选依据 burst 首消息 Cursor 之前最近的非撤回已归属成员，距其发送时间不超过 `topic_close_secs`；当前 Active 或有可靠关闭边界的 Closed 均可参与。没有过去成员、仅有未来成员、历史空档超过阈值或 Merged 话题均排除，不用当前 `last_message_at` 的绝对距离猜历史资格。没有 embedding 时按 `beta × min(edges,3)/3 − gamma × 历史时间距离比例` 排序，同分按历史活动时间和 ID 稳定排序。候选数过多用 `candidate_k`；请求超预算时先缩到 top-k，再逐个裁尾。标题仍使用已存最新标题作话题身份上下文，不提供历史标题/结论版本快照。
 - `tau_high` 以上接受归属；`tau_low` 以下或选择 `new_topic` 时新开；中间区间交由配置的 LLM 复核相同候选。复核拥有独立缓存/用量阶段，记录真实候选主体，遵循预算、取消和输出验证，不因此永久切换后续 Jev 请求。已降级为 LLM 的运行仍按同样置信度边界处理。
+- 只要小积压中存在历史候选，就使用 Segment 归属，避免 AnalyzeDirect 直接新建重复话题。规则回复捷径与模型候选使用相同的历史资格。
+
+## 自动关闭与回填边界
+
+- 成功分配每个 burst、Direct 整批或完成 Verify 后，以该批所选消息的最大发送时间维护话题状态。Active 话题距最后活动时间**严格超过** `topic_close_secs`（默认六小时）才关闭，恰好等于阈值仍活跃。期间新导入或时间窗口外的未处理消息不作为关闭时钟。
+- `close_topics` 在事务内按主键重查最新活动，只更新状态、关闭检查点和首次关闭时对应的消息时间。关闭不更改消息归属、分析状态、游标、结论、证据、反馈或草稿缓存。待校验话题也可关闭，其原草稿继续 Verify；assign/commit 不覆盖已有 Active/Closed 状态，Merged 仍不能复活。
+- **用户决定（Q-DEC-7）：历史回填保持 Closed，只补内容。** 该 burst 所有非撤回成员必须严格早于首次关闭边界，且满足上述历史前驱与活动阈值；跨越边界的 burst 整体不作为该 Closed 话题的候选。边界不随回填、最后活动时间或其他话题推进而改变，防止回填后又接入后来新发的消息。
+- 首次关闭边界存于 DB v1 的 `meta`，与状态同事务提交；快照通过话题与 meta 精确键 JOIN 一次读取。旧 Closed 记录缺少边界时保守排除，不猜 `updated_at` 或全局消息进度。回填成功后最后活动时间取最大值，保持关闭；Closed 不进入合并候选。
+- 每个真正关闭的话题计入一次 `topics_updated`，提交后发送 `topic(state=closed)`。关闭事件及后续动作/进度/Finish 输出失败均通过统一错误收尾保存已提交统计；已有提交报告 partial。重复关闭不增加计数。
+- 归属事务成功后立即输出持久 `topic`，新建计数也只在成功后增加。只有归属、尚无 Verify 的运行发生全局错误仍报告 partial，重跑恢复原归属；它不因此增加 `messages_analyzed`。CLI 据此保持与引擎历史一致的完成状态。
+
+## 话题合并
+
+- 候选为两个 active 话题间至少两条已解析、指向过去的跨话题回复，不要求两个方向均出现。同一源消息只计一边；撤回、跨 chat、未来目标和未解析回复不提供支持。至少一条回复源处于本次 `[since, until)`，目标可在窗口外；不通过候选筛选扩大消息分析范围。
+- 当前控制器先完成本轮抽取与 Verify，再处理合并。任一话题还有 pending/failed 成员（包括窗口外成员）就暂不参与，避免让待验证草稿失去原话题上下文。这是 PIPELINE §8 R3 的阶段实现，尚未实现“≥3 边时优先合并脏话题”或 Jev 动作选择。
+- 按回复边数降序、话题 ID 稳定排序；字典序较小 ID 为目标。最多三条代表回复及两端消息（去重后最多六条）连同正式标题交由 Decider 确认，提示词为英文。`p_yes >= 0.5` 合并，否则持久保存拒绝对，后续运行不再提议；拒绝关系随话题合并继承。只有明确的模型否决才写拒绝记录。
+- 合并事务重新验证代表消息归属、撤回状态、回复方向、至少两条有效边及两话题成员全部已完成。任一支持失效或状态超过请求预算时发 `W_MERGE_DEFERRED`，本轮 partial，后续可重试；不截断原文、不伪造模型否决。网络调用不持有写锁。
+- 同一事务迁移消息归属与结论的 SQL/JSON topic_id，源话题标为 merged，目标保留最新已存标题且活动时间不倒退。保留结论 ID、生命周期、证据、反馈和优先级；按新话题特征重算反馈排序，不推进分析/已读游标。合并后的旧话题不能再次通过 assign/commit 复活。
+- 零条待分析消息仍可有合并工作。`--dry-run` 的 `merge_candidates` 只统计快照中目前可处理的已完成话题对，不预测待分析消息之后产生的候选；消息和候选均为零时才无写入结束。预算、步数或取消中断后可重新运行，无需重新抽取已提交消息。
+- 成功后发送目标和源各一个 `topic` 事件，源 `state=merged`、`message_count=0`、`merged_into` 指向目标；源的时间字段保留历史范围。每次成功合并计入 `topics_updated += 2`，迁移的结论数计入 `insights.updated`。GUI 在结束后刷新 inbox 取得最终归属。
 
 ## 执行阶段
 
@@ -27,6 +49,7 @@
 | 抽取 | LLM 只提出条目与证据，使用本次短引用映射；保留 topic 的待校验工作单元 | 不修改分析完成状态；已缓存响应可供重试复用 |
 | 待校验 | 即使 items 为空也保留这个阶段，不以草稿条目数量代替工作单元数量 | Verify 仍执行一次，空结果也能形成完成检查点 |
 | 校验并提交 | 时间规则、证据匹配、规则 @我、排序；一个话题的结论/证据/消息状态/检查点在同一事务提交 | 提交失败全部回滚；提交成功后才输出 insight 事件 |
+| 合并 | 已完成话题的回复候选经 Decider 确认，原子迁移消息/结论归属、反馈权重及源话题状态 | 拒绝对持久保存；支持变化则暂缓，预算/取消后可仅续跑合并，不重抽已完成消息 |
 | 结束 | 所有阶段受 max_steps、请求超时、有限次重试、取消和预估预算约束 | 话题级失败、预算/步数耗尽则 partial；全局认证/配置/存储错误按错误码退出，已有提交则保留并报告 partial；重跑处理 failed/pending |
 
 不声称旧四元组证明成立。有限 max_steps 加上每次请求的有限总超时给出本次执行的上界；取消在请求之间检查，不把进程强杀包装成正常完成。
@@ -46,7 +69,10 @@
 
 ## 模块与性能
 
-- `agent/mod.rs` 维护执行阶段和检查点边界；`agent/runtime.rs` 及其子模块管理模型请求、缓存、归属复核与预算；`segment.rs` 计算消息组与回复交错率，`segment/candidates.rs` 管理连边索引和确定性候选排序。SQL 仍集中在 `store`，确定性算法不打开数据库或发网络请求。
+- `agent/mod.rs` 维护执行阶段和检查点边界，`agent/merge.rs` 编排合并；`agent/runtime.rs` 及其子模块管理模型请求、缓存、归属/合并确认与预算；`segment.rs` 计算消息组与回复交错率，`segment/candidates.rs` 管理归属连边，`segment/merge.rs` 管理合并候选图。原子迁移在 `store/analysis/merge.rs`，确定性算法不打开数据库或发网络请求。
+- 合并图只构建一次借用消息索引，聚合话题邻接边并维护候选排序；合并后只更新受影响邻接与拒绝关系。代表消息通过带路径压缩的话题别名取得当前归属，不逐次扫描或复制完整聊天正文。模型请求最多复制六条代表消息。
+- `agent/lifecycle.rs` 维护按活动时间排序的到期集合，更新 O(log T)，只弹出已到期话题，不每个 burst 扫描全部话题；`segment/candidates.rs` 增量维护按 chat/topic 的 Cursor 索引，每话题历史前驱查询 O(log M)。消息正文不进入这些索引；关闭事务位于 `store/analysis/lifecycle.rs`。
+- DB v1 写入口幂等补充 `topic_messages(topic_id,message_id)`、`insights(topic_id,insight_id)` 索引，旧数据库可直接使用；只读操作不建索引。生产 SQL 的查询计划回归验证按话题查询，避免每次合并扫描其他群的全部记录。来源话题无反馈时只重算迁移结论，已验证与完整回放等价；来源带有效反馈时仍全量回放投票/衰减历史以保持精确语义，该路径尚未做增量优化。
 - 交错度使用消息位置及每位发送者的位置索引，初次构建 O(n log n)，按回复目标位置生成后缀计数；每批消费前缀后 O(1) 查询剩余交错度。不复制正文重做 burst 切分，也不逐条扫描每个回复区间。候选排序复用增量归属与发送者索引，避免每个 burst 扫描完整聊天快照。未测量墙钟提速比例。
 - 话题提交与提交后证据事件只按去重后的证据消息 ID 查询当前来源，复用准备好的 SQL 语句和 `message_id` 唯一索引；不再为每个话题扫描、反序列化整段聊天历史。读取仍在单事务中完成，撤回与跨会话验证不变。
 - 抽取后的多条证据共享按消息 ID 建立的借用索引，不为每次校验或排名线性查找并复制正文。性能结论以算法访问量及查询计划为依据，未给出未经基准测量的墙钟提速比例。
@@ -58,12 +84,12 @@ resolve 只设置 lifecycle；feedback 只替换当前有效评价。相同值�
 ## 历史记录与统计口径
 
 - `store/history.rs` 在只读事务中查询历史；CLI 的 `history.rs` 只负责命令参数与 JSONL 包装。`decisions`、`jev-log` 的首个 ack 指向历史 run，后续信封属于这次查询；未知 run 返回 `E_RUN_NOT_FOUND` / 3。
-- 正常结束和已处理的全局失败分支用 `finish_with_stats` 在一个事务中保存 RunStats 与结束状态。每个检查点的全部计数在提交成功后、输出事件前更新，stdout 断开不漏掉已经提交的结论。DB v1 不改表结构：精确计数放 `meta` 的 `history.run_stats.v1:<run>`；decision confidence 放 `observation_json._history_v1`；Jev model/provider/cache_hit 放 `subject_json._history_v1`。
-- 每条新回答记录真实 message 或 burst 归属；burst 包含消息 ID 和候选 topic ID。命中模型缓存也写本轮回答，以便重放；降级后的 model 取实际响应模型，不能继续标为 Jev。
+- 正常结束和执行阶段的全部错误通过统一出口，用 `finish_with_stats` 在一个事务中保存 RunStats 与结束状态。每个检查点的全部计数在提交成功后、输出事件前更新，stdout 断开不漏掉已提交的结论、关闭或合并。DB v1 不改表结构：精确计数放 `meta` 的 `history.run_stats.v1:<run>`；decision confidence 放 `observation_json._history_v1`；Jev model/provider/cache_hit 放 `subject_json._history_v1`。
+- 每条新回答记录真实 message、burst 或 topic_pair 归属；burst/topic_pair 包含消息 ID 和候选 topic ID。合并拒绝与事务审计使用 DB v1 既有 meta，成功合并保存 `stage=merge` 检查点。命中模型缓存也写本轮回答，以便重放；降级后的 model 取实际响应模型，不能继续标为 Jev。
 - `usage` 按 stage/provider/model 聚合。`calls` 是逻辑模型调用数，包括返回失败的调用，不等于内部 HTTP 重试次数；token 和费用仅包含提供方返回的已知用量。缓存命中计入 `cache_hits`，本轮 token/费用记 0。这是本地用量估算，不是账单对账。
 - 旧运行或异常中断可能没有精确计数快照：返回仍可核实的存量计数，无法恢复的 insight 更新/验证计数记 0 并发 `W_HISTORY_INCOMPLETE`，不能解释为这些事件从未发生。耗时止于保存的结束或 heartbeat 时间。
 - 旧回答没有可靠 subject 时返回 `kind=unknown,id=unavailable`，发 `W_SUBJECT_UNAVAILABLE`，并在 ack 中计数；不猜测消息 ID。模型名无法从日志或缓存确认时为 `unknown` 并告警，旧 decision confidence 缺失时为 null。
-- dry-run、无待处理消息的 analyze 仍不写 run；它们的调用 ID 不能作为已保存历史查询。全局统计与按 chat 聚合不触发模型，也不创建不存在的数据库。
+- dry-run、既无待处理消息也无合并候选的 analyze 不写 run；它们的调用 ID 不能作为已保存历史查询。全局统计与按 chat 聚合不触发模型，也不创建不存在的数据库。
 
 ## 验收重点
 

@@ -18,9 +18,12 @@ pub use analysis::*;
 mod history;
 pub use history::{History, decisions, jev_log, stats};
 mod inbox;
+pub(crate) use inbox::InboxData;
+mod overview;
 pub use inbox::{
     InboxOptions, InboxSnapshot, decay_preferences, feedback, inbox, mark_read, resolve,
 };
+pub use overview::{OverviewOptions, overview};
 type ChatRow = (
     String,
     String,

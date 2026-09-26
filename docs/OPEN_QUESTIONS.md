@@ -9,14 +9,18 @@
 |---|---|---|---|
 | Q-DEC-1 ✅ | LLM 客户端：不用 `async-openai`，基于 `reqwest::blocking` 自写 OpenAI / Anthropic 两种客户端，全项目不用 async | **2026-09-26 已接受**，按 ADR-0008 执行 | — |
 | Q-DEC-2 ✅ | 是否脱敏 | **2026-09-26 决定：不做脱敏。** 程序与数据库在本机运行；聊天文本仍会发送给 Jev 与 DeepSeek，README 与 GUI 如实告知 | 删除了 `--no-redact`、代号表与还原逻辑 |
-| Q-DEC-3 ✅ | 分支保护 | **2026-09-26 已配置**：main 的 ruleset 为 Restrict updates / deletions、必须经 PR、0 个必需审核、只允许 squash、线性历史、禁止 force push，仓库管理员始终可绕过；CI 建好后加必需检查 `fmt`、`clippy`、`test` | 见 ROADMAP 第 1 天、CONTRIBUTING 第 6 步 |
+| Q-DEC-3 ✅ | 分支保护 | **2026-09-26 再核对**：main 有更新/删除限制、必须经 PR、0 个必需审核、线性历史和禁止 force push；仓库只启用 squash，管理员始终可绕过。CI 已有 `fmt/clippy/test`，但有效 ruleset 尚未配置 required_status_checks；此项与同学实际合并权限仍待补验 | 当前合并手动核对全部 CI；见 ROADMAP 当前待办、CONTRIBUTING 第 6 步 |
 | Q-DEC-4 | 单次 `analyze` 的默认上限：`budget_usd = 0.50`，`max_steps = 64` | 按默认值 | 演示时的成本 |
 | Q-DEC-5 | Rust edition 2024，stable 工具链，不设 MSRV | 按默认值 | 骨架 |
 | Q-DEC-6 | 评估代码也用 Rust（`chat-tldr-eval` + `plotters` 画图），不用 Python | 按默认值 | 同学 C 的工作量 |
+| Q-DEC-7 ✅ | 历史回填是否重新激活已关闭话题 | **2026-09-26 用户确认：保持关闭，只补入当时相关的消息和结论。** 首次关闭的消息时间边界不随回填改变 | 已关闭话题不吸收关闭时刻及之后的新消息，不参与合并 |
+| Q-DEC-8 | “优先话题”按处理先后、个人兴趣还是综合推荐排序 | 用户已授权推进视图功能，当前采用提案默认的**处理优先**：最高有效 P0–P3 与未处理事项，热门榜独立；尚未单独选择兴趣/综合方案。见 [ANALYSIS_VIEWS](ANALYSIS_VIEWS.md) | 不改变既有结论优先级；兴趣推荐另议 |
 
-## B. QCE 导出格式（同学 A 用真实样本确认）
+## B. QCE 导出格式（主线与 A 补充真实样本确认）
 
 依据：QCE commit `7fcca88`（2026-09-11）的源码。以下内容源码中看不出确切形态，需要看真实导出文件。
+
+2026-09-26 已有一个 200 条真实单文件的离线验收和结构核对：时间/发送者映射一致，4 条回复正确，19 个 @ 均不是自己/全体，JSON 卡片仍为占位。样本没有 @me/@all 阳性、撤回、系统或合并转发，所以下列值域与选项问题不一律标为已解决；详见 [ACCEPTANCE](ACCEPTANCE.md#首次真实单文件验收2026-09-26)。
 
 | ID | 问题 | 当前默认 |
 |---|---|---|
@@ -65,6 +69,6 @@
 |---|---|---|
 | Q-EV-1 | 1-to-1 overlap、exact-match F1 等指标的准确定义，写报告前核对原论文 | 按 EVALUATION §3.1 的描述实现 |
 | Q-EV-2 | 50 条双人标注的第二位标注者是谁 | 同学 C + 同学 A |
-| Q-COL-1 | 三位同学的 GitHub 用户名与实际任务范围（确认后追加到 `.github/CODEOWNERS` 的对应路径） | 目前由 `@Develata` 审核；不使用虚假的占位 owner，分工以 ROADMAP 顶部为准 |
+| Q-COL-1 | 三位同学的 GitHub 用户名与实际任务范围（确认后追加到 `.github/CODEOWNERS` 的对应路径） | 目前由 `@Develata` 审核；仓库未记录三位同学独立交付，线下进度待确认。分工与状态以 TEAM_ASSIGNMENTS 为准 |
 | Q-COL-2 | 测试群成员的同意方式与记录 | 群内公告 + 截图，只存本地 |
-| Q-GUI-1 | 打包哪款中文字体（许可证必须允许再分发，如 OFL）以及字体子集化后的体积 | 同学 B 第 1 天确定 |
+| Q-GUI-1 ✅ | 打包哪款中文字体及体积 | **主线已实现**：内嵌未修改的 Noto Sans CJK SC Regular 静态 OTF，约 16.4 MB，未子集化；随附 SIL OFL 1.1，来源与哈希见 [字体说明](../apps/gui/assets/fonts/README.md) |

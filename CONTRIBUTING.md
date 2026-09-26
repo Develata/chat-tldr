@@ -114,6 +114,16 @@ git push -u origin a/qce-manager
 
 5. 修好后在本地运行第 3 步的自检命令，通过后再提交、推送。
 
+### CI 依赖维护
+
+外部 Actions 使用官方最新稳定发布，核对其 `action.yml` 的运行时和 runner 要求后，固定完整 40 位提交 SHA，并在注释中保留版本号。2026-09-26 已升级为 [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1) 和 [rust-cache v2.9.2](https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2)，二者均声明 Node.js 24；Rust toolchain 为 composite action，当前固定提交与官方 stable 一致。
+
+Linux 使用已正式发布的 [Ubuntu 26.04](https://github.blog/changelog/2026-09-17-ubuntu-26-generally-available-and-latest-migration/)。继续保留 Windows 六模块并发、Linux CLI/eval、macOS CLI/GUI/eval 和稳定的 `fmt`、`clippy`、`test` 汇总名称。缓存按模块区分；rust-cache 自身会关闭无效的增量编译并清理缓存，不需要重复设置。
+
+`.github/dependabot.yml` 合入默认分支后，每周一 09:00（America/Santiago）检查 Actions 更新；minor/patch 合为一个 PR，major 单独审核，最多同时打开三个更新 PR。更新仍需通过 CI，由维护者审核合并。
+
+修改 workflow 后运行 `actionlint .github/workflows/ci.yml`、`./scripts/ci/modules.ps1` 和 `./scripts/ci/modules.ps1 -Platform macos`，再核对新提交的远程检查。actionlint 当前最新 1.7.12 尚未内置 `ubuntu-26.04`，`.github/actionlint.yaml` 仅补充此已核实的官方标签；上游支持后可删除该兼容配置。
+
 ## 第 8 步：分支落后于 main 时
 
 PR 页面出现 **“This branch is out-of-date with the base branch”** 时：

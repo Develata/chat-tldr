@@ -13,6 +13,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod lifecycle;
+mod merge;
+pub use merge::MergeResult;
+
 #[derive(Clone, Debug)]
 pub struct StoredMessage {
     pub message: UnifiedMessage,
@@ -37,6 +41,8 @@ pub struct AnalysisSnapshot {
     pub messages: Vec<StoredMessage>,
     pub topics: Vec<TopicRecord>,
     pub insights: Vec<Insight>,
+    pub rejected_merges: BTreeSet<(TopicId, TopicId)>,
+    pub closed_at: BTreeMap<TopicId, DateTime<FixedOffset>>,
 }
 
 pub fn analysis_snapshot(path: &Path, chat: &ChatId) -> Result<AnalysisSnapshot> {
@@ -79,6 +85,8 @@ pub fn analysis_snapshot(path: &Path, chat: &ChatId) -> Result<AnalysisSnapshot>
         .into_iter()
         .map(|s| serde_json::from_str(&s).map_err(Into::into))
         .collect::<Result<Vec<_>>>()?;
+    let rejected_merges = merge::read_rejected(&tx, chat)?;
+    let closed_at = lifecycle::read_closed_at(&tx, chat)?;
     Ok(AnalysisSnapshot {
         chat: ChatMeta {
             chat_id: chat.clone(),
@@ -90,6 +98,8 @@ pub fn analysis_snapshot(path: &Path, chat: &ChatId) -> Result<AnalysisSnapshot>
         messages,
         topics,
         insights,
+        rejected_merges,
+        closed_at,
     })
 }
 
@@ -118,6 +128,12 @@ pub(super) fn open_write(path: &Path) -> Result<Connection> {
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
     connection.pragma_update(None, "foreign_keys", "ON")?;
     check_version(&connection)?;
+    // Additive query accelerators are compatible with DB v1, including stores
+    // created before topic merging. Read-only entrypoints never install them.
+    connection.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_topic_messages_topic ON topic_messages(topic_id,message_id);
+         CREATE INDEX IF NOT EXISTS idx_insights_topic ON insights(topic_id,insight_id);",
+    )?;
     Ok(connection)
 }
 
@@ -297,16 +313,19 @@ impl AnalysisSession {
             } else {
                 report.status
             };
-            let existing: Option<(String, String)> = tx
+            let existing: Option<(String, String, Option<String>)> = tx
                 .query_row(
-                    "SELECT chat_id,lifecycle FROM insights WHERE insight_id=?1",
+                    "SELECT chat_id,lifecycle,topic_id FROM insights WHERE insight_id=?1",
                     [item.id.as_ref()],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
                 )
                 .optional()?;
-            if let Some((chat, lifecycle)) = existing {
+            if let Some((chat, lifecycle, existing_topic)) = existing {
                 if chat != self.chat_id.as_ref() {
                     return Err(EngineError::Input("cross-chat insight update".into()));
+                }
+                if existing_topic.as_deref() != Some(topic.id.as_ref()) {
+                    return Err(EngineError::Input("cross-topic insight update".into()));
                 }
                 item.lifecycle = serde_json::from_value(serde_json::json!(lifecycle))?;
             }
@@ -475,18 +494,31 @@ impl Drop for AnalysisSession {
 }
 
 fn upsert_topic(connection: &Connection, topic: &TopicRecord, run: &RunId) -> Result<()> {
-    let existing: Option<(String, String)> = connection
+    if topic.state == TopicState::Merged {
+        return Err(EngineError::Input("cannot update a merged topic".into()));
+    }
+    let existing: Option<(String, String, String)> = connection
         .query_row(
-            "SELECT chat_id,last_message_at FROM topics WHERE topic_id=?1",
+            "SELECT chat_id,last_message_at,state FROM topics WHERE topic_id=?1",
             [topic.id.as_ref()],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()?;
     let mut topic = topic.clone();
-    if let Some((chat, last)) = existing {
+    if let Some((chat, last, state)) = existing {
         if chat != topic.chat_id.as_ref() {
             return Err(EngineError::Input("cross-chat topic update".into()));
         }
+        if state == "merged" {
+            return Err(EngineError::Input("cannot update a merged topic".into()));
+        }
+        // Assignment and verification may hold an older in-memory state. Only
+        // dedicated lifecycle operations can transition an existing topic.
+        topic.state = match state.as_str() {
+            "active" => TopicState::Active,
+            "closed" => TopicState::Closed,
+            _ => return Err(EngineError::DatabaseFormat("unknown topic state".into())),
+        };
         let last = DateTime::parse_from_rfc3339(&last)
             .map_err(|_| EngineError::DatabaseFormat("invalid topic timestamp".into()))?;
         topic.last_message_at = topic.last_message_at.max(last);
