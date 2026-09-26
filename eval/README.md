@@ -38,7 +38,7 @@ chat-tldr-eval export-sheet --messages eval/private/runs/exp-01/ours/messages.js
 chat-tldr-eval import-sheet eval/private/sheets/course-demo.csv --out eval/private/gold/course-demo
 ```
 
-`export-sheet --messages <PATH> --out <CSV> [--exit-code N]` 只读完整的 `message` / `done` 事件流，不打开数据库，也不调用模型。必须成功完成（`done.status=complete`、`exit_code=0`）；截断、序号错误、混入其他命令的事件或重复消息 ID 均失败。`--exit-code` 的来源与 `check-stream` 相同：省略时只检查文件内部一致性，不能证明真实进程成功。文件必须是 UTF-8；旧版 PowerShell 的默认重定向可能写成 UTF-16，应显式选择 UTF-8 保存。
+`export-sheet --messages <PATH> --out <CSV> [--exit-code N]` 只读完整的 `message` / `done` 事件流，不打开数据库，也不调用模型。必须成功完成（`done.status=complete`、`exit_code=0`）；截断、序号错误、混入其他命令的已知事件或重复消息 ID 均失败。兼容的 MINOR 版本未知事件忽略，但仍校验其序号、run_id 和协议版本。`--exit-code` 的来源与 `check-stream` 相同：省略时只检查文件内部一致性，不能证明真实进程成功。文件必须是 UTF-8；旧版 PowerShell 的默认重定向可能写成 UTF-16，应显式选择 UTF-8 保存。
 
 每条未撤回消息占一个 CSV 记录；撤回消息跳过，成功摘要报告 `recalled_skipped`。不预填模型话题、待办或重要性，避免影响独立人工标注。
 
@@ -63,7 +63,7 @@ CSV 带 UTF-8 BOM，中文、逗号、双引号以及单元格内换行由 CSV �
 
 `import-sheet <CSV> --out <DIR>` 在全部记录验证通过后，输出 EVALUATION §5.1 约定的 `messages.jsonl` 和 `items.jsonl`。它拒绝空标注、未知字段/枚举、非法日期、重复消息 ID、重复 item ID（即使内容一致）、重复锚点和表中不存在的锚点。`item_id` 是非空稳定字符串，不允许首尾空白或控制字符；没有规定必须以 `g` 开头。标注时不要删除消息行；导入器只掌握这张表，不能与未提供的原始消息流核对被删除的行或被改写的原文。
 
-导出和导入都**不覆盖**已有目标，也没有强制覆盖参数。先完整验证输入，再在同一父目录暂存、刷新并发布；CSV 使用不覆盖的文件发布，gold 两个文件使用整目录重命名一起发布。目标旁的 `.chat-tldr-eval.lock` 防止本工具并发写入同一目标；正常结束自动移除。若进程被强制终止，确认没有写入者后再人工处理残留锁与临时目录。输出父目录可以自动创建。
+导出和导入都**不覆盖**已有目标，也没有强制覆盖参数。先完整验证输入，再在同一父目录暂存、刷新并发布；CSV 使用不覆盖的文件发布，gold 两个文件使用不覆盖的原子目录重命名一起发布，发布前临时出现的空目录也会导致失败。gold 发布支持 Windows、Linux 和 macOS，其他平台返回明确错误。目标旁的 `.chat-tldr-eval.lock` 防止本工具并发写入同一目标；正常结束自动移除。若进程被强制终止，确认没有写入者后再人工处理残留锁与临时目录。输出父目录可以自动创建。
 
 两条命令与 `check-stream` 一样，stdout 只输出一条工具 JSON 摘要（不是主 CLI `CliEvent`）；失败同时写 stderr，退出 1。未填完的表不会产生半套 gold。合法空消息流可以导出只有表头的 CSV，并导入为两个空 JSONL 文件。
 

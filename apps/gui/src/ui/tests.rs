@@ -209,3 +209,56 @@ fn filters_require_handshake_and_capabilities_then_emit_refresh() {
     assert_eq!(gui.click("包含已读"), vec![Action::Refresh]);
     assert!(!gui.state.all);
 }
+
+#[test]
+fn unopened_narrow_lanes_do_not_authorize_the_snapshot_cursor() {
+    let mut gui = Harness::new(900.0, false);
+    let inbox = gui.model.inbox.as_mut().unwrap();
+    let mut second = inbox.insights[0].clone();
+    second.insight.id = "insight-unseen-p1".into();
+    second.insight.priority = Priority::P1;
+    inbox.insights.push(second);
+    gui.settled();
+    assert!(gui.model.mark_read_cursor().is_none());
+    assert!(gui.click("标为已读").is_empty());
+    gui.click("P1 值得关注  1");
+    gui.settled();
+    assert!(gui.model.mark_read_cursor().is_some());
+}
+
+#[test]
+fn unvisited_pages_do_not_authorize_the_snapshot_cursor() {
+    let mut gui = Harness::new(900.0, false);
+    // Every row of page one fits; page two is still never rendered.
+    gui.size.y = 8000.0;
+    let inbox = gui.model.inbox.as_mut().unwrap();
+    let mut row = inbox.insights[0].clone();
+    row.evidence_view.clear();
+    inbox.insights = (0..21)
+        .map(|index| {
+            let mut row = row.clone();
+            row.insight.id = format!("insight-page-{index}").into();
+            row
+        })
+        .collect();
+    gui.settled();
+    assert!(gui.model.mark_read_cursor().is_none());
+    assert_eq!(gui.state.review.remaining(), 1);
+    assert!(gui.click("下一页").is_empty());
+    gui.settled();
+    assert!(gui.model.mark_read_cursor().is_some());
+}
+
+#[test]
+fn cloud_confirmation_names_and_binds_the_displayed_chat() {
+    let mut gui = Harness::new(1400.0, false);
+    let target = gui.model.selected_chat.clone().unwrap();
+    gui.state.cloud_notice = true;
+    gui.state.cloud_target = Some(target.clone());
+    assert_eq!(
+        gui.click("我已了解，开始分析"),
+        vec![Action::AcceptCloud(target)]
+    );
+    gui.model.selected_chat = Some("another-chat".into());
+    assert!(gui.click("我已了解，开始分析").is_empty());
+}

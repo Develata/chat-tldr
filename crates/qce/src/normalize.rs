@@ -1,7 +1,6 @@
 use chat_tldr_core::{
     Attachment, AttachmentKind, ForwardBundle, ForwardedMessage, Mention, MentionTarget, ReplyRef,
 };
-use chrono::DateTime;
 use serde_json::Value;
 
 use crate::{
@@ -182,11 +181,7 @@ fn forward(
         let at = format!("{path}.data.messages[{index}]");
         let sent_at = raw
             .timestamp
-            .map(|ms| {
-                DateTime::from_timestamp_millis(ms)
-                    .map(|t| t.with_timezone(&opts.timezone))
-                    .ok_or_else(|| QceError::Field(format!("{at}.timestamp")))
-            })
+            .map(|ms| crate::checked_timestamp(ms, opts.timezone, &format!("{at}.timestamp")))
             .transpose()?;
         let inner = if raw.recalled {
             Content::default()

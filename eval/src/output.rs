@@ -81,9 +81,44 @@ pub fn gold(
     jsonl(&temporary.path().join("messages.jsonl"), messages)?;
     jsonl(&temporary.path().join("items.jsonl"), items)?;
     missing(out)?;
-    fs::rename(temporary.path(), out)
+    rename_new_directory(temporary.path(), out)
         .map_err(|error| format!("cannot publish gold directory: {error}"))?;
     Ok(())
+}
+
+// The reservation lock coordinates this tool's writers. An unrelated writer
+// can still create the target after missing(out), so publication itself must
+// refuse replacement. Plain rename can replace an existing empty folder on
+// POSIX and on current Windows implementations of Rust's standard library.
+fn rename_new_directory(from: &Path, to: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        // On Windows this path-only operation calls MoveFileExW without
+        // MOVEFILE_REPLACE_EXISTING, which handles directories as well. Keep
+        // cleanup with the caller's TempDir, rather than TempPath's file unlink.
+        let mut path = tempfile::TempPath::try_from_path(from)?;
+        path.disable_cleanup(true);
+        path.persist_noclobber(to).map_err(|error| error.error)
+    }
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        rustix::fs::renameat_with(
+            rustix::fs::CWD,
+            from,
+            rustix::fs::CWD,
+            to,
+            rustix::fs::RenameFlags::NOREPLACE,
+        )
+        .map_err(Into::into)
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (from, to);
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "atomic directory publication without replacement is unsupported on this platform",
+        ))
+    }
 }
 
 fn jsonl(path: &Path, values: &[impl Serialize]) -> Result<(), String> {
@@ -140,5 +175,21 @@ mod tests {
         assert!(result.is_err());
         assert!(!out.exists());
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn directory_created_after_reservation_is_never_replaced() {
+        let directory = tempfile::tempdir().unwrap();
+        let out = directory.path().join("gold");
+        let (parent, _lock) = prepare(&out).unwrap();
+        let temporary = TempDir::new_in(parent).unwrap();
+        fs::write(temporary.path().join("messages.jsonl"), "synthetic").unwrap();
+        // Simulate a different application creating an empty folder between
+        // validation and the actual filesystem publication operation.
+        missing(&out).unwrap();
+        fs::create_dir(&out).unwrap();
+        assert!(rename_new_directory(temporary.path(), &out).is_err());
+        assert_eq!(fs::read_dir(&out).unwrap().count(), 0);
+        assert!(temporary.path().join("messages.jsonl").exists());
     }
 }

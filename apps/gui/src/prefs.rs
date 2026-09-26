@@ -107,6 +107,17 @@ pub fn save(path: &Path, prefs: &Preferences) -> Result<(), String> {
     save().map_err(|e| format!("GUI 设置未保存：{e}"))
 }
 
+/// Commit the selected profile before changing the launch pointer. Otherwise a
+/// failed/interrupted switch from B back to A can leave A -> B -> A on disk.
+pub fn save_profile(launch: Option<&Path>, prefs: &Preferences) -> Result<(), String> {
+    let active = PathBuf::from(&prefs.data_dir).join("gui-state.json");
+    save(&active, prefs)?;
+    if let Some(launch) = launch.filter(|launch| *launch != active) {
+        save(launch, prefs)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +175,50 @@ mod tests {
         )
         .unwrap();
         assert!(load_profile(&a, true).is_err());
+    }
+
+    #[test]
+    fn failed_target_save_keeps_launch_profile_intact() {
+        let dir = tempfile::tempdir().unwrap();
+        let launch = dir.path().join("launch/gui-state.json");
+        let original = Preferences {
+            data_dir: launch.parent().unwrap().to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        save(&launch, &original).unwrap();
+        let blocked = dir.path().join("file-not-directory");
+        std::fs::write(&blocked, "keep me").unwrap();
+        let changed = Preferences {
+            data_dir: blocked.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        assert!(save_profile(Some(&launch), &changed).is_err());
+        assert_eq!(load(&launch).unwrap().data_dir, original.data_dir);
+        assert_eq!(std::fs::read_to_string(blocked).unwrap(), "keep me");
+    }
+
+    #[test]
+    fn switching_back_commits_self_pointing_target_before_launch_redirect() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a/gui-state.json");
+        let b = dir.path().join("b/gui-state.json");
+        let selected_b = Preferences {
+            data_dir: b.parent().unwrap().to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        save_profile(Some(&a), &selected_b).unwrap();
+        let selected_a = Preferences {
+            data_dir: a.parent().unwrap().to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        save_profile(Some(&b), &selected_a).unwrap();
+        assert_eq!(
+            load_profile(&a, true).unwrap().data_dir,
+            selected_a.data_dir
+        );
+        assert_eq!(
+            load_profile(&b, true).unwrap().data_dir,
+            selected_a.data_dir
+        );
     }
 }

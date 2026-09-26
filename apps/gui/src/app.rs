@@ -57,6 +57,11 @@ impl Startup {
                 )
                 .unwrap_or_default()
         };
+        let accepted_connection = (
+            prefs.cli.clone(),
+            prefs.data_dir.clone(),
+            prefs.config.clone(),
+        );
         if let Some(path) = args.cli {
             prefs.cli = path.to_string_lossy().into_owned();
         }
@@ -80,6 +85,14 @@ impl Startup {
         if let Err(message) = prefs.normalize_paths() {
             error = Some(message);
         }
+        if (
+            prefs.cli.clone(),
+            prefs.data_dir.clone(),
+            prefs.config.clone(),
+        ) != accepted_connection
+        {
+            prefs.cloud_notice_accepted = false;
+        }
         prefs.dark |= args.dark;
         Self {
             prefs,
@@ -94,8 +107,9 @@ impl Startup {
 
 enum IoRequest {
     PickFile,
-    Save(PathBuf, Preferences),
+    Save(Option<PathBuf>, Preferences),
     Screenshot(PathBuf, Arc<egui::ColorImage>),
+    Stop,
 }
 enum IoResult {
     File(Option<PathBuf>),
@@ -113,6 +127,7 @@ pub struct App {
     demo: bool,
     io_tx: mpsc::Sender<IoRequest>,
     io_rx: mpsc::Receiver<IoResult>,
+    io_thread: Option<std::thread::JoinHandle<()>>,
     picking_file: bool,
     screenshot: Option<PathBuf>,
     screenshot_requested: bool,
@@ -124,7 +139,7 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, startup: Startup) -> Self {
         appearance::install(&cc.egui_ctx, startup.prefs.dark);
         let bridge = make_bridge(&startup.prefs, &cc.egui_ctx);
-        let (io_tx, io_rx) = io_worker(cc.egui_ctx.clone());
+        let (io_tx, io_rx, io_thread) = io_worker(cc.egui_ctx.clone());
         let model = if startup.demo {
             GuiModel::demo()
         } else {
@@ -140,6 +155,7 @@ impl App {
             demo: startup.demo,
             io_tx,
             io_rx,
+            io_thread: Some(io_thread),
             picking_file: false,
             screenshot: startup.screenshot,
             screenshot_requested: false,
@@ -208,16 +224,9 @@ impl App {
 
     fn save_preferences(&mut self) {
         if !self.demo && !self.prefs.data_dir.is_empty() {
-            let active = PathBuf::from(&self.prefs.data_dir).join("gui-state.json");
-            // Keep the launch profile as a pointer to the selected data directory,
-            // and make launching directly with --data-dir <selected> equivalent.
-            if self.prefs_path.as_ref().is_some_and(|path| path != &active) {
-                let _ = self.io_tx.send(IoRequest::Save(
-                    self.prefs_path.clone().unwrap(),
-                    self.prefs.clone(),
-                ));
-            }
-            let _ = self.io_tx.send(IoRequest::Save(active, self.prefs.clone()));
+            let _ = self
+                .io_tx
+                .send(IoRequest::Save(self.prefs_path.clone(), self.prefs.clone()));
         }
     }
 
@@ -242,6 +251,8 @@ impl App {
         let chat = self.model.selected_chat.clone();
         match action {
             Action::Select(chat) => {
+                self.state.cloud_notice = false;
+                self.state.cloud_target = None;
                 self.model.select_chat(chat.clone());
                 self.inbox(chat);
             }
@@ -257,11 +268,20 @@ impl App {
                 if self.prefs.cloud_notice_accepted {
                     self.analyze();
                 } else {
+                    self.state.cloud_target = self.model.selected_chat.clone();
                     self.state.cloud_notice = true;
                 }
             }
-            Action::AcceptCloud => {
+            Action::AcceptCloud(target) => {
+                let matches = self.state.cloud_notice
+                    && self.state.cloud_target.as_ref() == Some(&target)
+                    && self.model.selected_chat.as_ref() == Some(&target);
                 self.state.cloud_notice = false;
+                self.state.cloud_target = None;
+                if !matches {
+                    self.model.last_error = Some("待分析群聊已变更，请重新点击分析并确认。".into());
+                    return;
+                }
                 self.prefs.cloud_notice_accepted = true;
                 self.state.draft.cloud_notice_accepted = true;
                 self.save_preferences();
@@ -302,11 +322,20 @@ impl App {
                 ["resolve".into(), id.into(), flag.into()],
             ),
             Action::SaveSettings => {
-                self.prefs = self.state.draft.clone();
-                if let Err(error) = self.prefs.normalize_paths() {
+                let mut candidate = self.state.draft.clone();
+                if let Err(error) = candidate.normalize_paths() {
                     self.model.last_error = Some(error);
                     return;
                 }
+                if candidate.cli != self.prefs.cli
+                    || candidate.data_dir != self.prefs.data_dir
+                    || candidate.config != self.prefs.config
+                {
+                    candidate.cloud_notice_accepted = false;
+                }
+                self.state.cloud_notice = false;
+                self.state.cloud_target = None;
+                self.prefs = candidate;
                 self.state.draft = self.prefs.clone();
                 self.save_preferences();
                 self.bridge = make_bridge(&self.prefs, ctx);
@@ -440,18 +469,35 @@ fn make_bridge(prefs: &Preferences, ctx: &egui::Context) -> Bridge {
     )
 }
 
-fn io_worker(ctx: egui::Context) -> (mpsc::Sender<IoRequest>, mpsc::Receiver<IoResult>) {
+fn io_worker(
+    ctx: egui::Context,
+) -> (
+    mpsc::Sender<IoRequest>,
+    mpsc::Receiver<IoResult>,
+    std::thread::JoinHandle<()>,
+) {
     let (tx, requests) = mpsc::channel();
     let (results, rx) = mpsc::channel();
-    std::thread::spawn(move || {
+    let worker = std::thread::spawn(move || {
         for request in requests {
             let result = match request {
-                IoRequest::PickFile => IoResult::File(
-                    rfd::FileDialog::new()
-                        .add_filter("QCE JSON", &["json"])
-                        .pick_file(),
-                ),
-                IoRequest::Save(path, value) => IoResult::Saved(prefs::save(&path, &value)),
+                IoRequest::PickFile => {
+                    // A native modal chooser must not delay preference commits
+                    // or shutdown of the file writer. It owns no CLI process.
+                    let results = results.clone();
+                    let ctx = ctx.clone();
+                    std::thread::spawn(move || {
+                        let path = rfd::FileDialog::new()
+                            .add_filter("QCE JSON", &["json"])
+                            .pick_file();
+                        let _ = results.send(IoResult::File(path));
+                        ctx.request_repaint();
+                    });
+                    continue;
+                }
+                IoRequest::Save(path, value) => {
+                    IoResult::Saved(prefs::save_profile(path.as_deref(), &value))
+                }
                 IoRequest::Screenshot(path, image) => {
                     let bytes: Vec<u8> = image
                         .pixels
@@ -469,6 +515,7 @@ fn io_worker(ctx: egui::Context) -> (mpsc::Sender<IoRequest>, mpsc::Receiver<IoR
                         .map_err(|e| format!("截图保存失败：{e}")),
                     )
                 }
+                IoRequest::Stop => break,
             };
             if results.send(result).is_err() {
                 break;
@@ -476,5 +523,21 @@ fn io_worker(ctx: egui::Context) -> (mpsc::Sender<IoRequest>, mpsc::Receiver<IoR
             ctx.request_repaint();
         }
     });
-    (tx, rx)
+    (tx, rx, worker)
 }
+
+impl Drop for App {
+    fn drop(&mut self) {
+        self.bridge.cancel();
+        // FIFO Stop waits for all requested atomic preference writes. The
+        // picker runs separately, so an open dialog cannot block this drain.
+        let _ = self.io_tx.send(IoRequest::Stop);
+        if let Some(worker) = self.io_thread.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "app/tests.rs"]
+mod tests;

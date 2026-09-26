@@ -368,6 +368,13 @@ impl AnalysisSession {
         Ok(())
     }
 
+    /// Discard a legacy cached response that failed its request's validation.
+    pub(crate) fn cache_remove(&self, key: &str) -> Result<()> {
+        let connection = open_write(&self.path)?;
+        connection.execute("DELETE FROM model_cache WHERE cache_key=?1", [key])?;
+        Ok(())
+    }
+
     pub fn record_usage(&self, usage: &UsageStats) -> Result<()> {
         let connection = open_write(&self.path)?;
         connection.execute("INSERT INTO usage(run_id,stage,provider,model,calls,cache_hits,input_tokens,output_tokens,cost_usd) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(run_id,stage,provider,model) DO UPDATE SET calls=calls+excluded.calls,cache_hits=cache_hits+excluded.cache_hits,input_tokens=input_tokens+excluded.input_tokens,output_tokens=output_tokens+excluded.output_tokens,cost_usd=cost_usd+excluded.cost_usd",params![self.run_id.as_ref(),usage.stage,usage.provider,usage.model,usage.calls as i64,usage.cache_hits as i64,usage.input_tokens as i64,usage.output_tokens as i64,usage.cost_usd])?;

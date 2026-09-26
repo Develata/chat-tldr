@@ -411,6 +411,11 @@ fn inbox<W: Write>(
     config: &Config,
     output: &mut Output<W>,
 ) -> Result<(), Failure> {
+    let html_output = args
+        .html
+        .as_deref()
+        .map(|path| crate::html::prepare(path, paths))
+        .transpose()?;
     let snapshot = store::inbox(
         &paths.database,
         &ChatId(args.chat),
@@ -421,8 +426,8 @@ fn inbox<W: Write>(
             now: chrono::Utc::now().with_timezone(&config.timezone_offset()?),
         },
     )?;
-    if let Some(path) = args.html {
-        crate::html::write(&snapshot, &absolute(&path)?)?;
+    if let Some(html_output) = html_output {
+        crate::html::write(&snapshot, html_output, paths)?;
     }
     emit_inbox(snapshot, output)
 }

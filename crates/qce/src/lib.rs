@@ -134,9 +134,7 @@ fn normalize_message(
     let timestamp = raw
         .timestamp
         .ok_or_else(|| QceError::Field(format!("{path}.timestamp")))?;
-    let sent_at = DateTime::from_timestamp_millis(timestamp)
-        .ok_or_else(|| QceError::Field(format!("{path}.timestamp")))?
-        .with_timezone(&opts.timezone);
+    let sent_at = checked_timestamp(timestamp, opts.timezone, &format!("{path}.timestamp"))?;
     let sender_uid = input::nonempty(raw.sender.uid.as_deref())
         .filter(|uid| !matches!(*uid, "unknown" | "未知" | "0"));
     let uid = match sender_uid {
@@ -202,4 +200,16 @@ fn normalize_message(
             file_hash: file_hash.to_owned(),
         },
     })
+}
+
+/// UTC bounds alone are insufficient: local calendar operations must stay valid.
+fn checked_timestamp(
+    ms: i64,
+    timezone: FixedOffset,
+    field: &str,
+) -> Result<DateTime<FixedOffset>, QceError> {
+    DateTime::from_timestamp_millis(ms)
+        .filter(|value| value.naive_utc().checked_add_offset(timezone).is_some())
+        .map(|value| value.with_timezone(&timezone))
+        .ok_or_else(|| QceError::Field(field.into()))
 }

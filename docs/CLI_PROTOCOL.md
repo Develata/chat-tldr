@@ -88,7 +88,7 @@
 - `--html <FILE>`：同上。
 - 收件箱的内容规则见 [PIPELINE.md](PIPELINE.md) §7.4。
 - 元数据、counts、topic、insight 和 HTML 来自同一读快照；insight 按 P0–P3、层内 rank_score 降序、InsightId 升序排列。
-- HTML 先写临时文件再替换目标。失败时输出 `E_OUTPUT_WRITE`；单独查询退出 8，analyze 已提交业务结果时退出 6 / partial，并说明分析数据保留。
+- HTML 先写临时文件再发布。已有普通报告允许更新；拒绝数据库及其辅助文件、配置、GUI 偏好、sources/backups 目录内文件、符号链接以及可识别的数据文件。analyze 在调用模型前预检目标；首次不存在的目标在本次运行中只允许不覆盖发布，期间新出现的文件会保留。发布前重新检查目标，路径无扩展名不影响新报告导出。失败时输出 `E_OUTPUT_WRITE`；预检或单独查询退出 8，analyze 已提交业务结果时退出 6 / partial，并说明分析数据保留。
 
 **`mark-read --chat <ID> --up-to <CURSOR>`**
 - `<CURSOR>` **必须**是 GUI 最近一次完整显示的 `inbox` 事件里的非空 `view_cursor`，原样回传；空值时禁用标为已读。

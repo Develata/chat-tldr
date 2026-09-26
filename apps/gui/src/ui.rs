@@ -6,6 +6,9 @@ use eframe::egui::{self, Color32, RichText};
 
 use crate::{model::GuiModel, prefs::Preferences};
 
+mod review;
+use review::ReviewCoverage;
+
 #[cfg(test)]
 #[path = "ui/tests.rs"]
 mod interaction_tests;
@@ -18,10 +21,12 @@ pub struct UiState {
     pub settings: bool,
     pub logs: bool,
     pub cloud_notice: bool,
+    pub cloud_target: Option<ChatId>,
     pub draft: Preferences,
     inbox_request: Option<u64>,
     lanes: [Vec<usize>; 3],
     pages: [usize; 3],
+    review: ReviewCoverage,
 }
 
 impl UiState {
@@ -44,7 +49,7 @@ pub enum Action {
     Feedback(String, bool),
     Resolve(String, &'static str),
     SaveSettings,
-    AcceptCloud,
+    AcceptCloud(ChatId),
     Stats,
     Decisions,
     JevLog,
@@ -74,6 +79,7 @@ pub fn render(
         }
         state.inbox_request = Some(inbox.request_id);
         state.pages = [0; 3];
+        state.review.reset(inbox.insights.len());
     }
     egui::Panel::top("toolbar").show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
@@ -280,25 +286,22 @@ pub fn render(
             }
             return;
         };
-        displayed = Some(inbox.request_id);
         ui.weak(format!(
             "{} 个话题 · {} 项结论",
             inbox.topics.len(),
             inbox.insights.len()
         ));
+        if !state.review.complete() {
+            ui.weak(format!(
+                "还有 {} 项尚未完整显示；查看各栏、翻页和滚动后才能标为已读。",
+                state.review.remaining()
+            ));
+        }
         // Partition only when a new snapshot arrives; lay out at most 20 rows per lane.
         if ui.available_width() >= 1000.0 {
             ui.columns(3, |columns| {
                 for (index, column) in columns.iter_mut().enumerate() {
-                    lane(
-                        column,
-                        index,
-                        &state.lanes[index],
-                        &mut state.pages[index],
-                        enabled,
-                        model,
-                        &mut actions,
-                    );
+                    lane(column, index, state, enabled, model, &mut actions);
                 }
             });
         } else {
@@ -314,30 +317,26 @@ pub fn render(
                     );
                 }
             });
-            lane(
-                ui,
-                state.lane,
-                &state.lanes[state.lane],
-                &mut state.pages[state.lane],
-                enabled,
-                model,
-                &mut actions,
-            );
+            lane(ui, state.lane, state, enabled, model, &mut actions);
+        }
+        if state.review.complete() {
+            displayed = Some(inbox.request_id);
         }
     });
-    dialogs(ui.ctx(), state, busy, demo, &mut actions);
+    dialogs(ui.ctx(), state, model, busy, demo, &mut actions);
     (actions, displayed)
 }
 
 fn lane(
     ui: &mut egui::Ui,
     index: usize,
-    rows: &[usize],
-    page: &mut usize,
+    state: &mut UiState,
     enabled: bool,
     model: &GuiModel,
     actions: &mut Vec<Action>,
 ) {
+    let rows = &state.lanes[index];
+    let page = &mut state.pages[index];
     let titles = ["P0  必须处理", "P1  值得关注", "P2 / P3  参考"];
     ui.label(
         RichText::new(format!("{} · {}", titles[index], rows.len()))
@@ -379,15 +378,14 @@ fn lane(
                 ui.add_space(18.0);
                 ui.weak("暂无事项");
             }
-            for row in rows
-                .iter()
-                .skip(*page * 20)
-                .take(20)
-                .map(|index| &model.inbox.as_ref().expect("lane needs inbox").insights[*index])
-            {
-                ui.push_id(&row.insight.id.0, |ui| {
+            for &row_index in rows.iter().skip(*page * 20).take(20) {
+                let row = &model.inbox.as_ref().expect("lane needs inbox").insights[row_index];
+                let rendered = ui.push_id(&row.insight.id.0, |ui| {
                     insight(ui, row, enabled, model, actions);
                 });
+                state
+                    .review
+                    .observe(row_index, rendered.response.rect, ui.clip_rect());
                 ui.add_space(12.0);
                 ui.separator();
                 ui.add_space(12.0);
@@ -581,6 +579,7 @@ fn evidence_layout(evidence: &EvidenceView, color: Color32, dark: bool) -> egui:
 fn dialogs(
     ctx: &egui::Context,
     state: &mut UiState,
+    model: &GuiModel,
     busy: bool,
     demo: bool,
     actions: &mut Vec<Action>,
@@ -595,8 +594,13 @@ fn dialogs(
     });
     egui::Window::new("开始云端分析").open(&mut state.cloud_notice).collapsible(false).resizable(false).default_width(470.0).show(ctx, |ui| {
         ui.label("程序与数据库在本机，但分析会把聊天原文发送到配置的云服务（默认 Jev 与 DeepSeek）。聊天不做脱敏，图片不上传。");
-        ui.label("请确认这是你希望分析的群聊。此选择会保存在 GUI 设置中。");
-        button(ui, "我已了解，开始分析", !busy && !demo, Action::AcceptCloud, actions);
+        if let Some(chat) = &state.cloud_target {
+            let name = model.chats.iter().find(|row| &row.chat_id == chat).map(|row| row.display_name.as_str()).unwrap_or(&chat.0);
+            ui.strong(format!("待分析群聊：{name}"));
+            ui.small(&chat.0);
+            ui.label("本次分析上方显示的群聊。当前连接会记住此云端提示，之后分析其他群聊不再重复提示；更改连接设置后会重新提示。");
+            button(ui, "我已了解，开始分析", !busy && !demo && model.selected_chat.as_ref() == Some(chat), Action::AcceptCloud(chat.clone()), actions);
+        }
     });
 }
 

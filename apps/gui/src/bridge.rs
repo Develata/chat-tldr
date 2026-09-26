@@ -105,6 +105,7 @@ pub struct Bridge {
     receiver: Receiver<BridgeEvent>,
     repaint: Repaint,
     active: Option<(RequestTag, Arc<AtomicBool>)>,
+    worker: Option<thread::JoinHandle<()>>,
 }
 
 impl Bridge {
@@ -116,6 +117,7 @@ impl Bridge {
             receiver,
             repaint: Arc::new(repaint),
             active: None,
+            worker: None,
         }
     }
 
@@ -133,7 +135,11 @@ impl Bridge {
         let repaint = self.repaint.clone();
         let cancellation = cancel.clone();
         let tag = request.tag.clone();
-        thread::Builder::new()
+        // A prior Finished event means that the worker has no more child I/O.
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        let worker = thread::Builder::new()
             .name("chat-tldr-command".into())
             .spawn(move || {
                 let completion = run_child(settings, &request, &sender, &repaint, &cancellation);
@@ -145,6 +151,7 @@ impl Bridge {
                 );
             })
             .map_err(|error| format!("无法启动后台线程：{error}"))?;
+        self.worker = Some(worker);
         self.active = Some((tag, cancel));
         Ok(())
     }
@@ -175,6 +182,13 @@ impl Bridge {
 impl Drop for Bridge {
     fn drop(&mut self) {
         self.cancel();
+        // Disconnect before joining: either reader may be waiting on a full
+        // bounded queue. The worker owns and reaps the CLI before GUI exit.
+        let (_, disconnected) = mpsc::sync_channel(0);
+        drop(std::mem::replace(&mut self.receiver, disconnected));
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
     }
 }
 
@@ -288,17 +302,23 @@ fn run_child(
             }
         }
     }
+    // The direct child has been reaped. A user-supplied wrapper may leave
+    // descendants holding inherited pipes, so cancellation must not require EOF.
+    // Detached readers retain their original request tag; later events cannot
+    // publish into another request. Normal completion still drains both pipes.
     let stream = stream.unwrap_or_else(|| {
-        stdout_thread
-            .unwrap()
-            .join()
-            .unwrap_or_else(|_| Stream::failed("stdout 读取线程异常".into()))
+        match join_reader_unless_cancelled(stdout_thread.unwrap(), cancel) {
+            Some(Ok(stream)) => stream,
+            Some(Err(_)) => Stream::failed("stdout 读取线程异常".into()),
+            None => Stream::default(),
+        }
     });
-    if stderr_thread.join().is_err() {
+    if let Some(Err(_)) = join_reader_unless_cancelled(stderr_thread, cancel) {
         completion
             .error
             .get_or_insert_with(|| "stderr 读取线程异常".into());
     }
+    completion.cancelled |= cancel.load(Ordering::Relaxed);
     completion.done = stream.done;
     if let Some(error) = stream.error {
         completion.error.get_or_insert(error);
@@ -319,6 +339,23 @@ fn run_child(
             .get_or_insert_with(|| "CLI 异常终止，未返回退出码".into());
     }
     completion
+}
+
+/// Called only after reaping the CLI. Dropping an unfinished JoinHandle detaches
+/// the pipe reader, without killing or assuming ownership of descendant processes.
+fn join_reader_unless_cancelled<T>(
+    reader: thread::JoinHandle<T>,
+    cancel: &AtomicBool,
+) -> Option<thread::Result<T>> {
+    loop {
+        if reader.is_finished() {
+            return Some(reader.join());
+        }
+        if cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
 }
 
 #[derive(Default)]

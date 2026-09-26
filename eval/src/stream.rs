@@ -71,6 +71,9 @@ pub fn messages(
         EventBody::Done(done) if done.status == RunStatus::Complete && done.exit_code == 0 => {
             Ok(())
         }
+        // Future minor-version events still consume their validated sequence
+        // number, but do not change the meaning of known message rows.
+        EventBody::Unknown { .. } => Ok(()),
         _ => Err(
             "expected a successful messages stream containing only message and done events".into(),
         ),

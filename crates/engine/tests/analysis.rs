@@ -384,6 +384,153 @@ fn tiny_budget_stops_before_network_and_keeps_messages_pending() {
 }
 
 #[test]
+fn invalid_extraction_responses_do_not_poison_the_next_run() {
+    let workspace = Workspace::new();
+    let invalid = json!({"topics": []}); // Valid JSON, but it omits the new messages.
+    let failed_llm = MockLlm::new(vec![response(invalid.clone()), response(invalid)]);
+    let decider = SyntheticDecider::default();
+    let (failed, _) = workspace.analyze(
+        "r_invalid_cached_output",
+        &failed_llm,
+        &decider,
+        &workspace.options(),
+    );
+    assert_eq!(failed.status, RunStatus::Partial);
+    assert_eq!(failed_llm.requests().len(), 2);
+    assert_eq!(workspace.states(), ["failed", "failed", "skipped"]);
+
+    let recovered_llm = successful_llm();
+    let (recovered, _) = workspace.analyze(
+        "r_valid_after_invalid_output",
+        &recovered_llm,
+        &decider,
+        &workspace.options(),
+    );
+    assert_eq!(recovered.status, RunStatus::Complete);
+    assert_eq!(recovered_llm.requests().len(), 1);
+    assert_eq!(workspace.states(), ["done", "done", "skipped"]);
+}
+
+#[test]
+fn legacy_invalid_extraction_cache_is_evicted_before_a_fresh_attempt() {
+    let workspace = Workspace::new();
+    let llm = MockLlm::new(vec![
+        response(json!({"topics": []})),
+        response(json!({"topics": []})),
+    ]);
+    let decider = SyntheticDecider::default();
+    workspace.analyze(
+        "r_failed_before_upgrade",
+        &llm,
+        &decider,
+        &workspace.options(),
+    );
+    {
+        let mut session = AnalysisSession::begin(
+            &workspace.database,
+            &workspace.chat,
+            &"r_legacy_cache_seed".into(),
+            &json!({}),
+        )
+        .unwrap();
+        // Reproduce cache records created by the previous implementation, which
+        // persisted both malformed attempts before checking message membership.
+        for request in llm.requests() {
+            let key = blake3::hash(
+                format!(
+                    "extract-v1:r1:{:?}:{}",
+                    workspace.config.llm,
+                    serde_json::to_string(&request).unwrap()
+                )
+                .as_bytes(),
+            )
+            .to_hex()
+            .to_string();
+            session
+                .cache_put(
+                    &key,
+                    "extract",
+                    "llm",
+                    &workspace.config.llm.model,
+                    &response(json!({"topics": []})).unwrap(),
+                )
+                .unwrap();
+        }
+        session.finish(RunStatus::Complete).unwrap();
+    }
+    let recovered_llm = successful_llm();
+    let (recovered, _) = workspace.analyze(
+        "r_recover_after_upgrade",
+        &recovered_llm,
+        &decider,
+        &workspace.options(),
+    );
+    assert_eq!(recovered.status, RunStatus::Complete);
+    assert_eq!(recovered_llm.requests().len(), 1);
+    assert_eq!(workspace.states(), ["done", "done", "skipped"]);
+}
+
+#[test]
+fn jev_reservation_uses_the_configured_input_price() {
+    let mut workspace = Workspace::new();
+    workspace.config.llm.price_input_per_mtok = Some(0.0);
+    workspace.config.llm.price_output_per_mtok = Some(0.0);
+    workspace.config.jev.price_input_per_mtok = Some(1000.0);
+    let mut options = workspace.options();
+    options.budget_usd = 0.01;
+    let decider = SyntheticDecider::default();
+    let (result, _) = workspace.analyze(
+        "r_configured_jev_budget",
+        &successful_llm(),
+        &decider,
+        &options,
+    );
+    assert_eq!(result.reason, FinishReason::BudgetExceeded);
+    assert_eq!(decider.calls.get(), 0);
+    assert_eq!(workspace.states(), ["pending", "pending", "skipped"]);
+}
+
+#[test]
+fn broken_event_sink_after_commit_preserves_exact_insight_history() {
+    let workspace = Workspace::new();
+    let run = RunId::from("r_broken_pipe_after_commit");
+    let llm = successful_llm();
+    let decider = SyntheticDecider::default();
+    let result = agent::analyze(
+        &workspace.database,
+        &workspace.chat,
+        &run,
+        &workspace.config,
+        &workspace.options(),
+        Models {
+            llm: &llm,
+            primary: Some(&decider),
+            fallback: &decider,
+        },
+        &AtomicBool::new(false),
+        &mut |event| {
+            if matches!(event, EventBody::Progress(ref progress) if progress.message == "Committed topic checkpoint")
+            {
+                return Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe).into());
+            }
+            Ok(())
+        },
+    );
+    assert!(result.is_err());
+    let saved = store::analysis_snapshot(&workspace.database, &workspace.chat).unwrap();
+    assert!(!saved.insights.is_empty());
+    let history = store::stats(&workspace.database, None, Some(&run)).unwrap();
+    assert_eq!(history.detail["run_status"], "partial");
+    assert!(history.warnings.is_empty());
+    let chat_tldr_core::StatsPayload::Run(stats) = &history.rows[0] else {
+        panic!("expected exact run statistics");
+    };
+    assert_eq!(stats.messages_analyzed, 2);
+    assert_eq!(stats.insights.created, saved.insights.len() as u64);
+    assert_eq!(stats.insights.verified, saved.insights.len() as u64);
+}
+
+#[test]
 fn same_chat_allows_only_one_live_analysis_session() {
     let workspace = Workspace::new();
     let first = AnalysisSession::begin(

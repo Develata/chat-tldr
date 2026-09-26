@@ -340,6 +340,50 @@ fn invalid_options_and_missing_chat_identity_fail() {
 }
 
 #[test]
+fn timestamp_must_be_representable_in_the_selected_local_timezone() {
+    for (timestamp, seconds) in [
+        (
+            chrono::DateTime::<chrono::Utc>::MAX_UTC.timestamp_millis(),
+            3600,
+        ),
+        (
+            chrono::DateTime::<chrono::Utc>::MIN_UTC.timestamp_millis(),
+            -3600,
+        ),
+    ] {
+        let options = QceOptions {
+            timezone: chrono::FixedOffset::east_opt(seconds).unwrap(),
+            ..QceOptions::default()
+        };
+        let mut raw = message(json!([]));
+        raw["timestamp"] = json!(timestamp);
+        let bytes = serde_json::to_vec(&export(json!([raw]))).unwrap();
+        assert!(
+            parse_qce_json(&bytes, &options).is_err(),
+            "local date would overflow"
+        );
+        let forwarded = message(json!([{"type":"forward", "data":{"messages":[{
+            "timestamp": timestamp, "content":{"text":"合成边界时间"}
+        }]}}]));
+        let bytes = serde_json::to_vec(&export(json!([forwarded]))).unwrap();
+        assert!(
+            parse_qce_json(&bytes, &options).is_err(),
+            "forwarded local date would overflow"
+        );
+        let safe_utc = QceOptions {
+            timezone: FixedOffset::east_opt(0).unwrap(),
+            ..options
+        };
+        let accepted = parse_qce_json(&bytes, &safe_utc).unwrap();
+        let date = accepted.messages[0].forward.as_ref().unwrap().messages[0]
+            .sent_at
+            .unwrap();
+        // Accepted timestamps remain safe for downstream date rules and display.
+        let _ = date.date_naive();
+    }
+}
+
+#[test]
 fn recognized_upstream_chunked_manifest_is_an_unsupported_format_not_a_parse_error() {
     let manifest = json!({
         "metadata":{"name":"QQChatExporter","version":"0.1.0"},

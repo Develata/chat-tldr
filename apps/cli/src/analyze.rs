@@ -16,13 +16,7 @@ use chat_tldr_engine::{
 };
 use serde_json::json;
 
-use crate::{
-    Failure,
-    args::AnalyzeArgs,
-    commands::parse_time,
-    output::Output,
-    paths::{Paths, absolute},
-};
+use crate::{Failure, args::AnalyzeArgs, commands::parse_time, output::Output, paths::Paths};
 
 pub fn run<W: Write>(
     args: AnalyzeArgs,
@@ -48,6 +42,11 @@ pub fn run<W: Write>(
         options.budget_usd = value;
     }
     options.validate()?;
+    let html_output = args
+        .html
+        .as_deref()
+        .map(|path| crate::html::prepare(path, paths))
+        .transpose()?;
     let chat = ChatId(args.chat);
     let mut plan = agent::plan(&paths.database, &chat, &options)?;
     let has_llm_key = key_present(&config.llm.api_key_env);
@@ -76,8 +75,8 @@ pub fn run<W: Write>(
             cost_usd: 0.0,
             elapsed_ms: 0,
         })))?;
-        if let Some(path) = args.html {
-            export_html(paths, &chat, config, &path, false, output)?;
+        if let Some(html_output) = html_output {
+            export_html(paths, &chat, config, html_output, false, output)?;
         }
         return Ok(());
     }
@@ -139,8 +138,8 @@ pub fn run<W: Write>(
     output.analysis_finished(result.status, result.reason);
     committed |= result.stats.messages_analyzed > 0;
     output.emit(EventBody::Stats(StatsPayload::Run(result.stats)))?;
-    if let Some(path) = args.html {
-        export_html(paths, &chat, config, &path, committed, output)?;
+    if let Some(html_output) = html_output {
+        export_html(paths, &chat, config, html_output, committed, output)?;
     }
     Ok(())
 }
@@ -153,7 +152,7 @@ fn export_html<W: Write>(
     paths: &Paths,
     chat: &ChatId,
     config: &Config,
-    path: &std::path::Path,
+    html_output: crate::html::PreparedOutput,
     committed: bool,
     output: &mut Output<W>,
 ) -> Result<(), Failure> {
@@ -168,7 +167,7 @@ fn export_html<W: Write>(
                 now: chrono::Utc::now().with_timezone(&config.timezone_offset()?),
             },
         )?;
-        crate::html::write(&snapshot, &absolute(path)?)
+        crate::html::write(&snapshot, html_output, paths)
     })();
     result.map_err(|mut error: Failure| {
         if committed {

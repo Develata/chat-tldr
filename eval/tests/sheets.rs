@@ -372,6 +372,25 @@ fn malformed_incomplete_failed_or_wrong_stream_cannot_export_a_sheet() {
 }
 
 #[test]
+fn unknown_minor_events_are_ignored_without_bypassing_sequence_validation() {
+    let workspace = Workspace::new();
+    let mut source = events();
+    source.insert(1, event(1, "future_message_metadata", json!({"count":3})));
+    for (seq, event) in source.iter_mut().enumerate() {
+        event["seq"] = json!(seq);
+        event["schema_version"] = json!("1.1");
+    }
+    workspace.write_stream(&source);
+    assert_eq!(success(&workspace.export())["messages"], 2);
+
+    let invalid = Workspace::new();
+    source[1]["seq"] = json!(40);
+    invalid.write_stream(&source);
+    failure(&invalid.export());
+    assert!(!invalid.sheet.exists());
+}
+
+#[test]
 fn existing_outputs_and_incomplete_csv_are_never_overwritten() {
     let workspace = Workspace::new();
     let rows = workspace.labelled();

@@ -65,7 +65,7 @@ impl Runtime<'_, '_> {
     }
     fn reserve(&mut self, input: usize, output: u32, jev: bool) -> Result<()> {
         let cost = if jev {
-            input as f64 * 0.042 / 1e6 * 4.0
+            input as f64 * self.config.jev.price_input_per_mtok.unwrap_or(0.042) / 1e6 * 4.0
         } else {
             (input as f64 * self.config.llm.price_input_per_mtok.unwrap_or(0.30)
                 + output as f64 * self.config.llm.price_output_per_mtok.unwrap_or(1.20))
@@ -101,7 +101,13 @@ impl Runtime<'_, '_> {
         self.stats.usage.push(row);
         Ok(())
     }
-    fn llm(&mut self, request: &crate::llm::LlmRequest) -> Result<String> {
+    /// Transport errors and extraction validation errors have different retry paths.
+    /// Only outputs accepted by this request's parser enter the persistent cache.
+    fn llm<T>(
+        &mut self,
+        request: &crate::llm::LlmRequest,
+        parse: impl Fn(&str) -> std::result::Result<T, String>,
+    ) -> Result<std::result::Result<T, String>> {
         if self.cancel.load(Ordering::Relaxed) {
             return Err(EngineError::Cancelled);
         }
@@ -116,14 +122,19 @@ impl Runtime<'_, '_> {
         .to_hex()
         .to_string();
         if let Some(response) = self.session.cache_get::<LlmResponse>(&key)? {
-            self.usage(
-                "extract",
-                "llm",
-                &self.config.llm.model.clone(),
-                &response.usage,
-                true,
-            )?;
-            return Ok(response.content);
+            if let Ok(output) = parse(&response.content) {
+                self.usage(
+                    "extract",
+                    "llm",
+                    &self.config.llm.model.clone(),
+                    &response.usage,
+                    true,
+                )?;
+                return Ok(Ok(output));
+            }
+            // Older builds cached responses before validating JSON and refs.
+            // Evict those entries and retry the provider in this same attempt.
+            self.session.cache_remove(&key)?;
         }
         self.reserve(
             request.system.len() + request.user.len() + 256,
@@ -150,9 +161,12 @@ impl Runtime<'_, '_> {
             &response.usage,
             false,
         )?;
-        self.session
-            .cache_put(&key, "extract", "llm", &self.config.llm.model, &response)?;
-        Ok(response.content)
+        let output = parse(&response.content);
+        if output.is_ok() {
+            self.session
+                .cache_put(&key, "extract", "llm", &self.config.llm.model, &response)?;
+        }
+        Ok(output)
     }
     fn draft_key(&self, context: &ExtractionContext) -> Result<String> {
         Ok(blake3::hash(
@@ -203,8 +217,7 @@ impl Runtime<'_, '_> {
     pub(super) fn extract_topic(&mut self, context: &ExtractionContext) -> Result<TopicExtraction> {
         let mut request = context.request.clone();
         for attempt in 0..2 {
-            let content = self.llm(&request)?;
-            match extract::parse_topic(&content, context) {
+            match self.llm(&request, |content| extract::parse_topic(content, context))? {
                 Ok(value) => return Ok(value),
                 Err(error) if attempt == 0 => request.user.push_str(&format!(
                     "\nValidation error: {error}. Return corrected json."
@@ -227,8 +240,7 @@ impl Runtime<'_, '_> {
     ) -> Result<extract::DirectExtraction> {
         let mut request = context.request.clone();
         for attempt in 0..2 {
-            let content = self.llm(&request)?;
-            match extract::parse_direct(&content, context) {
+            match self.llm(&request, |content| extract::parse_direct(content, context))? {
                 Ok(value) => return Ok(value),
                 Err(error) if attempt == 0 => request.user.push_str(&format!(
                     "\nValidation error: {error}. Return corrected json."

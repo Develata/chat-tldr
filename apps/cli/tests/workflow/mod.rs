@@ -22,6 +22,10 @@ struct LocalModels {
 
 impl LocalModels {
     fn start() -> Self {
+        Self::with_competing_report(None)
+    }
+
+    fn with_competing_report(mut report: Option<PathBuf>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -48,6 +52,9 @@ impl LocalModels {
                     .set_read_timeout(Some(Duration::from_secs(4)))
                     .unwrap();
                 let body = read_request(&mut stream);
+                if let Some(path) = report.take() {
+                    fs::write(path, "report created during the model request").unwrap();
+                }
                 worker_calls.fetch_add(1, Ordering::Relaxed);
                 let empty_then_auth = worker_empty_then_auth.load(Ordering::Relaxed);
                 let input: Value = serde_json::from_str(
@@ -476,6 +483,45 @@ fn budget_stops_before_network_and_html_failure_keeps_committed_data() {
     assert_eq!(server.calls.load(Ordering::Relaxed), 0);
     let result = server.analyze(&sandbox, &chat, &["--html", "missing/result.html"], 6);
     assert_eq!(payload(&result, "error")["code"], "E_OUTPUT_WRITE");
+    let inbox = sandbox.run(&["inbox", "--chat", &chat, "--all"], 0);
+    assert!(inbox.iter().any(|event| event["event"] == "insight"));
+}
+
+#[test]
+fn protected_html_target_is_rejected_before_model_calls_or_analysis_writes() {
+    let sandbox = Sandbox::new();
+    let chat = import_fixture(&sandbox);
+    let server = LocalModels::start();
+    server.configure(&sandbox);
+    let database = sandbox.data_dir().join("chat-tldr.db");
+    let before = fs::read(&database).unwrap();
+    let result = server.analyze(&sandbox, &chat, &["--html", "data/chat-tldr.db"], 8);
+    assert_eq!(payload(&result, "error")["code"], "E_OUTPUT_WRITE");
+    assert_eq!(server.calls.load(Ordering::Relaxed), 0);
+    assert_eq!(fs::read(database).unwrap(), before);
+    assert!(
+        sandbox
+            .run(&["analyze", "--chat", &chat, "--dry-run"], 0)
+            .iter()
+            .any(|event| event["event"] == "ack")
+    );
+}
+
+#[test]
+fn html_target_created_during_analysis_is_not_overwritten() {
+    let sandbox = Sandbox::new();
+    let chat = import_fixture(&sandbox);
+    let target = sandbox.0.join("analysis.html");
+    let server = LocalModels::with_competing_report(Some(target.clone()));
+    server.configure(&sandbox);
+    assert!(!target.exists());
+    let result = server.analyze(&sandbox, &chat, &["--html", "analysis.html"], 6);
+    assert_eq!(payload(&result, "error")["code"], "E_OUTPUT_WRITE");
+    assert_eq!(payload(&result, "done")["status"], "partial");
+    assert_eq!(
+        fs::read_to_string(target).unwrap(),
+        "report created during the model request"
+    );
     let inbox = sandbox.run(&["inbox", "--chat", &chat, "--all"], 0);
     assert!(inbox.iter().any(|event| event["event"] == "insight"));
 }

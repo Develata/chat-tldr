@@ -464,6 +464,114 @@ fn inbox_read_and_html_output_preserve_the_database_and_safe_cursor() {
 }
 
 #[test]
+fn html_output_cannot_replace_business_data_or_original_exports() {
+    let sandbox = Sandbox::new();
+    let chat = import_fixture(&sandbox);
+    let database = sandbox.data_dir().join("chat-tldr.db");
+    let original_database = fs::read(&database).unwrap();
+    let export = sandbox.0.join("original.html");
+    fs::copy(fixture(), &export).unwrap();
+    let original_export = fs::read(&export).unwrap();
+    for target in [&database, &export] {
+        let result = events(
+            sandbox
+                .command()
+                .args(["inbox", "--chat", &chat, "--html"])
+                .arg(target)
+                .output()
+                .unwrap(),
+            8,
+        );
+        assert_eq!(payload(&result, "error")["code"], "E_OUTPUT_WRITE");
+    }
+    assert_eq!(fs::read(database).unwrap(), original_database);
+    assert_eq!(fs::read(export).unwrap(), original_export);
+    assert_eq!(sandbox.run(&["chats"], 0).len(), 2);
+}
+
+#[test]
+fn html_output_protects_reserved_paths_aliases_and_existing_data_extensions() {
+    let sandbox = Sandbox::new();
+    let chat = import_fixture(&sandbox);
+    let database = sandbox.data_dir().join("chat-tldr.db");
+    let database_before = fs::read(&database).unwrap();
+    let config = sandbox.0.join("chosen-config.html");
+    fs::write(&config, "timezone = '+08:00'\n").unwrap();
+    let source_directory = sandbox.data_dir().join("sources/qce/exports");
+    fs::create_dir_all(&source_directory).unwrap();
+    let source = source_directory.join("export.html");
+    fs::write(&source, "original export must remain").unwrap();
+    let csv = sandbox.0.join("annotation.CSV");
+    fs::write(&csv, "message_id,todo\nm_synthetic,true\n").unwrap();
+    let alias = sandbox.0.join("database-copy.html");
+    fs::hard_link(&database, &alias).unwrap();
+    for target in [config, source, csv, alias] {
+        let before = fs::read(&target).unwrap();
+        let mut command = sandbox.command();
+        if target.file_name().unwrap() == "chosen-config.html" {
+            command.arg("--config").arg(&target);
+        }
+        let result = events(
+            command
+                .args(["inbox", "--chat", &chat, "--html"])
+                .arg(&target)
+                .output()
+                .unwrap(),
+            8,
+        );
+        assert_eq!(payload(&result, "error")["code"], "E_OUTPUT_WRITE");
+        assert_eq!(fs::read(target).unwrap(), before);
+    }
+    for reserved in ["chat-tldr.db-journal", "gui-state.json"] {
+        let target = sandbox.data_dir().join(reserved);
+        events(
+            sandbox
+                .command()
+                .args(["inbox", "--chat", &chat, "--html"])
+                .arg(&target)
+                .output()
+                .unwrap(),
+            8,
+        );
+        assert!(!target.exists());
+    }
+    assert_eq!(fs::read(database).unwrap(), database_before);
+    sandbox.run(
+        &[
+            "inbox",
+            "--chat",
+            &chat,
+            "--html",
+            "data/missing/../chat-tldr.db",
+        ],
+        8,
+    );
+    // Existing ordinary reports and extension-free destinations remain valid.
+    fs::write(sandbox.0.join("report"), "old report").unwrap();
+    sandbox.run(&["inbox", "--chat", &chat, "--html", "report"], 0);
+    assert!(
+        fs::read_to_string(sandbox.0.join("report"))
+            .unwrap()
+            .starts_with("<!doctype html>")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn html_output_resolves_symbolic_parent_aliases_before_protecting_database() {
+    let sandbox = Sandbox::new();
+    let chat = import_fixture(&sandbox);
+    let database = sandbox.data_dir().join("chat-tldr.db");
+    let before = fs::read(&database).unwrap();
+    std::os::unix::fs::symlink(sandbox.data_dir(), sandbox.0.join("alias")).unwrap();
+    sandbox.run(
+        &["inbox", "--chat", &chat, "--html", "alias/chat-tldr.db"],
+        8,
+    );
+    assert_eq!(fs::read(database).unwrap(), before);
+}
+
+#[test]
 fn mutation_flags_are_required_and_mutually_exclusive() {
     let sandbox = Sandbox::new();
     for args in [

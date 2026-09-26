@@ -97,11 +97,32 @@ jobs:
           CI_PACKAGE: ${{ matrix.package }}
         run: cargo test -p $env:CI_PACKAGE --locked
 
+  platform-unix:
+    name: CLI / eval (Linux)
+    needs: modules
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          key: cli-eval-linux
+      - name: Lint platform-specific atomic publication
+        run: cargo clippy -p chat-tldr -p chat-tldr-eval --all-targets --locked -- -D warnings
+      - name: Test publication races and symbolic aliases on a POSIX filesystem
+        run: cargo test -p chat-tldr -p chat-tldr-eval --locked
+
   # Required check names stay stable as individual module jobs evolve.
   # A failed/cancelled/skipped plan or matrix can never satisfy these checks.
   clippy:
     name: clippy
-    needs: [modules, clippy-modules]
+    needs: [modules, clippy-modules, platform-unix]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -114,15 +135,16 @@ jobs:
         env:
           CI_PLAN_RESULT: ${{ needs.modules.result }}
           CI_MODULE_RESULT: ${{ needs.clippy-modules.result }}
+          CI_UNIX_RESULT: ${{ needs.platform-unix.result }}
         run: |
-          if ($env:CI_PLAN_RESULT -ne 'success' -or $env:CI_MODULE_RESULT -ne 'success') {
-            Write-Output "Clippy incomplete: plan=$env:CI_PLAN_RESULT modules=$env:CI_MODULE_RESULT"
+          if ($env:CI_PLAN_RESULT -ne 'success' -or $env:CI_MODULE_RESULT -ne 'success' -or $env:CI_UNIX_RESULT -ne 'success') {
+            Write-Output "Clippy incomplete: plan=$env:CI_PLAN_RESULT modules=$env:CI_MODULE_RESULT unix=$env:CI_UNIX_RESULT"
             exit 1
           }
 
   test:
     name: test
-    needs: [modules, test-modules]
+    needs: [modules, test-modules, platform-unix]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -135,8 +157,9 @@ jobs:
         env:
           CI_PLAN_RESULT: ${{ needs.modules.result }}
           CI_MODULE_RESULT: ${{ needs.test-modules.result }}
+          CI_UNIX_RESULT: ${{ needs.platform-unix.result }}
         run: |
-          if ($env:CI_PLAN_RESULT -ne 'success' -or $env:CI_MODULE_RESULT -ne 'success') {
-            Write-Output "Tests incomplete: plan=$env:CI_PLAN_RESULT modules=$env:CI_MODULE_RESULT"
+          if ($env:CI_PLAN_RESULT -ne 'success' -or $env:CI_MODULE_RESULT -ne 'success' -or $env:CI_UNIX_RESULT -ne 'success') {
+            Write-Output "Tests incomplete: plan=$env:CI_PLAN_RESULT modules=$env:CI_MODULE_RESULT unix=$env:CI_UNIX_RESULT"
             exit 1
           }

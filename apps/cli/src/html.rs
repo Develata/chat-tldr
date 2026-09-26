@@ -1,12 +1,39 @@
 use std::fmt::Write as _;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chat_tldr_engine::store::InboxSnapshot;
 
-use crate::Failure;
+use crate::{
+    Failure,
+    paths::{Paths, absolute},
+};
 
-pub fn write(snapshot: &InboxSnapshot, path: &Path) -> Result<(), Failure> {
+mod target;
+
+pub struct PreparedOutput {
+    path: PathBuf,
+    replace_existing: bool,
+}
+
+/// Capture the destination's initial state before reading or analysing data.
+/// A path that is initially absent never gains overwrite permission later.
+pub fn prepare(path: &Path, paths: &Paths) -> Result<PreparedOutput, Failure> {
+    let path = absolute(path)?;
+    let replace_existing = target::validate(&path, paths)?;
+    Ok(PreparedOutput {
+        path,
+        replace_existing,
+    })
+}
+
+pub fn write(
+    snapshot: &InboxSnapshot,
+    output: PreparedOutput,
+    paths: &Paths,
+) -> Result<(), Failure> {
+    let path = &output.path;
+    target::validate(path, paths)?;
     let parent = path
         .parent()
         .ok_or_else(|| Failure::new("E_OUTPUT_WRITE", 8, "HTML output needs a parent directory"))?;
@@ -15,9 +42,13 @@ pub fn write(snapshot: &InboxSnapshot, path: &Path) -> Result<(), Failure> {
         .write_all(render(snapshot).as_bytes())
         .map_err(output_error)?;
     temporary.as_file().sync_all().map_err(output_error)?;
-    temporary
-        .persist(path)
-        .map_err(|error| output_error(error.error))?;
+    let exists = target::validate(path, paths)?;
+    if output.replace_existing && exists {
+        temporary.persist(path)
+    } else {
+        temporary.persist_noclobber(path)
+    }
+    .map_err(|error| output_error(error.error))?;
     Ok(())
 }
 
@@ -107,6 +138,24 @@ fn highlight(text: &str, range: Option<[usize; 2]>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    fn empty_snapshot() -> InboxSnapshot {
+        InboxSnapshot {
+            meta: chat_tldr_core::InboxPayload {
+                chat_id: chat_tldr_core::ChatId("qq:group:synthetic".into()),
+                view_cursor: None,
+                last_reviewed: None,
+                counts: Default::default(),
+                rejected_insights: 0,
+                generated_at: chrono::DateTime::parse_from_rfc3339("2026-09-26T12:00:00-03:00")
+                    .unwrap(),
+            },
+            topics: Vec::new(),
+            insights: Vec::new(),
+        }
+    }
+
     #[test]
     fn html_escapes_untrusted_text_before_adding_scalar_highlights() {
         assert_eq!(
@@ -115,5 +164,38 @@ mod tests {
         );
         assert_eq!(highlight("&🙂", Some([9, 10])), "&amp;🙂");
         assert_eq!(escape("\"'"), "&quot;&#39;");
+    }
+
+    #[test]
+    fn initially_missing_output_never_overwrites_a_competing_report() {
+        for competing in ["ordinary report", "<!doctype html><p>another writer</p>"] {
+            let directory = tempfile::tempdir().unwrap();
+            let paths = Paths::resolve(Some(&directory.path().join("data")), None).unwrap();
+            let path = directory.path().join("report.html");
+            let output = prepare(&path, &paths).unwrap();
+            fs::write(&path, competing).unwrap();
+            let failure = write(&empty_snapshot(), output, &paths).unwrap_err();
+            assert_eq!(failure.code, "E_OUTPUT_WRITE");
+            assert_eq!(fs::read_to_string(&path).unwrap(), competing);
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+
+            // A report that exists when explicitly prepared can still update.
+            let output = prepare(&path, &paths).unwrap();
+            write(&empty_snapshot(), output, &paths).unwrap();
+            assert!(fs::read_to_string(&path).unwrap().contains("群聊收件箱"));
+        }
+    }
+
+    #[test]
+    fn replacement_permission_does_not_bypass_the_final_data_protection_check() {
+        let directory = tempfile::tempdir().unwrap();
+        let paths = Paths::resolve(Some(&directory.path().join("data")), None).unwrap();
+        let path = directory.path().join("report.html");
+        fs::write(&path, "old report").unwrap();
+        let output = prepare(&path, &paths).unwrap();
+        let export = r#"{"messages":[],"original":true}"#;
+        fs::write(&path, export).unwrap();
+        assert!(write(&empty_snapshot(), output, &paths).is_err());
+        assert_eq!(fs::read_to_string(path).unwrap(), export);
     }
 }

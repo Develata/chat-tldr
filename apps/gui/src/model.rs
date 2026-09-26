@@ -120,7 +120,8 @@ impl GuiModel {
         }
         if matches!(
             request.kind,
-            CommandKind::Inbox
+            CommandKind::Chats
+                | CommandKind::Inbox
                 | CommandKind::Analyze
                 | CommandKind::Import
                 | CommandKind::Feedback
@@ -420,6 +421,16 @@ impl GuiModel {
             },
             include_str!("../../../fixtures/jsonl/inbox.jsonl"),
         );
+        // The shared chats fixture precedes analysis, while inbox is a later
+        // snapshot. Reconcile its displayed summary only for the combined demo.
+        if let Some(inbox) = &model.inbox
+            && let Some(chat) = model
+                .chats
+                .iter_mut()
+                .find(|chat| chat.chat_id == inbox.meta.chat_id)
+        {
+            chat.open_p0 = inbox.meta.counts.p0;
+        }
         model
     }
 

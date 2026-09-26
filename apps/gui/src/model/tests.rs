@@ -77,6 +77,15 @@ fn only_a_complete_successfully_displayed_current_inbox_can_mark_read() {
     assert!(model.last_error.is_none(), "{:?}", model.last_error);
     let view = model.inbox.as_ref().unwrap();
     assert!(!view.insights.is_empty());
+    assert_eq!(
+        model
+            .chats
+            .iter()
+            .find(|chat| chat.chat_id == view.meta.chat_id)
+            .unwrap()
+            .open_p0,
+        view.meta.counts.p0
+    );
     let id = view.request_id;
     let cursor = view.meta.view_cursor;
     assert!(model.mark_read_cursor().is_none());
@@ -232,4 +241,18 @@ fn empty_and_unknown_completion_never_enable_mark_read() {
     end(&mut model, tag, completed(RunStatus::Unknown, 0));
     assert!(!model.last_completion.as_ref().unwrap().is_success());
     assert!(model.last_error.as_ref().unwrap().contains("未知"));
+}
+
+#[test]
+fn failed_chat_refresh_revokes_the_old_displayed_cursor() {
+    let mut model = GuiModel::demo();
+    let id = model.inbox.as_ref().unwrap().request_id;
+    model.mark_inbox_displayed(id);
+    assert!(model.mark_read_cursor().is_some());
+    let tag = request(3, CommandKind::Chats, None);
+    model.begin(tag.clone()).unwrap();
+    assert!(model.mark_read_cursor().is_none());
+    end(&mut model, tag, completed(RunStatus::Failed, 4));
+    model.mark_inbox_displayed(id);
+    assert!(model.mark_read_cursor().is_none());
 }

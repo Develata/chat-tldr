@@ -550,6 +550,21 @@ pub fn analyze(
             let committed = session.commit_topic(&pending.topic, &ids, insights)?;
             runtime.stats.messages_analyzed += ids.len() as u64;
             runtime.stats.topics_updated += 1;
+            // Count the whole committed checkpoint before writing to an event
+            // sink, which can fail (for example when a JSONL consumer exits).
+            let existing_ids: BTreeSet<_> = existing.iter().map(|item| &item.id).collect();
+            for insight in &committed {
+                if existing_ids.contains(&insight.id) {
+                    runtime.stats.insights.updated += 1;
+                } else {
+                    runtime.stats.insights.created += 1;
+                }
+                match insight.verification_status {
+                    VerificationStatus::Verified => runtime.stats.insights.verified += 1,
+                    VerificationStatus::Unverified => runtime.stats.insights.unverified += 1,
+                    _ => runtime.stats.insights.rejected += 1,
+                }
+            }
             sink(EventBody::Progress(ProgressPayload {
                 stage: "store".into(),
                 current: runtime.stats.messages_analyzed,
@@ -562,22 +577,15 @@ pub fn analyze(
                 .collect();
             let current_sources = session.source_messages(&source_ids)?;
             for insight in committed {
-                if existing.iter().any(|old| old.id == insight.id) {
-                    runtime.stats.insights.updated += 1
-                } else {
-                    runtime.stats.insights.created += 1
-                }
-                match insight.verification_status {
-                    VerificationStatus::Verified => runtime.stats.insights.verified += 1,
-                    VerificationStatus::Unverified => runtime.stats.insights.unverified += 1,
-                    _ => {
-                        runtime.stats.insights.rejected += 1;
-                        warning(
-                            "W_INSIGHT_REJECTED",
-                            "An extracted item did not pass evidence verification",
-                            sink,
-                        )?;
-                    }
+                if matches!(
+                    insight.verification_status,
+                    VerificationStatus::Rejected | VerificationStatus::Unknown
+                ) {
+                    warning(
+                        "W_INSIGHT_REJECTED",
+                        "An extracted item did not pass evidence verification",
+                        sink,
+                    )?;
                 }
                 let evidence_view = insight
                     .evidence
