@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use chat_tldr_core::{CliEvent, EventStreamValidator};
 use serde_json::Value;
 
+mod workflow;
+
 static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
 struct Sandbox(PathBuf);
@@ -97,7 +99,10 @@ fn version_bypasses_configuration_and_reports_only_working_commands() {
         .as_array()
         .unwrap();
     assert!(commands.contains(&Value::from("import")));
-    assert!(!commands.contains(&Value::from("analyze")));
+    assert!(commands.contains(&Value::from("analyze")));
+    assert!(commands.contains(&Value::from("decisions")));
+    assert!(commands.contains(&Value::from("jev-log")));
+    assert!(commands.contains(&Value::from("stats")));
     assert!(!sandbox.data_dir().exists());
 }
 
@@ -120,6 +125,31 @@ fn empty_queries_never_initialize_the_database() {
     assert_eq!(sandbox.run(&["chats"], 0).len(), 1);
     let events = sandbox.run(&["messages", "--chat", "qq:group:missing"], 3);
     assert_eq!(payload(&events, "error")["code"], "E_CHAT_NOT_FOUND");
+    assert!(!sandbox.data_dir().exists());
+}
+
+#[test]
+fn history_commands_do_not_initialize_storage_or_require_model_keys() {
+    let sandbox = Sandbox::new();
+    let global = sandbox.run(&["stats"], 0);
+    assert_eq!(payload(&global, "stats")["scope"], "global");
+    assert_eq!(payload(&global, "stats")["counts"]["runs"], 0);
+    for args in [
+        vec!["decisions", "--run", "missing"],
+        vec!["jev-log", "--run", "missing"],
+        vec!["stats", "--run", "missing"],
+    ] {
+        assert_eq!(
+            payload(&sandbox.run(&args, 3), "error")["code"],
+            "E_RUN_NOT_FOUND"
+        );
+    }
+    assert_eq!(
+        payload(&sandbox.run(&["stats", "--chat", "missing"], 3), "error")["code"],
+        "E_CHAT_NOT_FOUND"
+    );
+    sandbox.run(&["stats", "--chat", "a", "--run", "b"], 2);
+    sandbox.run(&["decisions"], 2);
     assert!(!sandbox.data_dir().exists());
 }
 
@@ -193,7 +223,7 @@ fn doctor_is_offline_and_does_not_expose_credentials() {
     let detail = &payload(&events, "ack")["detail"];
     assert_eq!(detail["providers"]["llm"]["key_present"], true);
     assert_eq!(detail["remote_checked"], false);
-    assert_eq!(detail["analyze_implemented"], false);
+    assert_eq!(detail["analyze_implemented"], true);
     assert!(Path::new(detail["paths"]["database"].as_str().unwrap()).is_absolute());
     assert!(!sandbox.data_dir().exists());
 }
@@ -308,4 +338,255 @@ fn identity_warning_has_a_stable_code_and_everyone_mentions_still_work() {
         .unwrap();
     let messages = sandbox.run(&["messages", "--chat", chat], 0);
     assert_eq!(payload(&messages, "message")["mentions_me"], true);
+}
+
+#[test]
+fn chunked_export_is_classified_without_creating_a_database() {
+    let sandbox = Sandbox::new();
+    let manifest = serde_json::json!({
+        "metadata":{"name":"QQChatExporter","version":"0.1.0"},
+        "chatInfo":{"type":"group","peerUid":"synthetic-chunked"},
+        "statistics":{"totalMessages":0},
+        "chunked":{
+            "format":"jsonl", "chunksDir":"chunks", "chunkFileExt":".jsonl",
+            "maxMessagesPerChunk":50000, "maxBytesPerChunk":52428800, "chunks":[]
+        }
+    });
+    fs::write(sandbox.0.join("manifest.json"), manifest.to_string()).unwrap();
+    let result = sandbox.run(&["import", "manifest.json"], 3);
+    assert_eq!(payload(&result, "error")["code"], "E_INPUT_UNSUPPORTED");
+    assert!(!sandbox.data_dir().exists());
+}
+
+fn import_fixture(sandbox: &Sandbox) -> String {
+    let imported = events(
+        sandbox
+            .command()
+            .arg("import")
+            .arg(fixture())
+            .output()
+            .unwrap(),
+        0,
+    );
+    payload(&imported, "ack")["detail"]["chat_ids"][0]
+        .as_str()
+        .unwrap()
+        .into()
+}
+
+#[test]
+fn analyze_validates_budget_strategy_steps_and_conflicting_outputs() {
+    let sandbox = Sandbox::new();
+    for extra in [
+        vec!["--budget-usd", "0"],
+        vec!["--budget-usd", "-1"],
+        vec!["--budget-usd", "NaN"],
+        vec!["--budget-usd", "inf"],
+        vec!["--max-steps", "0"],
+        vec!["--strategy", "b0"],
+        vec!["--dry-run", "--html", "out.html"],
+    ] {
+        let mut args = vec!["analyze", "--chat", "missing"];
+        args.extend(extra);
+        let result = sandbox.run(&args, 2);
+        assert_eq!(payload(&result, "error")["code"], "E_USAGE");
+    }
+    assert!(!sandbox.data_dir().exists());
+}
+
+#[test]
+fn dry_run_is_read_only_without_model_credentials() {
+    let sandbox = Sandbox::new();
+    let chat = import_fixture(&sandbox);
+    let path = sandbox.data_dir().join("chat-tldr.db");
+    let before = fs::read(&path).unwrap();
+    let result = sandbox.run(&["analyze", "--chat", &chat, "--dry-run"], 0);
+    let plan = &payload(&result, "ack")["detail"]["plan"];
+    assert_eq!(plan["messages"], 2);
+    assert_eq!(plan["writes"], false);
+    assert_eq!(plan["model_calls"], 0);
+    assert_eq!(plan["readiness"]["llm_key_present"], false);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    let live = sandbox.run(&["analyze", "--chat", &chat], 4);
+    assert_eq!(payload(&live, "error")["code"], "E_CONFIG");
+    assert_eq!(fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn no_pending_messages_complete_without_keys_or_database_writes() {
+    let sandbox = Sandbox::new();
+    let mut data: Value = serde_json::from_slice(&fs::read(fixture()).unwrap()).unwrap();
+    data["messages"] = serde_json::json!([]);
+    let input = sandbox.0.join("empty.json");
+    fs::write(&input, serde_json::to_vec(&data).unwrap()).unwrap();
+    let imported = events(
+        sandbox
+            .command()
+            .arg("import")
+            .arg(&input)
+            .output()
+            .unwrap(),
+        0,
+    );
+    let chat = payload(&imported, "ack")["detail"]["chat_ids"][0]
+        .as_str()
+        .unwrap();
+    let path = sandbox.data_dir().join("chat-tldr.db");
+    let before = fs::read(&path).unwrap();
+    let result = sandbox.run(&["analyze", "--chat", chat], 0);
+    assert_eq!(payload(&result, "stats")["messages_analyzed"], 0);
+    assert_eq!(payload(&result, "done")["finish_reason"], "done");
+    assert_eq!(fs::read(path).unwrap(), before);
+}
+
+#[test]
+fn inbox_read_and_html_output_preserve_the_database_and_safe_cursor() {
+    let sandbox = Sandbox::new();
+    let chat = import_fixture(&sandbox);
+    let path = sandbox.data_dir().join("chat-tldr.db");
+    let before = fs::read(&path).unwrap();
+    fs::write(sandbox.0.join("inbox.html"), "old document").unwrap();
+    let result = sandbox.run(&["inbox", "--chat", &chat, "--html", "inbox.html"], 0);
+    assert!(payload(&result, "inbox")["view_cursor"].is_null());
+    let html = fs::read_to_string(sandbox.0.join("inbox.html")).unwrap();
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(!html.contains("old document"));
+    assert_eq!(fs::read(&path).unwrap(), before);
+    let failure = sandbox.run(
+        &["inbox", "--chat", &chat, "--html", "missing/child.html"],
+        8,
+    );
+    assert_eq!(payload(&failure, "error")["code"], "E_OUTPUT_WRITE");
+    let messages = sandbox.run(&["messages", "--chat", &chat], 0);
+    let cursor = payload(&messages, "message")["cursor"].as_str().unwrap();
+    let rejected = sandbox.run(&["mark-read", "--chat", &chat, "--up-to", cursor], 3);
+    assert_eq!(payload(&rejected, "error")["code"], "E_CURSOR_INVALID");
+}
+
+#[test]
+fn html_output_cannot_replace_business_data_or_original_exports() {
+    let sandbox = Sandbox::new();
+    let chat = import_fixture(&sandbox);
+    let database = sandbox.data_dir().join("chat-tldr.db");
+    let original_database = fs::read(&database).unwrap();
+    let export = sandbox.0.join("original.html");
+    fs::copy(fixture(), &export).unwrap();
+    let original_export = fs::read(&export).unwrap();
+    for target in [&database, &export] {
+        let result = events(
+            sandbox
+                .command()
+                .args(["inbox", "--chat", &chat, "--html"])
+                .arg(target)
+                .output()
+                .unwrap(),
+            8,
+        );
+        assert_eq!(payload(&result, "error")["code"], "E_OUTPUT_WRITE");
+    }
+    assert_eq!(fs::read(database).unwrap(), original_database);
+    assert_eq!(fs::read(export).unwrap(), original_export);
+    assert_eq!(sandbox.run(&["chats"], 0).len(), 2);
+}
+
+#[test]
+fn html_output_protects_reserved_paths_aliases_and_existing_data_extensions() {
+    let sandbox = Sandbox::new();
+    let chat = import_fixture(&sandbox);
+    let database = sandbox.data_dir().join("chat-tldr.db");
+    let database_before = fs::read(&database).unwrap();
+    let config = sandbox.0.join("chosen-config.html");
+    fs::write(&config, "timezone = '+08:00'\n").unwrap();
+    let source_directory = sandbox.data_dir().join("sources/qce/exports");
+    fs::create_dir_all(&source_directory).unwrap();
+    let source = source_directory.join("export.html");
+    fs::write(&source, "original export must remain").unwrap();
+    let csv = sandbox.0.join("annotation.CSV");
+    fs::write(&csv, "message_id,todo\nm_synthetic,true\n").unwrap();
+    let alias = sandbox.0.join("database-copy.html");
+    fs::hard_link(&database, &alias).unwrap();
+    for target in [config, source, csv, alias] {
+        let before = fs::read(&target).unwrap();
+        let mut command = sandbox.command();
+        if target.file_name().unwrap() == "chosen-config.html" {
+            command.arg("--config").arg(&target);
+        }
+        let result = events(
+            command
+                .args(["inbox", "--chat", &chat, "--html"])
+                .arg(&target)
+                .output()
+                .unwrap(),
+            8,
+        );
+        assert_eq!(payload(&result, "error")["code"], "E_OUTPUT_WRITE");
+        assert_eq!(fs::read(target).unwrap(), before);
+    }
+    for reserved in ["chat-tldr.db-journal", "gui-state.json"] {
+        let target = sandbox.data_dir().join(reserved);
+        events(
+            sandbox
+                .command()
+                .args(["inbox", "--chat", &chat, "--html"])
+                .arg(&target)
+                .output()
+                .unwrap(),
+            8,
+        );
+        assert!(!target.exists());
+    }
+    assert_eq!(fs::read(database).unwrap(), database_before);
+    sandbox.run(
+        &[
+            "inbox",
+            "--chat",
+            &chat,
+            "--html",
+            "data/missing/../chat-tldr.db",
+        ],
+        8,
+    );
+    // Existing ordinary reports and extension-free destinations remain valid.
+    fs::write(sandbox.0.join("report"), "old report").unwrap();
+    sandbox.run(&["inbox", "--chat", &chat, "--html", "report"], 0);
+    assert!(
+        fs::read_to_string(sandbox.0.join("report"))
+            .unwrap()
+            .starts_with("<!doctype html>")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn html_output_resolves_symbolic_parent_aliases_before_protecting_database() {
+    let sandbox = Sandbox::new();
+    let chat = import_fixture(&sandbox);
+    let database = sandbox.data_dir().join("chat-tldr.db");
+    let before = fs::read(&database).unwrap();
+    std::os::unix::fs::symlink(sandbox.data_dir(), sandbox.0.join("alias")).unwrap();
+    sandbox.run(
+        &["inbox", "--chat", &chat, "--html", "alias/chat-tldr.db"],
+        8,
+    );
+    assert_eq!(fs::read(database).unwrap(), before);
+}
+
+#[test]
+fn mutation_flags_are_required_and_mutually_exclusive() {
+    let sandbox = Sandbox::new();
+    for args in [
+        vec!["feedback", "i_missing"],
+        vec!["feedback", "i_missing", "--useful", "--not-important"],
+        vec!["resolve", "i_missing"],
+        vec!["resolve", "i_missing", "--done", "--reopen"],
+    ] {
+        let result = sandbox.run(&args, 2);
+        assert_eq!(payload(&result, "error")["code"], "E_USAGE");
+    }
+    let result = sandbox.run(
+        &["mark-read", "--chat", "missing", "--up-to", "not-a-cursor"],
+        3,
+    );
+    assert_eq!(payload(&result, "error")["code"], "E_CURSOR_INVALID");
+    assert!(!sandbox.data_dir().exists());
 }

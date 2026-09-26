@@ -3,7 +3,7 @@
 > 用途：定义 `chat-tldr` 命令行的命令、参数、stdout 上的 JSON Lines 事件、错误码、退出码和版本兼容规则。
 > 读者：@Develata（实现 CLI）、同学 B（GUI 解析输出）、同学 C（eval 调用 CLI）。信封类型的定义见 [DATA_MODEL.md](DATA_MODEL.md) §4。
 
-> 状态：2026-09-26 用户已采纳 [CLI v1 评审稿](CLI_V1_REVIEW.md)，本页是同步后的首次 v1 契约。当前基础 CLI 的实现范围是 `version`、`config init`、`doctor`、`import`、`chats`、`messages`；分析、收件箱与状态操作仍待实现。命令表描述完整目标，实际可用能力以 `version` 返回的 `capabilities` 为准，不能把合成 JSONL 样例当作已实现功能。
+> 状态：2026-09-26 用户已采纳 [CLI v1 评审稿](CLI_V1_REVIEW.md)，本页是同步后的首次 v1 契约。命令表中的基础、分析、收件箱、状态操作及 `stats/decisions/jev-log` 查询均已实现；当前策略仅 `ours`、Decider 为 `jev/llm`。完整分析策略仍有缺口，见 [ANALYSIS_EXECUTION](ANALYSIS_EXECUTION.md)；实际可用能力以 `version.capabilities` 为准。
 
 ## 1. 总规则
 
@@ -61,7 +61,7 @@
 
 **`import <PATH>... [--self-uid UID] [--self-uin UIN]`**
 - 接受 QCE 单文件 JSON（顶层含 `metadata`、`chatInfo`、`statistics`、`messages`）。
-- QCE 的 chunked-JSONL 导出（`manifest.json` + `chunks/*.jsonl`）：**TODO(Q-QCE-5)**，MVP 不支持，目标错误为 `E_INPUT_UNSUPPORTED`。当前尚未确认 manifest 的字段结构，JSONL/manifest 也可能作为不符合单文件结构的输入返回 `E_INPUT_PARSE`；两者均退出 3，不导入数据。拿到结构证据后再完善分类，不按文件名猜格式。
+- QCE 的 chunked-JSONL 导出（`manifest.json` + `chunks/*.jsonl`）：MVP 不支持。已按上游确切 manifest 结构识别为 `E_INPUT_UNSUPPORTED`；结构不完整的 JSON 或原始 JSONL 仍可返回 `E_INPUT_PARSE`，均退出 3 且不导入。识别不依赖文件名，字段依据见 [QCE_DOCKER_EXPORT](QCE_DOCKER_EXPORT.md)。
 - 同一文件导入多次、两个导出有重叠：结果不变（`inserted=0` 或只插入新消息）。
 - 多文件导入采用一个事务；任何文件解析或身份校验失败，整个批次回滚。成功提交后才输出 `ack`，其中 `detail.chat_ids` 是去重后按字符串排序的会话 ID；`changed` 只反映业务数据变化，不计新增运行日志。
 - `--self-uid` / `--self-uin` 仅属于 import。缺少显式值时保留已存会话身份，新会话才回退到文件元数据；显式值与已存身份冲突时返回 `E_CONFIG`，不悄悄切换身份。没有自身身份时个人 @ 无法识别并告警，但 `@全体成员` 仍成立。
@@ -88,7 +88,7 @@
 - `--html <FILE>`：同上。
 - 收件箱的内容规则见 [PIPELINE.md](PIPELINE.md) §7.4。
 - 元数据、counts、topic、insight 和 HTML 来自同一读快照；insight 按 P0–P3、层内 rank_score 降序、InsightId 升序排列。
-- HTML 先写临时文件再替换目标。失败时输出 `E_OUTPUT_WRITE`；单独查询退出 8，analyze 已提交业务结果时退出 6 / partial，并说明分析数据保留。
+- HTML 先写临时文件再发布。已有普通报告允许更新；拒绝数据库及其辅助文件、配置、GUI 偏好、sources/backups 目录内文件、符号链接以及可识别的数据文件。analyze 在调用模型前预检目标；首次不存在的目标在本次运行中只允许不覆盖发布，期间新出现的文件会保留。发布前重新检查目标，路径无扩展名不影响新报告导出。失败时输出 `E_OUTPUT_WRITE`；预检或单独查询退出 8，analyze 已提交业务结果时退出 6 / partial，并说明分析数据保留。
 
 **`mark-read --chat <ID> --up-to <CURSOR>`**
 - `<CURSOR>` **必须**是 GUI 最近一次完整显示的 `inbox` 事件里的非空 `view_cursor`，原样回传；空值时禁用标为已读。
@@ -98,6 +98,13 @@
 **`feedback` 与 `resolve`**
 - 相同评价重复提交时 `changed=false`；切换评价替换当前有效值，不能累计成多次有效投票。审计记录可另存。
 - resolve 设置生命周期，重复设定同一状态无变化成功；reopen 不改变证据校验状态。feedback 与 resolve 互不改变对方状态，也不推进已读游标。
+
+**历史查询**
+
+- `decisions --run <RUN_ID>` 按 step 重放；`jev-log --run <RUN_ID>` 按记录顺序导出所有答案，包含缓存命中和 LLM 降级后的答案。首个 `ack.target` 为历史 ID，`ack.detail.run_status` 为已保存状态；信封 run_id 始终是这次查询的 ID。
+- `stats` 无筛选返回全局表计数与累计用量；空数据库路径返回零统计，不建库。`stats --chat <ID>` 返回 `scope=global` 的会话聚合，首个 ack 的 target 与 `detail.chat_id` 标明筛选；无法归属到单个 chat 的 model_cache/preference_weights 不列入该计数。
+- `stats --run <RUN_ID>` 返回已保存分析运行的 `scope=run`。查询未知 chat / run 分别返回 `E_CHAT_NOT_FOUND` / `E_RUN_NOT_FOUND`，退出 3。dry-run 和无工作 analyze 不保存运行记录。
+- `--chat` 与 `--run` 互斥。以上命令均不要求模型 key、不调用模型、不创建数据目录；旧记录的信息不足通过 warning 标明，不写回修补数据库。
 
 ## 3. 事件与 payload
 
@@ -181,11 +188,15 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
 ```
 `scope=import` 时的字段为：`files`、`seen`、`inserted`、`duplicate`、`backfilled`、`recalled`、`chats`。`scope=global` 时为各表计数与累计用量。
 
+历史 `usage` 按 stage/provider/model 聚合，`calls` 为逻辑 provider 调用数（包括失败），不展开内部 HTTP 重试或 JSON 修正。token/费用仅含响应已报告用量；缓存命中只增加 `cache_hits`，本轮 token/费用记 0。因此费用是本地估算，不能用于服务端账单对账。
+
+新分析运行保存精确计数与耗时。旧运行或未完成持久化的记录可能没有计数快照，此时发送 `W_HISTORY_INCOMPLETE`：message/created 计数来自仍存在的数据库行，无法恢复的 insight 更新/验证计数为 0，不能视为历史事实上的零；elapsed_ms 截止到保存的结束/heartbeat 时间。
+
 ### 3.8 `ack`
 ```json
 {"command":"resolve","target":"i_7c2d9e01ab34","changed":true,"detail":{"lifecycle":"done"}}
 ```
-`version` 命令的 `ack`：`{"command":"version","target":null,"changed":false,"detail":{"cli_version":"0.1.0","schema_version":"1.0","db_version":1,"capabilities":{"commands":["version","config init","doctor","import","chats","messages"],"strategies":[],"deciders":[]}}}`。capabilities 只列实际已实现的能力，不能广告空桩。
+`version` 命令的 `ack`：`{"command":"version","target":null,"changed":false,"detail":{"cli_version":"0.1.0","schema_version":"1.0","db_version":1,"capabilities":{"commands":["version","config init","doctor","import","chats","messages","analyze","inbox","feedback","resolve","mark-read","stats","decisions","jev-log"],"strategies":["ours"],"deciders":["jev","llm"]}}}`。capabilities 只列实际已实现的能力，不能广告空桩。
 
 ### 3.9 `warning`
 ```json
@@ -201,6 +212,8 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
 | `W_INPUT_NORMALIZED` | 输入按兼容规则规范化，如缺 ID 使用稳定哈希、缺元素回退 content.text；详见 message |
 | `W_INSIGHT_REJECTED` | 有结论未通过证据校验（附数量） |
 | `W_DEADLINE_UNNORMALIZED` | 截止日期无法规范化，只保留原文 |
+| `W_HISTORY_INCOMPLETE` | 旧记录缺少精确运行计数、decision confidence 或模型名；message 明确说明可用范围，不能把缺失当作已知的零 |
+| `W_SUBJECT_UNAVAILABLE` | 旧答案不能可靠对齐 subject；返回 unknown/unavailable，不猜测消息 ID |
 
 ### 3.10 `error`
 ```json
@@ -221,6 +234,8 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
  "answer":{"type":"noul","p_yes":0.93},"confidence":null}
 ```
 `subject.kind` ∈ `message | burst | topic_pair | controller`。归属问题的 `subject` 为 `burst`，并附 `message_ids` 与 `candidates`（候选话题 ID 列表），供评估对齐。
+
+分类的逐消息问题使用真实 message ID；整组 urgency/chitchat 使用 burst。旧记录没有可靠映射时，使用共享类型已有的 `unknown` 值与 `id="unavailable"`，`ack.detail.unaligned_answers` 报告数量，并发送 `W_SUBJECT_UNAVAILABLE`；这些答案不能参与需要消息对应关系的校准。model 优先取实际记录，其次取该 request_key 的精确缓存；都没有则为 `unknown` 并告警。
 
 ### 3.13 `message`
 ```json
@@ -243,6 +258,7 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
 | `E_INPUT_PARSE` | import | false | JSON 解析失败或缺少必需字段 |
 | `E_INPUT_UNSUPPORTED` | import | false | 不支持的导出形式（如 chunked-JSONL） |
 | `E_CHAT_NOT_FOUND` | cli | false | `--chat` 不存在 |
+| `E_RUN_NOT_FOUND` | cli | false | 查询的已保存分析运行不存在 |
 | `E_INSIGHT_NOT_FOUND` | cli | false | 结论 ID 不存在 |
 | `E_CURSOR_INVALID` | cli | false | `--up-to` 格式错误或不属于该 chat |
 | `E_DB` | store | false | 数据库错误 |

@@ -3,7 +3,7 @@
 > 用途：说明从 UnifiedMessage 到 Insight 的每一步算法、规则、阈值和不变量。
 > 读者：@Develata（engine 实现）、同学 A（`temporal`、`verify` 两个模块）、同学 C（评估时需要理解每个阶段）。类型定义见 [DATA_MODEL.md](DATA_MODEL.md)。
 
-> 状态：本文是流水线实现契约，不是全量实现报告。基础导入与查询先行；模型、控制器、证据校验、反馈和收件箱按主线计划继续实现。实际可用命令由 `version.capabilities` 报告。
+> 状态：本文是完整流水线契约，不是全量实现报告。当前已提供基本分析与收件箱闭环，实际实现及策略缺口见 [ANALYSIS_EXECUTION](ANALYSIS_EXECUTION.md)；可用命令由 `version.capabilities` 报告。
 
 所有阈值都是**初始值**，汇总在 `config.toml` 的 `[segment]` 节（见 [CLI_PROTOCOL.md](CLI_PROTOCOL.md) §7），待用标注数据调优（[OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) Q-TH-1）。
 
@@ -440,7 +440,7 @@ GUI 三栏：“需要你处理”= P0，“值得知道”= P1，“其他话�
 | # | 条件 | 允许的动作 | 规则默认项 |
 |---|---|---|---|
 | R0 | `steps_taken ≥ max_steps` / `cost_usd ≥ budget_usd` / 收到取消 | `Finish(MaxSteps / BudgetExceeded / Cancelled)` | — |
-| R1 | `pending_verification > 0` | `Verify(全部草稿结论)` | — |
+| R1 | 有待校验话题（包含 `pending_verification > 0`，也包含零条目抽取） | `Verify(全部草稿结论)` | — |
 | R2a | `0 < pending ≤ direct_max(60)` 且 `interleave < 0.2` | `AnalyzeDirect` | — |
 | R2b | `0 < pending ≤ direct_max` 且 `interleave ≥ 0.2` | `AnalyzeDirect`、`Segment` | `Segment` |
 | R2c | `pending > direct_max` | `Segment`（每步最多处理 300 条） | — |
@@ -450,7 +450,7 @@ GUI 三栏：“需要你处理”= P0，“值得知道”= P1，“其他话�
 - `interleave`：待切分消息中，已解析的回复边里，源消息和目标消息之间夹着 ≥ 3 条其他人消息的边所占的比例。
 - “信号最强的脏话题”：按话题内消息的 `max(p_todo, p_announcement, needs_action)` 以及 @我 数量排序。
 - `pending_messages` 只统计本次运行**有资格处理**的待切分消息（受 `--since/--until` 限制），否则 R2c 会对永远不会处理的消息反复选择 `Segment`。
-- **草稿结论**：`AnalyzeTopic` / `AnalyzeDirect` 的输出先作为草稿保存在本次运行的内存中，`pending_verification` 就是草稿数。`Verify` 处理全部草稿：通过的写入数据库（`verified` 或 `unverified`），不通过的重试一次，仍不通过的以 `rejected` 写入。之后草稿数归零。已经存进数据库的 `unverified` 结论**不算**草稿，不会再次触发 R1。进程在两步之间被杀时草稿丢失，对应话题仍是脏话题，下次重新抽取（有缓存，不会重复付费）。
+- **草稿结论**：`pending_verification` 仍是尚未校验的草稿结论数，不含库中已保存的 `unverified`。执行器另外维护待校验话题，即使草稿数为零也必须 Verify 并提交话题检查点。通过的结论写为 `verified` 或 `unverified`；不通过的重试一次，仍失败写为 `rejected`。抽取响应及按话题映射后的草稿持久化缓存；恢复时在输入和配置相同的情况下复用。服务端完成响应、客户端尚未保存时崩溃仍可能重复请求，不能保证绝不重复计费。
 - 单个话题抽取失败（重试后仍失败）：该话题本次的待分析消息 `analysis_state` 标为 `failed`，不再算作脏话题，本次运行最终状态为 `partial`。**下次 `analyze` 开始时**，`failed` 恢复为 `pending`，重试一次。
 
 ### 8.3 有界执行与待验证的终止性
@@ -463,7 +463,7 @@ GUI 三栏：“需要你处理”= P0，“值得知道”= P1，“其他话�
 
 - `Segment` 每处理完一批 burst 提交一次（`topic_messages`）。
 - 每个话题的 `AnalyzeTopic` + 对应的 `Verify` 完成后提交：结论、证据、该话题消息的 `analysis_state = done` 与 `analyzed_run`、`run_checkpoints` 一条记录。
-- 进程中途被杀：已提交的部分保留；下次 `analyze` 重新计算“待切分消息”和“脏话题”，从断点继续。结合缓存，重跑已完成的步骤不会重复付费。
+- 进程中途被杀：已提交的部分保留；下次 `analyze` 重新计算“待切分消息”和“脏话题”，从断点继续。已提交话题不重复分析；未提交话题优先复用相同输入的缓存，计费边界见上一节。
 
 ## 9. 缓存、用量与隐私
 

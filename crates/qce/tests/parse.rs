@@ -1,5 +1,5 @@
 use chat_tldr_core::{AttachmentKind, MentionTarget};
-use chat_tldr_qce::{QceOptions, parse_qce_json};
+use chat_tldr_qce::{QceError, QceOptions, parse_qce_json};
 use chrono::FixedOffset;
 use serde_json::{Value, json};
 
@@ -337,4 +337,90 @@ fn invalid_options_and_missing_chat_identity_fail() {
             parse_qce_json(&serde_json::to_vec(&raw).unwrap(), &QceOptions::default()).is_err()
         );
     }
+}
+
+#[test]
+fn timestamp_must_be_representable_in_the_selected_local_timezone() {
+    for (timestamp, seconds) in [
+        (
+            chrono::DateTime::<chrono::Utc>::MAX_UTC.timestamp_millis(),
+            3600,
+        ),
+        (
+            chrono::DateTime::<chrono::Utc>::MIN_UTC.timestamp_millis(),
+            -3600,
+        ),
+    ] {
+        let options = QceOptions {
+            timezone: chrono::FixedOffset::east_opt(seconds).unwrap(),
+            ..QceOptions::default()
+        };
+        let mut raw = message(json!([]));
+        raw["timestamp"] = json!(timestamp);
+        let bytes = serde_json::to_vec(&export(json!([raw]))).unwrap();
+        assert!(
+            parse_qce_json(&bytes, &options).is_err(),
+            "local date would overflow"
+        );
+        let forwarded = message(json!([{"type":"forward", "data":{"messages":[{
+            "timestamp": timestamp, "content":{"text":"合成边界时间"}
+        }]}}]));
+        let bytes = serde_json::to_vec(&export(json!([forwarded]))).unwrap();
+        assert!(
+            parse_qce_json(&bytes, &options).is_err(),
+            "forwarded local date would overflow"
+        );
+        let safe_utc = QceOptions {
+            timezone: FixedOffset::east_opt(0).unwrap(),
+            ..options
+        };
+        let accepted = parse_qce_json(&bytes, &safe_utc).unwrap();
+        let date = accepted.messages[0].forward.as_ref().unwrap().messages[0]
+            .sent_at
+            .unwrap();
+        // Accepted timestamps remain safe for downstream date rules and display.
+        let _ = date.date_naive();
+    }
+}
+
+#[test]
+fn recognized_upstream_chunked_manifest_is_an_unsupported_format_not_a_parse_error() {
+    let manifest = json!({
+        "metadata":{"name":"QQChatExporter","version":"0.1.0"},
+        "chatInfo":{"type":"group","peerUid":"synthetic-chunked"},
+        "statistics":{"totalMessages":0},
+        "chunked":{
+            "format":"jsonl", "chunksDir":"chunks", "chunkFileExt":".jsonl",
+            "maxMessagesPerChunk":50000, "maxBytesPerChunk":52428800, "chunks":[]
+        }
+    });
+    let error = parse_qce_json(
+        &serde_json::to_vec(&manifest).unwrap(),
+        &QceOptions::default(),
+    )
+    .unwrap_err();
+    assert!(matches!(error, QceError::UnsupportedExport));
+    let mut malformed = manifest;
+    malformed["chunked"]["chunks"] = json!("not an array");
+    assert!(matches!(
+        parse_qce_json(
+            &serde_json::to_vec(&malformed).unwrap(),
+            &QceOptions::default()
+        ),
+        Err(QceError::Json(_))
+    ));
+}
+
+#[test]
+fn unfamiliar_chunked_fields_do_not_reclassify_a_valid_single_file_export() {
+    let mut single = export(json!([]));
+    single["chunked"] =
+        json!({"format":"jsonl","chunksDir":"chunks","chunkFileExt":".jsonl","chunks":[]});
+    assert!(
+        parse_qce_json(
+            &serde_json::to_vec(&single).unwrap(),
+            &QceOptions::default()
+        )
+        .is_ok()
+    );
 }

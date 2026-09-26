@@ -1,13 +1,14 @@
 use std::io::{self, Write};
 use std::time::Instant;
 
-use chat_tldr_core::{CliEvent, DonePayload, EventBody, RunId, RunStatus};
+use chat_tldr_core::{CliEvent, DonePayload, EventBody, FinishReason, RunId, RunStatus};
 
 pub struct Output<W: Write> {
     writer: W,
     run_id: RunId,
     seq: u64,
     started: Instant,
+    completion: Option<(RunStatus, FinishReason)>,
 }
 
 impl<W: Write> Output<W> {
@@ -19,6 +20,7 @@ impl<W: Write> Output<W> {
             run_id: RunId(format!("r_{}_{suffix:04x}", now.format("%Y%m%dT%H%M%S"))),
             seq: 0,
             started: Instant::now(),
+            completion: None,
         }
     }
 
@@ -35,15 +37,29 @@ impl<W: Write> Output<W> {
         self.run_id.clone()
     }
 
+    pub fn analysis_finished(&mut self, status: RunStatus, reason: FinishReason) {
+        self.completion = Some((status, reason));
+    }
+
+    pub fn exit_code(&self) -> u8 {
+        match self.completion.as_ref().map(|(status, _)| status) {
+            Some(RunStatus::Partial) => 6,
+            Some(RunStatus::Cancelled) => 130,
+            Some(RunStatus::Failed | RunStatus::Unknown) => 1,
+            _ => 0,
+        }
+    }
+
     pub fn done(&mut self, exit_code: u8) -> io::Result<()> {
         self.emit(EventBody::Done(DonePayload {
-            status: if exit_code == 0 {
-                RunStatus::Complete
-            } else {
-                RunStatus::Failed
+            status: match exit_code {
+                0 => RunStatus::Complete,
+                6 => RunStatus::Partial,
+                130 => RunStatus::Cancelled,
+                _ => RunStatus::Failed,
             },
             exit_code: i32::from(exit_code),
-            finish_reason: None,
+            finish_reason: self.completion.as_ref().map(|(_, reason)| *reason),
             elapsed_ms: self.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
         }))
     }

@@ -1,7 +1,7 @@
 # 目录与文件存放设计
 
 > 2026-09-26。本文统一规定源码、协作材料和运行文件放在哪里、由谁读写，以及哪些可以清理。
-> 用户已于 2026-09-26 采纳此布局。当前建设共享类型、QCE 导入、存储、基础 CLI 与 CI；下列树同时包含规划位置，不表示完整分析或 GUI 已实现。文件随功能创建，不预建大量空模块。
+> 用户已于 2026-09-26 采纳此布局。当前 CLI 基础分析闭环、历史查询与 eval 表格往返已实现，原生 GUI 已接入 CLI 并完成 Windows 合成数据截图与交互验收，见 [GUI_VERIFICATION](GUI_VERIFICATION.md)。下列树仍包含规划位置，文件随功能创建，不预建大量空模块。
 > 保留现有六个 workspace 成员和 `--data-dir` 约定。QCE 管理组件单独预留位置，尚未加入 workspace。
 
 ## 1. 三个根目录
@@ -64,26 +64,29 @@ chat-tldr/
 │  │  │  ├─ main.rs            # 进程入口、退出码
 │  │  │  ├─ args.rs            # clap 参数与互斥约束
 │  │  │  ├─ paths.rs           # 数据/配置/输出路径解析
-│  │  │  ├─ commands/          # 调用 engine，组装命令结果
+│  │  │  ├─ commands.rs        # 基础命令与状态操作，调用 engine
+│  │  │  ├─ analyze.rs         # 分析参数、取消与退出状态
+│  │  │  ├─ history.rs         # stats / decisions / jev-log 的协议包装
+│  │  │  ├─ html.rs            # HTML 转义、证据高亮与原子输出
 │  │  │  └─ output.rs          # 唯一 JSONL writer
-│  │  ├─ templates/inbox.html  # HTML 源模板，可提交
 │  │  └─ tests/                # 子进程级 CLI 合作接口测试
 │  ├─ gui/
 │  │  ├─ Cargo.toml
 │  │  ├─ src/
 │  │  │  ├─ main.rs
 │  │  │  ├─ app.rs             # UI 状态与操作分发
-│  │  │  ├─ client/            # 子进程、管道、事件解析
-│  │  │  └─ ui/                # 群列表、收件箱、证据、日志
-│  │  ├─ assets/fonts/         # 字体与对应许可证
-│  │  ├─ assets/icons/         # 实际用于产品的图标
-│  │  └─ tests/                # 事件到 UI 状态的测试
+│  │  │  ├─ bridge.rs          # 子进程、管道、事件解析；相关测试在 bridge/
+│  │  │  ├─ model.rs           # 协议事件到界面状态，不打开数据库
+│  │  │  ├─ prefs.rs           # 仅 GUI 偏好，原子保存
+│  │  │  ├─ appearance.rs      # 字体与外观
+│  │  │  └─ ui.rs              # 群列表、收件箱、证据、日志
+│  │  └─ README.md             # 启动方式、--demo 与配置边界
 │  └─ qce-manager/             # 预留外围组件，见该目录 README
 │     └─ README.md             # 获取/导出/管理任务与文件交接边界
 ├─ eval/
 │  ├─ Cargo.toml               # 仍是 chat-tldr-eval，不移动到 apps/
-│  ├─ src/                     # 标注转换、评分、校准、汇总
-│  ├─ tests/                   # 指标的手算用例
+│  ├─ src/                     # 协议检查、CSV/gold 转换；score/ 分输入验证与纯指标
+│  ├─ tests/                   # 协议、标注往返和评分；纯指标手算测试与模块放一起
 │  ├─ synthetic/               # 合成评估聊天与人工校核的 gold
 │  └─ private/                 # 真实数据、标注、实验运行；忽略
 ├─ fixtures/
@@ -121,8 +124,9 @@ chat-tldr/
 |---|---|
 | `lib.rs` | 对 CLI 提供的服务入口与公开类型 |
 | `config.rs` | 业务配置类型、默认值与校验；不自行推断文件位置 |
-| `import.rs`、`query.rs` | 导入与查询用例；事务边界、业务规则 |
-| `store/` | 连接、迁移、消息/话题/结论/运行记录读写 |
+| `store.rs` | 连接、迁移、原子导入与基础消息查询 |
+| `store/analysis.rs`、`store/inbox.rs` | 分析会话、提交与证据来源读取；收件箱、反馈、生命周期 |
+| `store/history.rs` | stats/decisions/jev-log 的只读事务查询与旧记录兼容，测试在 `store/history/` |
 | `render/`、`segment/` | 渲染、burst、话题候选与归属 |
 | `decider/`、`llm/`、`embed/` | provider trait、真实客户端与 Mock |
 | `extract/`、`temporal/`、`verify/` | 抽取、日期规范化、证据校验 |
@@ -130,6 +134,8 @@ chat-tldr/
 | `agent/`、`cache/`、`baseline/` | 控制循环、模型缓存、评估基线 |
 
 小模块可先用同名 `.rs` 文件或只有 `mod.rs` 的目录，内容长到需要按职责拆分时再增加文件。`core::lib.rs` 重导出公开协议类型，内部拆文件不改变调用方的导入路径。
+
+已实现的控制器位于 `agent/mod.rs`，模型请求/缓存/预算位于 `agent/runtime.rs` 及其 `decisions.rs`、`topic.rs` 子模块；确定性候选与增量连边索引在 `segment/candidates.rs`。表中的 embed、baseline 等仍是规划位置。历史统计的版本化 JSON 扩展使用既有 DB v1 的 meta/日志列，不额外创建一份数据库或给 GUI/eval 开 SQL 入口。`.codegraph/` 是本地派生产物，代码变化后可同步，不提交。
 
 SQL 迁移、提示词与 HTML 模板在编译时嵌入。可执行文件移动后，不依赖仓库路径或当前工作目录来寻找这些资源。提示词文件变更进入缓存键；不从开发目录悄悄加载另一份模板。
 

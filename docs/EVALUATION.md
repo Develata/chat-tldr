@@ -3,6 +3,12 @@
 > 用途：定义要对比的基线、指标、标注规范和实验流程，保证 3 天后能拿出可信、可复现的数字。
 > 读者：同学 C（主要执行者）、@Develata（提供 `--strategy` 等开关）、写报告的所有人。
 
+## 当前可运行范围
+
+`chat-tldr-eval` 已实现 `check-stream`、`export-sheet`、`import-sheet` 和 `score`：协议校验、人工标注 CSV 往返，以及 Ours 的抽取/Deadline/排序、保存快照的 rejected 比例与单次运行用量。话题/边界等其余指标、`calibrate`、`summarize` 和基线策略尚未实现；评分 CSV 显式标记不可用指标。完整实验流程仍是验收目标，测试分数不代表真实效果。Codex 负责工具实现，同学 C 负责合成场景、人工标注和验收材料。当前命令的精确范围见 [eval/README.md](../eval/README.md#已实现离线评分)。
+
+主 CLI 已支持 `stats`、`decisions --run`、`jev-log --run`，可读取实际运行记录。一个 200 条真实 QCE 单文件已通过离线导入验收，真实云模型效果仍待验收；该输入兼容性结果、Mock、协议检查及表格往返都不能替代质量评估。
+
 ## 1. 要回答的问题
 
 1. 话题拆分比“不拆”或“固定切块”更好吗？Jev 归属判断比纯相似度聚类更好吗？
@@ -14,7 +20,7 @@
 
 ## 2. 系统与基线
 
-**所有系统使用同一个 LLM（DeepSeek `deepseek-flash`，关闭 thinking 模式）、同一份配置、temperature = 0。** 所有系统都要求输出同一套 JSON（items + 证据引用），这样才能用同一套指标比较。
+**计划中的对照实验使用同一个 LLM（DeepSeek `deepseek-flash`，关闭 thinking 模式）、同一份配置、temperature = 0。** 所有系统都要求输出同一套 JSON（items + 证据引用），这样才能用同一套指标比较。当前 CLI 仅接受 `--strategy ours`；表中其他策略是待实现目标。
 
 | 名称 | CLI 参数 | 说明 |
 |---|---|---|
@@ -48,7 +54,7 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
 
 分别对 Todo、Deadline、Announcement 计算 P/R/F1。
 
-- **匹配规则**：预测 item 与标注 item 的 `kind` 相同，且预测的证据消息集合与标注的锚点消息集合有交集，即视为候选匹配；再按交集大小贪心做一对一匹配。
+- **匹配规则**：预测 item 与标注 item 的 `kind` 相同，且预测的证据消息集合与标注的锚点消息集合有交集，即视为候选匹配；再按交集大小降序贪心做一对一匹配。相同交集按预测收件箱位置、gold item_id 决定先后；同消息的重复引用只计一次。抽取、截止日期和排序共用这次匹配。
 - **Deadline 正确**：在 Todo 已匹配的前提下，`relation` 与 `bound_date` 都和标注一致；如果标注本身无法规范化，则比较 `raw` 是否一致。
 - MentionMe 由规则产生，只报告正确率（预期接近 100%），用来检查实现有没有 bug。
 
@@ -57,12 +63,14 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
 - 标注的重要性：P0 = 3、P1 = 2、P2 = 1、P3 = 0。
 - 系统输出按收件箱顺序排列（先按层级，再按 `rank_score`）。B0/B1 要求模型按“对我的重要性”排序输出。
 - 未匹配到标注的预测 item，相关度记为 0。
-- 指标：**NDCG@5、NDCG@10**；**Recall@K**（K = 5、10）= 标注中的 P0 item 出现在前 K 位的比例。
+- 指标：**NDCG@5、NDCG@10**，增益 `2^relevance-1`、第 r 位折损 `log2(r+1)`，IDCG 由全部 gold 构造；**Recall@K**（K = 5、10）= 标注中的 P0 item 出现在前 K 位的比例。零分母或零 IDCG 记 undefined。
 
 ### 3.4 幻觉
 
 - **Unsupported claim rate（自动）** = 证据校验失败的 item 数 / 输出的 item 总数。Ours 报告两个数：过滤前（LLM 原始输出）和过滤后（进入收件箱的部分，按设计应为 0）。
 - **Unsupported claim rate（人工）**：每个系统随机抽 30 条，由人判断“证据是否真的支持这条结论”（引用存在但语义不支持，也算不支持）。
+
+当前 `score` 只能计算保存的 inbox 快照中 `rejected` 的比例（过滤前/后），命名为 `snapshot_rejected_rate` / `snapshot_rejected_rate_after_filter`。更新/合并后的已存条目不能重建所有 LLM 原始提案，因此 `raw_unsupported_rate` 记不可用；不能把过滤后的零值当成语义无幻觉证明。人工指标仍需独立判断。
 
 ### 3.5 人工打分（1–5 分）
 
@@ -80,6 +88,7 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
 - 输入/输出 token、估算费用（来自 `stats` 事件）、端到端耗时。
 - **增量实验**：把一段聊天分成前后两批（两次导出有 20% 重叠），先导入并分析第一批，再导入第二批。比较 Ours 的第二次 `analyze` 与 B0 对“全部未读”重新总结的成本和耗时。同时验证幂等：重叠部分的 `inserted` 应为 0。
 - 缓存：报告冷启动（空缓存）数字；热缓存数字只作参考。
+- `stats.usage.calls` 是逻辑模型调用数，包括失败调用，不展开内部 HTTP 重试；token/费用仅含服务已报告用量，缓存命中为零新增费用。费用属于本地估算，不能宣称与云账单完全相等。旧运行缺精确计数时的 `W_HISTORY_INCOMPLETE` 必须保留并排除不适用的比较。
 
 ### 3.7 Jev 校准
 
@@ -88,6 +97,7 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
   - `n{i}_todo`、`n{i}_announcement` 等 noul：与消息级标注对齐。
 - 画**可靠性曲线**（10 个等宽区间，横轴预测概率，纵轴实际正确率），报告 **ECE** 和 **Brier score**。
 - 同样的图也画 LlmDecider 的“口头概率”，作为对照。
+- 按实际 `model` 区分 Jev 与降级 LLM 的回答；缓存命中也有本轮记录。`W_SUBJECT_UNAVAILABLE` 对应的 `kind=unknown,id=unavailable` 不能参与消息/话题对齐，须单独报告缺失数量，不能猜测 ID 或当成负例。
 - 用于调 `tau_high` / `tau_low`：选择在验证集上使切分 F1 最大、且 LLM 复核比例 ≤ 20% 的组合。
 - **风险**：Jev 官方文档说明中文精度低于英文（docs.typesafe.ai/models#language-support）。如果 ECE 明显偏高，报告里如实写明，并考虑：调整阈值、提高 LLM 复核比例。（提示词已统一用英文，见 Q-JEV-2。）
 
@@ -134,7 +144,9 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
 - 两人话题划分之间的 1-to-1 overlap；
 - 两人 item 之间的 F1（以一人为“标准答案”）。
 
-**F. 标注工具**：`chat-tldr-eval export-sheet` 把消息导出成 CSV（每行一条消息：message_id、时间、发送者、文本），用任意表格软件填写；`chat-tldr-eval import-sheet` 转回 `gold/*.jsonl`。不需要会用 Git 以外的任何工具。
+**F. 标注工具（已实现）**：先保存一次主 CLI `messages` 命令的完整 UTF-8 JSONL，包括末尾 done 与实际退出码；再执行 `chat-tldr-eval export-sheet --messages <JSONL> --out <新CSV> [--exit-code N]`。它不读数据库、不调用模型，跳过撤回消息，不预填模型判断。人工填写后用 `chat-tldr-eval import-sheet <CSV> --out <新目录>` 输出 `messages.jsonl` 和 `items.jsonl`。
+
+CSV 的 `thread/todo/announcement/items_json` 必须明确填写；无结论写 `[]`。原文列的 `text:` 防公式前缀应原样保留。两个命令都拒绝覆盖既有目标；表格字段、验证边界及 UTF-8 保存方法见 [eval/README.md](../eval/README.md)。省略 `--exit-code` 只能证明文件内部一致，不能证明真实子进程成功。
 
 ### 5.1 标注文件格式
 
@@ -159,17 +171,19 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile import eval/private/data/course-demo/group.json
 # 2. 分析，保存 JSONL
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile analyze --chat <CHAT_ID> --strategy ours --decider jev > eval/private/runs/exp-01/ours/analyze.jsonl
-chat-tldr --data-dir eval/private/runs/exp-01/ours/profile inbox --chat <CHAT_ID> --include-rejected > eval/private/runs/exp-01/ours/inbox.jsonl
+chat-tldr --data-dir eval/private/runs/exp-01/ours/profile inbox --chat <CHAT_ID> --all --include-resolved --include-rejected > eval/private/runs/exp-01/ours/inbox.jsonl
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile messages --chat <CHAT_ID> > eval/private/runs/exp-01/ours/messages.jsonl
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile jev-log --run <RUN_ID> > eval/private/runs/exp-01/ours/jev.jsonl
-# 3. 打分
+# 3. 已实现的 Ours 离线评分（其余指标显式不可用）
 chat-tldr-eval score --gold eval/private/gold/course-demo --run eval/private/runs/exp-01/ours --out eval/private/results/exp-01/ours.csv
+# 4. 未来校准入口；当前版本不支持
 chat-tldr-eval calibrate --gold eval/private/gold/course-demo --jev eval/private/runs/exp-01/ours/jev.jsonl --out eval/private/results/exp-01/calibration_ours.png
 ```
 
-- 其他系统只需替换 `--strategy` / `--decider` 和目录名。
-- 汇总表：`chat-tldr-eval summarize eval/private/results/exp-01/*.csv > eval/private/results/exp-01/summary.md`。
+- 未来其他系统替换 `--strategy` / `--decider` 和目录名；当前只可切换 ours 的 decider，不能据此声称已完成各基线。
+- 规划中的汇总表命令（未实现）：`chat-tldr-eval summarize eval/private/results/exp-01/*.csv > eval/private/results/exp-01/summary.md`。
 - 结果表中只放聚合数字，**不放消息原文**，这样汇总表可以放进报告。
+- `score` 要求成功的完整流和与 gold 完全相等的未撤回消息 ID 集，拒绝 partial / dry-run；保存每条 CLI 的实际退出码，用 `check-stream --exit-code` 验证后再评分。评分目前只做流内退出码自检，且不能证明跨文件快照相同或调用者确实使用了完整视图参数；导出期间不要修改 profile。用量指标只描述 `analyze.jsonl` 里该次运行，不能当作历史累计成本。
 
 ## 7. 报告里的结果表模板
 

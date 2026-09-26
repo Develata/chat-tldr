@@ -3,8 +3,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use chat_tldr_core::{
-    AckPayload, ChatId, DB_VERSION, EventBody, ProgressPayload, SCHEMA_VERSION, StatsPayload,
-    WarningPayload,
+    AckPayload, ChatId, Cursor, DB_VERSION, EventBody, InsightId, Lifecycle, ProgressPayload,
+    SCHEMA_VERSION, StatsPayload, WarningPayload,
 };
 use chat_tldr_engine::store::ImportOptions;
 use chat_tldr_engine::{Config, store};
@@ -24,6 +24,14 @@ const IMPLEMENTED_COMMANDS: &[&str] = &[
     "import",
     "chats",
     "messages",
+    "analyze",
+    "inbox",
+    "feedback",
+    "resolve",
+    "mark-read",
+    "stats",
+    "decisions",
+    "jev-log",
 ];
 
 pub fn run<W: Write>(cli: Cli, output: &mut Output<W>) -> Result<(), Failure> {
@@ -50,6 +58,53 @@ pub fn run<W: Write>(cli: Cli, output: &mut Output<W>) -> Result<(), Failure> {
             Ok(())
         }
         Command::Messages(args) => messages(args, &paths, output),
+        Command::Analyze(args) => crate::analyze::run(args, &paths, &config, output),
+        Command::Stats(args) => crate::history::stats(args, &paths, output),
+        Command::Decisions(args) => crate::history::decisions(args, &paths, output),
+        Command::JevLog(args) => crate::history::jev_log(args, &paths, output),
+        Command::Inbox(args) => inbox(args, &paths, &config, output),
+        Command::Feedback(args) => {
+            let changed =
+                store::feedback(&paths.database, &InsightId(args.id.clone()), args.useful)?;
+            mutation_ack(
+                output,
+                "feedback",
+                args.id,
+                changed,
+                json!({"label":if args.useful {"useful"} else {"not_important"}}),
+            )
+        }
+        Command::Resolve(args) => {
+            let lifecycle = if args.done {
+                Lifecycle::Done
+            } else if args.dismiss {
+                Lifecycle::Dismissed
+            } else {
+                Lifecycle::Open
+            };
+            let changed = store::resolve(&paths.database, &InsightId(args.id.clone()), lifecycle)?;
+            mutation_ack(
+                output,
+                "resolve",
+                args.id,
+                changed,
+                json!({"lifecycle":lifecycle}),
+            )
+        }
+        Command::MarkRead(args) => {
+            let cursor: Cursor = args
+                .up_to
+                .parse()
+                .map_err(|_| Failure::new("E_CURSOR_INVALID", 3, "Invalid cursor format"))?;
+            let changed = store::mark_read(&paths.database, &ChatId(args.chat.clone()), cursor)?;
+            mutation_ack(
+                output,
+                "mark-read",
+                args.chat,
+                changed,
+                json!({"last_reviewed":cursor}),
+            )
+        }
     }
 }
 
@@ -79,8 +134,8 @@ fn version<W: Write>(output: &mut Output<W>) -> Result<(), Failure> {
             "db_version": DB_VERSION,
             "capabilities": {
                 "commands": IMPLEMENTED_COMMANDS,
-                "strategies": [],
-                "deciders": [],
+                "strategies": ["ours"],
+                "deciders": ["jev", "llm"],
             },
         }),
     )
@@ -152,8 +207,8 @@ fn doctor<W: Write>(paths: &Paths, config: &Config, output: &mut Output<W>) -> R
             "paths": paths.as_json(),
             "database_version": database_version,
             "config_file_exists": paths.config_file.is_file(),
-            "readiness": {"read": true, "import": true, "analyze": false},
-            "analyze_implemented": false,
+            "readiness": {"read": true, "import": true, "analyze": llm_key_present},
+            "analyze_implemented": true,
             "providers": {
                 "jev": {"api_key_env": config.jev.api_key_env, "key_present": jev_key_present},
                 "llm": {"api_key_env": config.llm.api_key_env, "key_present": llm_key_present},
@@ -175,7 +230,7 @@ fn doctor<W: Write>(paths: &Paths, config: &Config, output: &mut Output<W>) -> R
         output.emit(EventBody::Warning(WarningPayload {
             stage: "cli".to_owned(),
             code: "W_DECIDER_FALLBACK".to_owned(),
-            message: "Jev credentials are absent; model analysis will require LLM fallback when implemented".to_owned(),
+            message: "Jev credentials are absent; model analysis will use LLM fallback".to_owned(),
         }))?;
     }
     Ok(())
@@ -283,7 +338,10 @@ fn parse_export(path: &Path, config: &Config) -> Result<chat_tldr_core::ImportBa
         },
     )
     .map_err(|error| {
-        let code = if matches!(error, chat_tldr_qce::QceError::ChatType) {
+        let code = if matches!(
+            error,
+            chat_tldr_qce::QceError::ChatType | chat_tldr_qce::QceError::UnsupportedExport
+        ) {
             "E_INPUT_UNSUPPORTED"
         } else {
             "E_INPUT_PARSE"
@@ -314,7 +372,7 @@ fn messages<W: Write>(
     Ok(())
 }
 
-fn parse_time(
+pub(crate) fn parse_time(
     value: Option<&str>,
     parameter: &str,
 ) -> Result<Option<DateTime<FixedOffset>>, Failure> {
@@ -329,4 +387,61 @@ fn parse_time(
             })
         })
         .transpose()
+}
+
+fn mutation_ack<W: Write>(
+    output: &mut Output<W>,
+    command: &str,
+    target: String,
+    changed: bool,
+    detail: serde_json::Value,
+) -> Result<(), Failure> {
+    output.emit(EventBody::Ack(AckPayload {
+        command: command.into(),
+        target: Some(target),
+        changed,
+        detail,
+    }))?;
+    Ok(())
+}
+
+fn inbox<W: Write>(
+    args: crate::args::InboxArgs,
+    paths: &Paths,
+    config: &Config,
+    output: &mut Output<W>,
+) -> Result<(), Failure> {
+    let html_output = args
+        .html
+        .as_deref()
+        .map(|path| crate::html::prepare(path, paths))
+        .transpose()?;
+    let snapshot = store::inbox(
+        &paths.database,
+        &ChatId(args.chat),
+        &store::InboxOptions {
+            all: args.all,
+            include_resolved: args.include_resolved,
+            include_rejected: args.include_rejected,
+            now: chrono::Utc::now().with_timezone(&config.timezone_offset()?),
+        },
+    )?;
+    if let Some(html_output) = html_output {
+        crate::html::write(&snapshot, html_output, paths)?;
+    }
+    emit_inbox(snapshot, output)
+}
+
+pub(crate) fn emit_inbox<W: Write>(
+    snapshot: store::InboxSnapshot,
+    output: &mut Output<W>,
+) -> Result<(), Failure> {
+    output.emit(EventBody::Inbox(snapshot.meta))?;
+    for topic in snapshot.topics {
+        output.emit(EventBody::Topic(topic))?;
+    }
+    for insight in snapshot.insights {
+        output.emit(EventBody::Insight(insight))?;
+    }
+    Ok(())
 }
