@@ -19,6 +19,8 @@
 
 当前本地验证：401 项 Rust 测试、fmt、workspace 严格 clippy 和构建通过；新增总览、大响应分行、GUI 完整流/交互和多场景样本回归，见 [REVIEW_FIXES](REVIEW_FIXES.md)。真实模型质量及本批界面截图尚未验收。
 
+CI 已升级 checkout v7.0.1 / rust-cache v2.9.2（Node.js 24，完整 SHA 固定），Linux 使用 Ubuntu 26.04，配置了每周 Actions 依赖更新 PR；并行矩阵与必需检查语义不变。维护与验证方式见 [CONTRIBUTING](../CONTRIBUTING.md#ci-依赖维护)。运行结果仍以当前提交的远程检查为准。
+
 - 已写入：六成员 workspace 与 Cargo.lock、core 协议类型/流校验、QCE JSON 适配器、engine 配置/SQLite 迁移/原子导入/查询，以及 CLI `version/config init/doctor/import/chats/messages`。
 - 本轮完成 CLI 基础闭环：`analyze`、带原文证据的 `inbox`、`feedback`、`resolve`、`mark-read`，以及 `analyze --html` / `inbox --html`。已读只推进到收件箱返回的安全前缀；反馈替换当前评价，排序调整有界且不改变优先级。
 - 分析包含基础话题分配、结构化抽取、时间规范化、证据校验、规则 @我 和 P0–P3 排序。同步 Jev / DeepSeek 客户端、OpenAI / Anthropic 兼容接口及 Mock 已实现；网络协议与异常路径通过本地假服务器验证，未以真实云调用替代测试。

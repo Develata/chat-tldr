@@ -27,6 +27,8 @@ chat-tldr/
 ├─ .gitignore
 ├─ .github/
 │  ├─ workflows/ci.yml         # fmt / clippy / test
+│  ├─ dependabot.yml           # Actions 版本更新 PR
+│  ├─ actionlint.yaml          # 新版官方 runner 标签的暂时兼容配置
 │  ├─ CODEOWNERS
 │  └─ ISSUE_TEMPLATE/
 ├─ crates/
