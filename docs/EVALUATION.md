@@ -7,7 +7,7 @@
 
 `chat-tldr-eval` 已实现 `check-stream`、`export-sheet`、`import-sheet` 和 `score`：协议校验、人工标注 CSV 往返，以及 Ours 的抽取/Deadline/排序、保存快照的 rejected 比例与单次运行用量。话题/边界等其余指标、`calibrate`、`summarize` 和基线策略尚未实现；评分 CSV 显式标记不可用指标。完整实验流程仍是验收目标，测试分数不代表真实效果。Codex 负责工具实现，同学 C 负责合成场景、人工标注和验收材料。当前命令的精确范围见 [eval/README.md](../eval/README.md#已实现离线评分)。
 
-主 CLI 已支持 `stats`、`decisions --run`、`jev-log --run`，可读取实际运行记录。真实导出与真实云模型效果仍待验收；Mock、协议检查、表格往返通过都不能替代质量评估。
+主 CLI 已支持 `stats`、`decisions --run`、`jev-log --run`，可读取实际运行记录。一个 200 条真实 QCE 单文件已通过离线导入验收，真实云模型效果仍待验收；该输入兼容性结果、Mock、协议检查及表格往返都不能替代质量评估。
 
 ## 1. 要回答的问题
 

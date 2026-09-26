@@ -30,6 +30,20 @@ pwsh -NoProfile -File .\scripts\verify-qce.ps1 -InputFile .\fixtures\qce\templat
 
 回执保留 `warning_codes`。`W_UNKNOWN_ELEMENT` 等提示表示保守归一化，不能解释成这些元素的全部文字均已读取。真实样本还应人工检查时间、回复、转发、撤回、系统消息和身份字段；聊天时区按配置解释，项目交付期限的 America/Santiago 时区不替代聊天时区。
 
+## 首次真实单文件验收（2026-09-26）
+
+用户完成 QQ 登录并授权任选最近有记录的群。通过本机 QCE 服务创建普通 JSON 导出，等待任务完成后下载，实际 200 条消息、113,320 字节；随后以独立 profile 运行本页脚本，51 项检查全部通过：
+
+- 首次导入 seen/inserted=200；重复导入 inserted=0、duplicate=200、changed=false。
+- 查询得到 1 个群、200 条消息；逐命令 JSONL 与真实退出码校验通过，分析/已读游标未推进。
+- 输入 JSON 以及 CLI/eval 二进制的前后 SHA-256 一致；隔离的 doctor 因移除模型密钥返回 E_CONFIG/4 是预期结果。
+- 真实样本包含 text、at、face、image、reply、json；两个 json 卡片触发 `W_UNKNOWN_ELEMENT`，仅保留 `[json]` 占位，**卡片正文未读取/未归一化**。该告警保留在导入回执里。
+- 独立只读结构核对：200 条消息的 UTC 毫秒、cursor 时间、发送者映射和 recalled/system 标志均无差异；4 条回复均正确解析到样本内目标。selfUid/selfUin 存在，19 个 @ 元素均不指向自己或全体，规范化 mentions_me 全 false，与输入一致。
+
+原始导出位于本机 `private/exports/qce-actual-20260926T144303Z-d6adbf43/export.json`，导出回执在同目录；离线验收回执为 `private/acceptance/20260926T144429318Z-caeacdec82cb48ca9d803ec442a74aab/receipt.json`。这些文件和数据库全部忽略，不提交真实内容、身份或密钥。通用脚本自身不证明导出来源（仍保留 `export_provenance_not_verified`）；本次来源由另存的 QCE 创建/完成任务记录与下载回执支持。
+
+验收只覆盖该样本。没有 @me/@all 阳性、跨导出边界回复、撤回、系统或合并转发消息，不代表这些真实形态已验证；媒体附件没有下载。未运行云模型分析、GUI 真实数据交互或人工质量评分。
+
 ## 标注后的离线评分
 
 独立人工标注通过 `import-sheet` 后，保存同一实验 profile 的完整 `messages`、`analyze` 与 `inbox --all --include-resolved --include-rejected` 输出，逐份校验真实退出码，再运行：

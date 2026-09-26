@@ -4,6 +4,8 @@
 
 配套文件是 [template-docker-export.json](../fixtures/qce/template-docker-export.json)，共 7 条人工合成消息，可直接作为后续离线处理输入。
 
+**当前本机状态（2026-09-26）**：用户完成 QQ 二维码登录，QCE 已启动。宿主 40653 的发布异常尚未定位；通过独立本机转发，现可访问 `http://127.0.0.1:40654/qce`。用户授权选择最近有记录的任意群后，已导出并下载一个含 200 条消息的真实单文件 JSON，离线验收 51 项通过。此结果仅覆盖该样本的导入与协议，不代表云模型质量；详见 [ACCEPTANCE](ACCEPTANCE.md#首次真实单文件验收2026-09-26)。
+
 ## 本机启动修复与剩余缺口（2026-09-26）
 
 实际发现 `napcat-qce` 每次启动不足一秒便以 255 退出，处于重启循环。镜像中 `/docker-entrypoint-qce.sh` 存在且有 59 个 CRLF、没有单独 LF，日志重复报告 `exec /docker-entrypoint-qce.sh: no such file or directory`。这是 Windows 检出换行进入 Linux shebang 的问题，不是脚本真的缺失。
@@ -53,16 +55,32 @@ docker compose -p docker -f E:/gitclone/qq-chat-exporter/docker/docker-compose.y
 
 3. 若没有进程/容器监听，继续检查登录和插件启动；若容器已监听但发布映射为空或主机无法连接，继续排查 Docker 发布层。四项通过后访问 `http://localhost:40653/qce`；页面可用仍不代表真实导出已通过验收。
 
-诊断只向终端输出预定义错误类别、状态与端口信息，未输出登录令牌、二维码或聊天正文，未调用认证导出 API。真实 JSON 下载后用 [交付验收脚本](ACCEPTANCE.md) 验证；当前不能声称真实容器导出成功。
+上述登录前诊断只向终端输出预定义错误类别、状态与端口信息，未输出登录令牌、二维码或聊天正文，也未调用认证导出 API。登录后的操作与验收如下。
+
+### 登录后的本机转发与真实导出
+
+用户登录后，确认原容器的 `qce-server` 进程存在、监听 `0.0.0.0:40653`，容器内通过 loopback 和网卡地址访问 `/qce` 均返回 HTTP 200。原宿主端口仍不可访问，因此使用本机已有的 `nginx:alpine` 建立独立 Compose 项目 `chat-tldr-qce-access`，仅绑定 `127.0.0.1:40654`，经 `docker_default` 网络向 `napcat-qce:40653` 透明转发 TCP。未重启已登录的原容器，未挂载账号或 QQ/QCE 数据卷，也不记录访问日志。
+
+本机配置位于忽略的 `private/qce-runtime/local-access/`；启动命令：
+
+```powershell
+docker compose -f E:/gitclone/chat-tldr/private/qce-runtime/local-access/compose.yml up -d --no-build --pull never
+```
+
+页面和抽查的 3 个静态资源通过 40654 返回 HTTP 200；前端 REST 和 WebSocket 使用网页 origin，支持该端口。该入口继续要求 **QCE Token**，与 NapCat WebUI Token 不同。用户授权接手导出后，Token 只在本机内存与 loopback Bearer 请求头中使用，不写入 URL、回执或仓库。
+
+普通 `POST /api/messages/export` 没有消息数量上限参数；本次先查询最近页取得 200 条的时间边界，再用毫秒时间闭区间导出 `format=JSON`，最终实际也是 200 条。同秒边界可能使其他运行多出消息，不能把 `batchSize=200` 当总数上限；最近页 API 内部也会预取，不保证只读取 200 条。关闭 image/video/audio/file 资源下载、ZIP 和头像嵌入，保留消息及媒体元数据。只在任务 `completed`、progress 100 后从同一 loopback 服务下载，源导出和任务都保留。
+
+原始文件、任务元数据和回执均留在 Git 忽略目录。没有把聊天发送给 Jev/DeepSeek。宿主 40653 的根因仍未修复，本机 40654 是已验证的绕行入口。
 
 ## 从现有界面取得输入
 
-1. Compose 声明主机端口 `40653` 和 `6099`。先在 `http://localhost:6099` 完成 QQ 登录并按上节复查，再打开 QCE 主界面 `http://localhost:40653/qce`；按界面要求验证访问令牌，不把令牌写进仓库或交接材料。
+1. Compose 声明主机端口 `40653` 和 `6099`。先在 `http://localhost:6099` 完成 QQ 登录并按上节复查；本机目前使用 `http://127.0.0.1:40654/qce` 转发入口，正常发布的其他部署使用 `http://localhost:40653/qce`。按界面要求验证 QCE Token，不把令牌写进仓库或交接材料。
 2. 在 QCE 导出任务中选择目标群和时间范围，格式选 **JSON**。
 3. 在高级选项中关闭 **“流式导出（超大消息量专用）”**。源码明确显示这个开关会把 JSON 切换成分块 JSONL；当前 chat-tldr 接受单文件 JSON。
 4. 等任务完成，通过界面下载 JSON 到本机。把完成后的文件路径交给 CLI；不要把容器内路径当成本机路径，也不要读仍在写入的输出。
 
-已存在的界面请求构造和服务端路由相互吻合：普通任务使用 `POST /api/messages/export`，流式 JSONL 使用 `POST /api/messages/export-streaming-jsonl`。本轮不设计新的 API，也不尝试携带登录态调用它们。
+已存在的界面请求构造和服务端路由相互吻合：普通任务使用 `POST /api/messages/export`，流式 JSONL 使用 `POST /api/messages/export-streaming-jsonl`。本次实际验收调用前者，不新增 API。
 
 compose 的导出目录没有显式主机 bind mount：卷包含会话数据、QCE 数据以及 `./config`。因此当前建议使用界面下载；不能凭 compose 推断某个主机 `exports/` 文件夹已经存在。
 

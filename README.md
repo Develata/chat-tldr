@@ -35,7 +35,7 @@
 - 只读 `stats`、`decisions --run`、`jev-log --run`：查询累计用量或历史运行，重放决策与带归属的模型回答
 - eval 的 `check-stream`、`export-sheet`、`import-sheet` 和 `score`：协议检查、人工标注 CSV 往返与 Ours 离线抽取/排序评分；缺少的指标明确标记不可用
 
-尚未实现 `MergeTopics`、控制器用 Jev 选择下一步动作、embedding 候选筛选，以及 eval 的话题/校准等其余指标、`calibrate/summarize` 和基线比较。当前仅支持 `--strategy ours`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成；真实 QCE 导出与真实云模型效果仍待验收。
+尚未实现 `MergeTopics`、控制器用 Jev 选择下一步动作、embedding 候选筛选，以及 eval 的话题/校准等其余指标、`calibrate/summarize` 和基线比较。当前仅支持 `--strategy ours`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成；首次 200 条真实 QCE 单文件已通过离线导入验收，真实云模型效果仍待验收。
 
 ### 现在就能运行（无需密钥）
 
@@ -55,7 +55,7 @@ cargo run -p chat-tldr-eval -- check-stream ./fixtures/jsonl/inbox.jsonl
 
 主 CLI 的 stdout 为 JSONL，`version` 的 `capabilities` 只列出已实现命令。`--dry-run` 只报告计划与密钥就绪情况，不联网、不写数据库或缓存；上述流程尚未执行模型分析，收件箱为空是正常结果。`config init` 不覆盖已有配置；`doctor` 只做离线检查，不联系云服务，缺 LLM key 时返回 4，但仍说明导入/查询是否可用。示例中的数据库、配置和 HTML 都留在被 Git 忽略的 `private/demo/`。
 
-`fixtures/` 全为人工合成数据；适配器已按上游字段与合成样例测试，真实 QCE 导出仍需实测。CSV 需独立人工填写，再用 `import-sheet <CSV> --out <新目录>` 生成 gold；列格式、UTF-8 与不覆盖规则见 [eval 使用说明](eval/README.md)。这一步不生成评分。
+`fixtures/` 全为人工合成数据。适配器另已通过一个 200 条真实单文件样本的离线验收，原始内容不提交 Git 仓库；样本范围及未支持的 JSON 卡片见 [验收记录](docs/ACCEPTANCE.md#首次真实单文件验收2026-09-26)。CSV 需独立人工填写，再用 `import-sheet <CSV> --out <新目录>` 生成 gold；列格式、UTF-8 与不覆盖规则见 [eval 使用说明](eval/README.md)。这一步不生成评分。
 
 ### 启动原生 GUI
 
@@ -177,7 +177,7 @@ How it differs from pasting the chat into a general-purpose LLM:
 - CLI analysis, inbox, feedback, lifecycle and mark-read commands, plus standalone HTML export
 - Read-only run statistics, decision replay and model-answer history; annotation CSV export/import, protocol validation and offline Ours extraction/ranking scores
 
-`ours` currently provides this basic workflow. Topic merging, Jev-based controller action selection, embedding candidates, topic/calibration metrics and baseline comparisons remain pending. The native GUI has passed Windows synthetic-data smoke checks, screenshot review and egui pointer interaction tests. Real export and cloud-model acceptance remains outstanding.
+`ours` currently provides this basic workflow. Topic merging, Jev-based controller action selection, embedding candidates, topic/calibration metrics and baseline comparisons remain pending. The native GUI has passed Windows synthetic-data smoke checks, screenshot review and egui pointer interaction tests. One real QCE JSON export with 200 messages has passed offline import checks; cloud-model quality and other real-data shapes remain unverified.
 
 ### Usage
 
