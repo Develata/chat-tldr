@@ -24,14 +24,15 @@ pub fn run<W: Write>(
     config: &Config,
     output: &mut Output<W>,
 ) -> Result<(), Failure> {
-    if args.strategy != "ours" {
+    if !matches!(args.strategy.as_str(), "ours" | "b0") {
         return Err(Failure::new(
             "E_USAGE",
             2,
-            "This binary supports only --strategy ours",
+            "This binary supports --strategy ours or b0",
         ));
     }
     let mut options = AnalyzeOptions::from_config(config);
+    options.strategy = args.strategy;
     options.since = parse_time(args.since.as_deref(), "--since")?;
     options.until = parse_time(args.until.as_deref(), "--until")?;
     options.decider = args.decider;
@@ -86,7 +87,7 @@ pub fn run<W: Write>(
         .map_err(|_| Failure::new("E_INTERNAL", 1, "Cannot install cancellation handler"))?;
     let llm = Client::new(&config.llm).map_err(EngineError::from)?;
     let fallback = LlmDecider::new(&llm, config.llm.model.clone());
-    let primary = if options.decider == "jev" && has_jev_key {
+    let primary = if options.strategy == "ours" && options.decider == "jev" && has_jev_key {
         Some(JevDecider::new(&config.jev).map_err(EngineError::from)?)
     } else {
         None

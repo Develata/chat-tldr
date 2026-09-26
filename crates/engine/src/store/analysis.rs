@@ -123,11 +123,16 @@ pub(super) fn read_topics(connection: &Connection, chat: &ChatId) -> Result<Vec<
 }
 
 pub(super) fn open_write(path: &Path) -> Result<Connection> {
-    let connection =
+    let mut connection =
         Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
     connection.pragma_update(None, "foreign_keys", "ON")?;
     check_version(&connection)?;
+    if check_version(&connection)? < DB_VERSION {
+        let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        super::migrate(&tx)?;
+        tx.commit()?;
+    }
     // Additive query accelerators are compatible with DB v1, including stores
     // created before topic merging. Read-only entrypoints never install them.
     connection.execute_batch(
@@ -139,7 +144,7 @@ pub(super) fn open_write(path: &Path) -> Result<Connection> {
 
 /// Holds an OS lock for the lifetime of one analysis; never unlink an active lock.
 pub struct AnalysisSession {
-    path: PathBuf,
+    pub(super) path: PathBuf,
     pub run_id: RunId,
     pub chat_id: ChatId,
     _lock: File,
@@ -259,6 +264,16 @@ impl AnalysisSession {
         messages: &[MessageId],
         items: Vec<(Insight, f32)>,
     ) -> Result<Vec<Insight>> {
+        self.commit_topic_with_relations(topic, messages, items, None)
+    }
+
+    pub fn commit_topic_with_relations(
+        &self,
+        topic: &TopicRecord,
+        messages: &[MessageId],
+        items: Vec<(Insight, f32)>,
+        relations: Option<&[SemanticRelation]>,
+    ) -> Result<Vec<Insight>> {
         if topic.chat_id != self.chat_id {
             return Err(EngineError::Input("cross-chat topic commit".into()));
         }
@@ -339,6 +354,9 @@ impl AnalysisSession {
                 tx.execute("INSERT INTO evidence(insight_id,message_id,quote,render_profile,ok) VALUES(?1,?2,?3,?4,?5)",params![item.id.as_ref(),evidence.message_id.as_ref(),evidence.quote,evidence.render_profile.to_string(),ok])?;
             }
             committed.push(item);
+        }
+        if let Some(rows) = relations {
+            super::relations::commit(&tx, &self.chat_id, &topic.id, &self.run_id, messages, rows)?;
         }
         for id in messages {
             tx.execute("UPDATE messages SET analysis_state=CASE WHEN recalled=1 THEN 'skipped' ELSE 'done' END,analyzed_run=?2 WHERE message_id=?1 AND chat_id=?3",params![id.as_ref(),self.run_id.as_ref(),self.chat_id.as_ref()])?;

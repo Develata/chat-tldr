@@ -1,0 +1,138 @@
+{
+  "executed_at": "2026-09-26T16:52:53.923674-03:00",
+  "build": "debug CLI from release worktree before commit; binary SHA-256 identifies this run",
+  "cli_sha256": "82d71a45f7b08a1d5c9d1c7fe2f20772c644e4704dd19f110032e8cf45af86a5",
+  "source_sha256": "0e7bcea1098f499c0af6cd62ddd4cdad4b93266fb76238f668a6f23ae1c13ac1",
+  "quality": "待标注",
+  "jev_calibration": "待标注",
+  "calls_unit": "logical provider calls; transport retries are not individually counted",
+  "cost_unit": "USD estimated from configured rates, not provider invoice",
+  "systems": [
+    {
+      "strategy": "ours",
+      "status": "complete",
+      "exits": {
+        "import": 0,
+        "analyze": 0,
+        "messages": 0,
+        "inbox": 0,
+        "decisions": 0,
+        "jev-log": 0,
+        "relations": 0,
+        "stats": 0
+      },
+      "messages_analyzed": 200,
+      "elapsed_ms": 110468,
+      "logical_calls": 128,
+      "cache_hits": 0,
+      "input_tokens": 131882,
+      "output_tokens": 22375,
+      "estimated_cost_usd": 0.04023839400000001,
+      "saved_insights": {
+        "verified": 54,
+        "rejected": 4,
+        "unverified": 4
+      },
+      "controller_methods": {
+        "rule": 32,
+        "jev": 15,
+        "fallback": 13
+      },
+      "warnings": [
+        "W_INSIGHT_REJECTED",
+        "W_INSIGHT_REJECTED",
+        "W_INSIGHT_REJECTED",
+        "W_DECIDER_FALLBACK",
+        "W_INSIGHT_REJECTED"
+      ],
+      "relation_coverage": {
+        "analyzed_messages": 200,
+        "messages": 200,
+        "pending_scope": "analyzed_records_with_supplied_context",
+        "questions": 9,
+        "relations": 17,
+        "since": null,
+        "uncovered_messages": 0,
+        "until": null,
+        "verification": "source_quotes_only"
+      },
+      "by_model": [
+        {
+          "provider": "llm",
+          "model": "deepseek-flash",
+          "calls": 35.0,
+          "input_tokens": 66223.0,
+          "output_tokens": 7336.0,
+          "estimated_cost_usd": 0.028670100000000004
+        },
+        {
+          "provider": "llm",
+          "model": "llm:deepseek-flash",
+          "calls": 24.0,
+          "input_tokens": 16452.0,
+          "output_tokens": 3805.0,
+          "estimated_cost_usd": 0.009501599999999997
+        },
+        {
+          "provider": "typesafe",
+          "model": "jev-1.13.0",
+          "calls": 69.0,
+          "input_tokens": 49207.0,
+          "output_tokens": 11234.0,
+          "estimated_cost_usd": 0.002066694
+        }
+      ]
+    },
+    {
+      "strategy": "b0",
+      "status": "complete",
+      "exits": {
+        "import": 0,
+        "analyze": 0,
+        "messages": 0,
+        "inbox": 0,
+        "decisions": 0,
+        "jev-log": 0,
+        "relations": 0,
+        "stats": 0
+      },
+      "messages_analyzed": 200,
+      "elapsed_ms": 12813,
+      "logical_calls": 1,
+      "cache_hits": 0,
+      "input_tokens": 17194,
+      "output_tokens": 4308,
+      "estimated_cost_usd": 0.0103278,
+      "saved_insights": {
+        "rejected": 4,
+        "verified": 21,
+        "unverified": 1
+      },
+      "controller_methods": {
+        "rule": 3
+      },
+      "warnings": [],
+      "relation_coverage": {
+        "analyzed_messages": 200,
+        "messages": 200,
+        "pending_scope": "analyzed_records_with_supplied_context",
+        "questions": 14,
+        "relations": 29,
+        "since": null,
+        "uncovered_messages": 0,
+        "until": null,
+        "verification": "source_quotes_only"
+      },
+      "by_model": [
+        {
+          "provider": "llm",
+          "model": "deepseek-flash",
+          "calls": 1.0,
+          "input_tokens": 17194.0,
+          "output_tokens": 4308.0,
+          "estimated_cost_usd": 0.0103278
+        }
+      ]
+    }
+  ]
+}

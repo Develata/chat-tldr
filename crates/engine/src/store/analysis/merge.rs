@@ -204,6 +204,7 @@ impl AnalysisSession {
             )?;
         }
         tx.execute(MOVE_MESSAGES_SQL, params![into.as_ref(), from.as_ref()])?;
+        super::super::relations::merge(&tx, from, into)?;
         target.last_message_at = target.last_message_at.max(source.last_message_at);
         tx.execute(
             "UPDATE topics SET last_message_at=?2,updated_at=?3 WHERE topic_id=?1",

@@ -17,7 +17,9 @@ use crate::{
 };
 
 pub struct Inputs {
+    pub system: String,
     pub gold: Vec<GoldItem>,
+    pub labels: Vec<GoldMessage>,
     pub messages: Vec<MessagePayload>,
     pub insights: Vec<Insight>,
     pub stats: Option<RunStats>,
@@ -54,14 +56,31 @@ pub fn load(gold: &Path, run: &Path) -> Result<Inputs, String> {
     if message_ids != gold_ids {
         return Err("non-recalled run message IDs must exactly match gold messages".into());
     }
-    let (header, insights) = read_inbox(&run.join("inbox.jsonl"), &message_ids)?;
-    let (stats, warnings) = read_analysis(&run.join("analyze.jsonl"), &header.chat_id)?;
+    let (header, mut insights) = read_inbox(&run.join("inbox.jsonl"), &message_ids)?;
+    let analysis = read_analysis(&run.join("analyze.jsonl"), &header.chat_id)?;
+    if analysis.system == "b0" {
+        let ranks: std::collections::BTreeMap<_, _> = analysis
+            .order
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (id, index))
+            .collect();
+        if ranks.len() != analysis.order.len()
+            || ranks.len() != insights.len()
+            || insights.iter().any(|item| !ranks.contains_key(&item.id))
+        {
+            return Err("B0 analysis order must match the complete inbox snapshot".into());
+        }
+        insights.sort_by_key(|item| ranks[&item.id]);
+    }
     Ok(Inputs {
+        system: analysis.system,
         gold,
+        labels,
         messages,
         insights,
-        stats,
-        warnings,
+        stats: analysis.stats,
+        warnings: analysis.warnings,
     })
 }
 
@@ -251,9 +270,18 @@ fn validate_insight(insight: &Insight, messages: &BTreeSet<&str>) -> Result<(), 
     Ok(())
 }
 
-fn read_analysis(path: &Path, chat: &ChatId) -> Result<(Option<RunStats>, Vec<String>), String> {
+struct Analysis {
+    stats: Option<RunStats>,
+    warnings: Vec<String>,
+    system: String,
+    order: Vec<chat_tldr_core::InsightId>,
+}
+
+fn read_analysis(path: &Path, chat: &ChatId) -> Result<Analysis, String> {
     let mut stats = None;
     let mut warnings = BTreeSet::new();
+    let mut system = None;
+    let mut order = Vec::new();
     let (state, result) = stream::visit(path, None, |body| {
         match body {
             EventBody::Stats(StatsPayload::Run(value)) => {
@@ -264,7 +292,22 @@ fn read_analysis(path: &Path, chat: &ChatId) -> Result<(Option<RunStats>, Vec<St
                 stats = Some(value);
             }
             EventBody::Topic(topic) if topic.chat_id == *chat => {}
-            EventBody::Insight(payload) if payload.insight.chat_id == *chat => {}
+            EventBody::Insight(payload) if payload.insight.chat_id == *chat => {
+                order.push(payload.insight.id);
+            }
+            EventBody::Ack(ack)
+                if ack.command == "analyze.strategy"
+                    && !ack.changed
+                    && ack.target.as_deref() == Some(chat.as_ref()) =>
+            {
+                if system.is_some()
+                    || ack.detail["strategy"] != "b0"
+                    || ack.detail["ranking"] != "model_order"
+                {
+                    return Err("invalid or duplicate strategy metadata".into());
+                }
+                system = Some("b0".to_owned());
+            }
             EventBody::Warning(warning) => {
                 let code = if warning.code.starts_with("W_")
                     && warning.code.len() <= 80
@@ -295,7 +338,12 @@ fn read_analysis(path: &Path, chat: &ChatId) -> Result<(Option<RunStats>, Vec<St
     } else if stats.is_none() {
         warnings.insert("W_RUN_STATS_MISSING".into());
     }
-    Ok((stats, warnings.into_iter().collect()))
+    Ok(Analysis {
+        stats,
+        warnings: warnings.into_iter().collect(),
+        system: system.unwrap_or_else(|| "ours".into()),
+        order,
+    })
 }
 
 fn validate_stats(stats: &RunStats) -> Result<(), String> {
@@ -492,9 +540,9 @@ mod tests {
         rows.insert(0, json!({"schema_version":"1.0","run_id":"r_test","seq":0,
             "event":"warning","payload":{"stage":"store","code":"W_HISTORY_INCOMPLETE","message":"PRIVATE_CHAT"}}));
         let file = write_events(&rows);
-        let (stats, warnings) = read_analysis(file.path(), &stats().chat_id).unwrap();
-        assert!(stats.is_none());
-        assert_eq!(warnings, ["W_HISTORY_INCOMPLETE"]);
+        let analysis = read_analysis(file.path(), &stats().chat_id).unwrap();
+        assert!(analysis.stats.is_none());
+        assert_eq!(analysis.warnings, ["W_HISTORY_INCOMPLETE"]);
     }
 
     #[test]

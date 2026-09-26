@@ -6,6 +6,7 @@ mod html;
 mod output;
 mod overview;
 mod paths;
+mod relations;
 
 use std::io;
 use std::process::ExitCode;

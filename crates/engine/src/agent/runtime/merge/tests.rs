@@ -95,10 +95,11 @@ impl Fixture {
             models,
             options: &options,
             stats: &mut stats,
-            reserved: 0.0,
+            budget: Default::default(),
             steps: 0,
             fallback_active,
             fallback_warned: false,
+            fallback_cause: None,
             cancel,
         });
     }

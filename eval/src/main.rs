@@ -1,4 +1,5 @@
 mod annotation;
+mod calibrate;
 mod output;
 mod score;
 mod sheet;
@@ -26,6 +27,19 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Calibrate recorded probabilities against explicit gold labels; never calls models.
+    Calibrate {
+        #[arg(long)]
+        gold: PathBuf,
+        #[arg(long)]
+        jev: PathBuf,
+        /// Optional JSONL: request_key, question_id, choice (human-labelled correct option).
+        #[arg(long)]
+        choice_gold: Option<PathBuf>,
+        /// New directory containing calibration.json and reliability.svg.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Check a recorded CLI JSONL stream. This does not compute evaluation scores.
     CheckStream {
         /// UTF-8 JSONL file containing one complete CLI invocation.
@@ -53,7 +67,7 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
-    /// Score a complete Ours evaluation snapshot against independent gold labels.
+    /// Score a complete Ours or B0 evaluation snapshot against independent gold labels.
     Score {
         /// Directory containing labelled messages.jsonl and items.jsonl.
         #[arg(long)]
@@ -70,6 +84,13 @@ enum Command {
 fn main() -> ExitCode {
     let Args { command } = Args::parse();
     let summary = match command {
+        Command::Calibrate {
+            gold,
+            jev,
+            choice_gold,
+            out,
+        } => calibrate::run(&gold, &jev, choice_gold.as_deref(), &out)
+            .unwrap_or_else(|error| json!({"command":"calibrate","valid":false,"error":error})),
         Command::CheckStream { path, exit_code } => stream::check_stream(&path, exit_code),
         Command::ExportSheet {
             messages,

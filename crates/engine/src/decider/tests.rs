@@ -64,6 +64,31 @@ fn jev_wire_shape_and_zero_based_scores_match_the_documented_api() {
 }
 
 #[test]
+fn rounded_jev_probabilities_are_normalized_but_malformed_distributions_are_rejected() {
+    for (a, b, allowed) in [
+        (0.34, 0.65, true),
+        (0.35, 0.66, true),
+        (0.3, 0.6, false),
+        (0.341, 0.65, false),
+    ] {
+        let mut response = jev_response();
+        response["answers"]["topic"]["probabilities"] = json!({"old":a,"new":b});
+        let (url, worker) = server(vec![Reply::json(response)]);
+        let mut config = provider(url);
+        config.model = "jev-1.13.0".into();
+        let result = JevDecider::testing(&config).decide(&request());
+        worker.join().unwrap();
+        assert_eq!(result.is_ok(), allowed);
+        if let Ok(result) = result {
+            let Answer::Choice { probabilities, .. } = &result.answers["topic"] else {
+                panic!("choice")
+            };
+            assert!((probabilities.values().sum::<f32>() - 1.0).abs() < 1e-6);
+        }
+    }
+}
+
+#[test]
 fn unknown_question_options_and_invalid_probabilities_are_rejected() {
     for mutation in 0..6 {
         let mut response = jev_response();

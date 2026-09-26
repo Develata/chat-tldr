@@ -19,6 +19,7 @@ pub mod insight;
 pub mod message;
 pub mod overview;
 pub mod protocol;
+pub mod relations;
 
 pub use agent::*;
 pub use ids::*;
@@ -26,6 +27,7 @@ pub use insight::*;
 pub use message::*;
 pub use overview::*;
 pub use protocol::*;
+pub use relations::*;
 
 pub const SCHEMA_VERSION: &str = "1.0";
-pub const DB_VERSION: u32 = 1;
+pub const DB_VERSION: u32 = 2;

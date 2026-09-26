@@ -3,7 +3,7 @@
 > 原任务 A 的规格与验收目标，保留作为实现参考，不是当前同学 A 的待办清单。下方历史验收框不作为实时完成台账。
 > 当前负责人：Codex 主线实现，@Develata 审核。原“同学 A”分工已调整；本文件的接口与验收要求继续作为实现依据。QCE 管理组件的同学任务见 [apps/qce-manager/README.md](../../apps/qce-manager/README.md)。
 
-**当前状态（2026-09-26）**：QCE 单文件适配、常用时间规范化、逐字证据校验均已实现，包含在 401 项 workspace 回归中；一个 200 条真实 QCE 样本通过离线导入检查。未覆盖的真实元素形态、完整自然语言日期与模型语义质量不据此宣称通过。具体范围见 [ACCEPTANCE](../ACCEPTANCE.md)、[REVIEW_FIXES](../REVIEW_FIXES.md) 和 [当前分工](../TEAM_ASSIGNMENTS.md)。
+**当前状态（2026-09-26）**：QCE 单文件适配、常用时间规范化、逐字证据校验均已实现并有 workspace 回归；一个 200 条真实 QCE 样本通过离线导入检查。未覆盖的真实元素形态、完整自然语言日期与模型语义质量不据此宣称通过。最新验证范围统一见 [ACCEPTANCE](../ACCEPTANCE.md)、历史记录见 [REVIEW_FIXES](../REVIEW_FIXES.md)，责任见 [当前分工](../TEAM_ASSIGNMENTS.md)。
 
 ## 目标
 

@@ -1,4 +1,6 @@
 //! Model orchestration, cache identity, bounded cost estimates, and decision signals.
+mod budget;
+mod controller;
 mod decisions;
 mod merge;
 mod topic;
@@ -24,10 +26,11 @@ pub(super) struct Runtime<'a, 'b> {
     pub(super) models: Models<'a>,
     pub(super) options: &'a AnalyzeOptions,
     pub(super) stats: &'b mut RunStats,
-    pub(super) reserved: f64,
+    pub(super) budget: budget::Budget,
     pub(super) steps: u32,
     pub(super) fallback_active: bool,
     pub(super) fallback_warned: bool,
+    pub(super) fallback_cause: Option<&'static str>,
     pub(super) cancel: &'a AtomicBool,
 }
 impl Runtime<'_, '_> {
@@ -38,7 +41,10 @@ impl Runtime<'_, '_> {
         if self.fallback_active && self.options.decider != "llm" && !self.fallback_warned {
             warning(
                 "W_DECIDER_FALLBACK",
-                "Jev is unavailable; remaining decisions use the configured LLM",
+                &format!(
+                    "Jev is unavailable ({}); remaining decisions use the configured LLM",
+                    self.fallback_cause.unwrap_or("key_not_configured")
+                ),
                 sink,
             )?;
             self.fallback_warned = true;
@@ -76,11 +82,7 @@ impl Runtime<'_, '_> {
                 / 1e6
                 * 8.0
         };
-        if self.reserved + cost > self.options.budget_usd {
-            return Err(EngineError::BudgetExceeded);
-        }
-        self.reserved += cost;
-        Ok(())
+        self.budget.reserve(cost, self.options.budget_usd)
     }
     fn usage(
         &mut self,
@@ -90,6 +92,9 @@ impl Runtime<'_, '_> {
         usage: &Usage,
         cache: bool,
     ) -> Result<()> {
+        if !cache {
+            self.budget.settle(usage);
+        }
         let row = UsageStats {
             stage: stage.into(),
             provider: provider.into(),

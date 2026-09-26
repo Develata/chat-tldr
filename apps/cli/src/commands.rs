@@ -27,6 +27,7 @@ const IMPLEMENTED_COMMANDS: &[&str] = &[
     "analyze",
     "inbox",
     "overview",
+    "relations",
     "feedback",
     "resolve",
     "mark-read",
@@ -65,6 +66,7 @@ pub fn run<W: Write>(cli: Cli, output: &mut Output<W>) -> Result<(), Failure> {
         Command::JevLog(args) => crate::history::jev_log(args, &paths, output),
         Command::Inbox(args) => inbox(args, &paths, &config, output),
         Command::Overview(args) => crate::overview::run(args, &paths, &config, output),
+        Command::Relations(args) => crate::relations::run(args, &paths, output),
         Command::Feedback(args) => {
             let changed =
                 store::feedback(&paths.database, &InsightId(args.id.clone()), args.useful)?;
@@ -136,7 +138,7 @@ fn version<W: Write>(output: &mut Output<W>) -> Result<(), Failure> {
             "db_version": DB_VERSION,
             "capabilities": {
                 "commands": IMPLEMENTED_COMMANDS,
-                "strategies": ["ours"],
+                "strategies": ["ours", "b0"],
                 "deciders": ["jev", "llm"],
             },
         }),

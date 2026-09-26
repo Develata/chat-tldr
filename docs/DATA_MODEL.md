@@ -7,6 +7,8 @@
 
 ## 0. 冻结规则
 
+2026-09-26 经用户批准的 [ADR-0010](decisions/0010-semantic-relations.md) 新增独立 `SemanticRelation` / `QuestionState` 辅助类型，不改四个冻结类型。DB 当前为 **v2**：`0002_relations.sql` 加建 `semantic_relations` 与 `relation_coverage`。写入口在事务中从 v1 升级，保留原表与三游标；只读入口可读 v1、不会迁移，`relations` 明确返回未覆盖计数。新版数据库不供旧二进制写入。
+
 - 本文 §2–§5 的类型实现在 `crates/core`，**冻结后只有 @Develata 能修改**。
 - 任何修改必须：① 升级 `schema_version`（见 [CLI_PROTOCOL.md](CLI_PROTOCOL.md) §6 版本规则）；② 同步更新本文；③ 在群里通知。
 - 其他人发现类型不够用：开 issue 或在群里提，交由 @Develata 审核后修改 `crates/core`。CODEOWNERS 提示审阅归属，不是文件权限隔离；是否强制审阅取决于分支规则。

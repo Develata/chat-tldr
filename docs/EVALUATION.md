@@ -5,9 +5,9 @@
 
 ## 当前可运行范围
 
-`chat-tldr-eval` 已实现 `check-stream`、`export-sheet`、`import-sheet` 和 `score`：协议校验、人工标注 CSV 往返，以及 Ours 的抽取/Deadline/排序、保存快照的 rejected 比例与单次运行用量。话题/边界等其余指标、`calibrate`、`summarize` 和基线策略尚未实现；评分 CSV 显式标记不可用指标。完整实验流程仍是验收目标，测试分数不代表真实效果。Codex 负责工具实现，同学 C 负责合成场景、人工标注和验收材料。当前命令的精确范围见 [eval/README.md](../eval/README.md#已实现离线评分)。
+`chat-tldr-eval` 已实现 `check-stream`、`export-sheet`、`import-sheet`、`score` 和 `calibrate`：支持 Ours/B0 的抽取/Deadline/排序、最优一对一话题匹配、Exact thread F1、ARI、NMI、快照 rejected 比例及单次用量；校准单独生成 ECE、binary Brier 与 SVG。burst/边界、人工支持率、agreement/summarize 与其他基线未实现。Codex 负责工具，同学 C 负责人工标注和材料；测试分数不代表真实效果。命令见 [eval/README.md](../eval/README.md#已实现离线评分)。
 
-主 CLI 已支持 `stats`、`decisions --run`、`jev-log --run`，可读取实际运行记录。一个 200 条真实 QCE 单文件已通过离线导入验收，真实云模型效果仍待验收；该输入兼容性结果、Mock、协议检查及表格往返都不能替代质量评估。
+主 CLI 的 `stats`、`decisions --run`、`jev-log --run` 提供实际记录。真实 200 条已完成 Ours/B0 云调用，见 ACCEPTANCE；质量评分和真实 Jev 校准曲线为**待标注**。禁止 LLM 生成的标注充当真实 gold。
 
 ## 1. 要回答的问题
 
@@ -20,7 +20,9 @@
 
 ## 2. 系统与基线
 
-**计划中的对照实验使用同一个 LLM（DeepSeek `deepseek-flash`，关闭 thinking 模式）、同一份配置、temperature = 0。** 所有系统都要求输出同一套 JSON（items + 证据引用），这样才能用同一套指标比较。当前 CLI 仅接受 `--strategy ours`；表中其他策略是待实现目标。
+**对照使用同一 LLM（DeepSeek `deepseek-flash`，关闭 thinking）、配置、temperature=0。** 输出共享 items/证据契约。当前 CLI 接受 `--strategy ours|b0`；B1/sim-* 待实现。每个系统必须单独导入同一输入到新 profile，不共享缓存或分析状态。
+
+B0 一次处理整个待分析窗口，有界格式重试，不使用 Jev 分类、证据修复或话题合并。输入以渲染长度加每条开销估计控制在 96,000 字符，超限移除最早整条消息并记录数量，输出上限 16,384 token。此输入估计不是服务商 tokenizer 的精确上限。B0 流显式记录策略与模型顺序；score 保留其被拒条目。
 
 | 名称 | CLI 参数 | 说明 |
 |---|---|---|

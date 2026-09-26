@@ -40,7 +40,7 @@
 | `calibrate --gold <DIR> --jev <jev.jsonl> --out <PNG>` | 未实现 | 规划：可靠性曲线、ECE、Brier |
 | `summarize <CSV>...` | 未实现 | 规划：跨系统汇总表 |
 
-`score` 读取同一实验的 `messages.jsonl`、`analyze.jsonl`、`inbox.jsonl`，完整参数和统计边界见 [eval/README](../../eval/README.md)。话题/切分指标尚未实现；当前快照 rejected 比例不能当作所有原始提案或人工语义的幻觉率。未知子命令会报错。
+`score` 读取同一实验的 `messages.jsonl`、`analyze.jsonl`、`inbox.jsonl`，支持 Ours/B0 与话题匹配、Exact thread F1、ARI、NMI；`calibrate` 读取 Jev 日志和独立 gold。完整参数和统计边界见 [eval/README](../../eval/README.md)。burst/边界、agreement/summarize 尚未实现；当前快照 rejected 比例不能当作所有原始提案或人工语义的幻觉率。首要任务是按 EVALUATION §5 完成人工标注，禁止以 LLM 输出充当真实 gold。未知子命令会报错。
 
 ## 验收标准
 

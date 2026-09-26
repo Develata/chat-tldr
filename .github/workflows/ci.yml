@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
@@ -126,6 +127,8 @@ jobs:
         run: cargo test -p chat-tldr -p chat-tldr-eval --locked
       - name: Verify the offline acceptance script using synthetic QCE input
         run: ./scripts/verify-qce.ps1 -InputFile ./fixtures/qce/template-docker-export.json
+      - name: Verify Ours versus B0 scoring and Jev calibration with local model doubles
+        run: python scripts/release/evaluate_synthetic.py --cli target/debug/chat-tldr --eval target/debug/chat-tldr-eval --out tmp/ci-synthetic-evaluation
       - name: Verify literal env loading and subprocess argument forwarding
         run: ./scripts/tests/test-with-env.ps1
 

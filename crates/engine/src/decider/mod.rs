@@ -202,19 +202,25 @@ impl Decider for JevDecider {
                 JevAnswer::Noul { noul } => Answer::Noul { p_yes: noul },
                 JevAnswer::Choice {
                     choice,
-                    probabilities,
+                    mut probabilities,
                     confidence,
-                } => Answer::Choice {
-                    choice,
-                    probabilities,
-                    confidence,
-                },
+                } => {
+                    normalize_jev_distribution(&mut probabilities)
+                        .map_err(|e| e.with_usage(usage))?;
+                    Answer::Choice {
+                        choice,
+                        probabilities,
+                        confidence,
+                    }
+                }
                 JevAnswer::Score {
                     score,
-                    probabilities,
+                    mut probabilities,
                     confidence,
                     legend,
                 } => {
+                    normalize_jev_distribution(&mut probabilities)
+                        .map_err(|e| e.with_usage(usage))?;
                     if let Some(Question::Score { levels, .. }) = req.questions.get(&key) {
                         let expected: BTreeMap<_, _> = levels
                             .iter()
@@ -245,6 +251,31 @@ impl Decider for JevDecider {
     fn name(&self) -> &str {
         &self.config.model
     }
+}
+
+/// The live Jev API can round each probability to two decimal places, yielding
+/// totals such as 0.99. Normalize only this small, quantized provider artifact;
+/// malformed distributions, unknown options and non-maximal choices still fail.
+fn normalize_jev_distribution(values: &mut BTreeMap<String, f32>) -> Result<(), ProviderError> {
+    let sum: f64 = values.values().map(|p| f64::from(*p)).sum();
+    if values.is_empty() || values.values().any(|p| !probability(*p)) {
+        return Err(ProviderError::invalid_output());
+    }
+    if (sum - 1.0).abs() <= 0.001 {
+        return Ok(());
+    }
+    let bound = (values.len() as f64 * 0.005).min(0.02) + 1e-6;
+    if (sum - 1.0).abs() > bound
+        || values
+            .values()
+            .any(|p| (p * 100.0 - (p * 100.0).round()).abs() > 1e-4)
+    {
+        return Err(ProviderError::invalid_output());
+    }
+    for p in values.values_mut() {
+        *p = (f64::from(*p) / sum) as f32;
+    }
+    Ok(())
 }
 
 pub struct LlmDecider<'a> {

@@ -15,9 +15,9 @@
 
 ### 当前实现范围
 
-热门、优先、相关、截止、未读与资料六个分析视图已接入只读 `overview`、GUI 与 HTML，见 [ANALYSIS_VIEWS](ANALYSIS_VIEWS.md)。热度和优先级分开；分行传输，不把部分结果标为已读。变更/冲突关系、待回应语义仍待实现。
+首版冻结无关新功能。既有六个总览见 [ANALYSIS_VIEWS](ANALYSIS_VIEWS.md)；新增更正/取消/冲突与待回应通过独立关系表和只读 `relations` 提供，按已批准 [ADR-0010](decisions/0010-semantic-relations.md) 执行。
 
-当前本地验证：401 项 Rust 测试、fmt、workspace 严格 clippy 和构建通过；新增总览、大响应分行、GUI 完整流/交互和多场景样本回归，见 [REVIEW_FIXES](REVIEW_FIXES.md)。真实模型质量及本批界面截图尚未验收。
+验证与测试数量集中记录在 [ACCEPTANCE](ACCEPTANCE.md)，本页不重复累计数字。真实 Ours/B0 各完成 200 条；质量评分与真实 Jev 校准曲线仍为“待标注”。合成结果只验证工具正确性。
 
 CI 已升级 checkout v7.0.1 / rust-cache v2.9.2（Node.js 24，完整 SHA 固定），Linux 使用 Ubuntu 26.04，配置了每周 Actions 依赖更新 PR；并行矩阵与必需检查语义不变。维护与验证方式见 [CONTRIBUTING](../CONTRIBUTING.md#ci-依赖维护)。运行结果仍以当前提交的远程检查为准。
 
@@ -29,25 +29,24 @@ CI 已升级 checkout v7.0.1 / rust-cache v2.9.2（Node.js 24，完整 SHA 固�
 - 实际调用模型需要环境变量密钥；聊天原文会发送到配置的云服务。无密钥预演、配置及 HTML 导出示例见 [README](../README.md)。
 - CI 必需检查名保持 `fmt`、`clippy`、`test`。fmt 在 Linux；clippy 和 test 各按 core/qce/engine/cli/gui/eval 六模块在 Windows 并行，`fail-fast: false`，使用 `--locked`。Linux CLI/eval 检查 POSIX 发布保护、HTML 路径别名并运行合成离线验收脚本；macOS 将 CLI、GUI、eval 三模块并行检查和测试。每次 PR/main push 全量覆盖六模块，公共依赖变更自然覆盖下游；共享规划脚本 `scripts/ci/modules.ps1` 校验 workspace 成员，新增包未登记时失败。汇总检查只接受规划、全部 Windows 模块、Linux 及 macOS 检查成功，失败、取消或意外跳过均不能通过。外部 Actions 固定 40 位提交，工作流仅申请只读权限。远程结果以当前提交为准；Linux GUI 构建、Linux/macOS 原生桌面交互仍待验收。
 - `stats/decisions/jev-log` 历史查询 CLI 已实现，查询不建库、不调用模型；新记录保存可重放的决策与真实 subject。旧记录缺失精确计数或归属时明确告警，不能用于伪造评估对齐。
-- 当前只支持 `--strategy ours`，**不代表完整 PIPELINE 策略已实现**。回复支持的话题合并已接入：已完成话题经模型确认后原子合并，保留结论/反馈/证据，拒绝关系持久化，零新增消息也可续跑；`--dry-run` 报告当前候选数。自动关闭与 Closed 历史回填已实现；关闭按消息时间，回填保持 Closed，首次关闭边界持久保存。控制器通过 Jev 选择下一步动作与 embedding 候选筛选仍未实现；动作选择目前使用确定性规则，合并安排在抽取/校验之后。
-- 原生 GUI 已通过 CLI 子进程接入导入、分析、收件箱、反馈/处理/已读和历史查询；Windows 合成数据联调、浅/深色及窄窗口截图和 egui 指针交互测试通过，详见 [GUI_VERIFICATION](GUI_VERIFICATION.md)。真实数据和云模型验收仍待完成。eval 已实现 `check-stream`、`export-sheet` / `import-sheet` 和 `score` 的 Ours 抽取/Deadline/排序、快照 rejected 比例及单次运行用量；话题等其余指标、`calibrate/summarize`、基线比较和真实质量数字尚未完成。匹配采用倒排候选、确定性一对一贪心；未测量墙钟提速。QCE 管理组件仍由同学后续接入。
+- 当前支持 `--strategy ours|b0`，不代表完整 PIPELINE 策略。话题合并、自动关闭和保持 Closed 的历史回填已实现。控制器由规则确定合法集合，多候选时 Jev 选择，失败回退规则；合并仍安排在抽取/校验之后。embedding、B1/sim-* 后续补齐。
+- 既有 GUI 通过 CLI 工作，验证见 [GUI_VERIFICATION](GUI_VERIFICATION.md)；新关系界面和 GUI 打包后续补齐。eval 已支持 Ours/B0 抽取/排序、话题匹配/ARI/NMI、calibrate 的 ECE/Brier 与 SVG；人工质量、burst/边界、agreement/summarize 尚未完成。QCE 管理仍由同学接入。
 - 统计 `calls` 是逻辑模型调用数，token/费用是已报告用量，缓存不重复计费；不能据此宣称实际云账单或模型质量已验证。本批已运行 `codegraph sync`，索引保留在本地。
-- 审查修复记录见 [REVIEW_FIXES](REVIEW_FIXES.md)；新增 score 后本地 workspace 270 项测试（eval 44）、fmt、严格 clippy 和构建通过，独立复审修复了合法 Unverified 摘要被误拒的问题。后续优先完成真实单文件导出兼容性验收、获授权的云模型联调与评估材料。Mock 与本地 HTTP 测试不能证明真实模型质量；合并前仍以当前提交的 CI 为准。
+- 审查修复记录见 [REVIEW_FIXES](REVIEW_FIXES.md)。Mock 与本地 HTTP 测试不能证明真实质量；合并以当前提交的 CI 为准。CLI/Docker 每次 push 模拟发布，正式 tag 才创建 Release 和推送 GHCR，见 [RELEASING](RELEASING.md)。
 - 下方多日清单保留为原始范围参考，时间与负责人以本页“当前安排”和 TEAM_ASSIGNMENTS 为准；混合多个功能的条目拆开标注，未完成项不作已交付宣传。
-- 话题合并本地验收：workspace 347 项 Rust 测试通过，新增 46 项覆盖候选图、模型确认、原子事务、反馈等价/查询计划、CLI 及中断恢复。所有数据为合成数据、模型为 Mock 或本地假服务；该结果不代表真实云模型合并质量。
-- 自动关闭与历史回填本地验收：workspace 376 项测试、fmt、严格 clippy 与构建通过。本批新增 29 项，覆盖首次关闭边界、回填保持 Closed、历史前驱/范围隔离、待验证草稿恢复及归属/关闭提交后输出中断；用户决定已写入 Q-DEC-7，详见 [REVIEW_FIXES](REVIEW_FIXES.md)。
+- 话题合并、Closed 回填、恢复及输出中断的回归证据见 REVIEW_FIXES；已定决定 Q-DEC-7 保持不变。
 
 ## 当前待完成与待验收
 
 | 项目 | 负责人 | 当前状态与退出条件 |
 |---|---|---|
-| 真实云服务与分析效果 | Codex 联调，Develata 复核 | 尚未验收；记录实际 provider/model、退出码、证据、降级和用量，再对照独立人工期望，不把 Mock 或离线导入当作通过 |
-| 更正/取消关联、待回应语义 | Codex，Develata 审核设计 | 尚未实现；需要旧/新安排或问题/回答的可靠语义关系与合成反例回归 |
-| 控制器、embedding、其余 eval/基线 | Codex，Develata 决定交付取舍 | Jev 动作选择、embedding、话题/校准指标和基线仍有缺口；仅支持 `ours`，不得用占位命令或虚构指标补齐 |
+| 真实云服务与分析效果 | Codex 联调，Develata 复核 | Ours/B0 新 profile 均完成 200 条；退出码/用量/降级见 ACCEPTANCE，真实质量待标注 |
+| 更正/取消关联、待回应语义 | Codex，Develata 审核设计 | 已接入独立关系表/查询，验收事务迁移、历史窗口、撤回、部分回答和用户状态不变 |
+| 控制器、embedding、其余 eval/基线 | Codex，Develata 决定交付取舍 | Jev 控制器、B0、话题/校准工具已实现；embedding、B1/sim-* 和其余指标后续补齐 |
 | QCE 管理程序 | A 席位 | 目前只有说明；按已核对的导出接口封装获取/启动/导出/受控清理，成功才交付完整 JSON 路径 |
 | GUI 设计与补充验收 | B 席位，Codex 接入 | 主线 GUI 已实现；独立图稿、新总览原生截图、真实流程体验复核待交付 |
 | 独立 gold、报告与演示 | C 席位，Develata 复核 | 共用样本和工具已就绪；独立标注、双人一致性、真实结果报告/演示仍待交付 |
-| 协作权限与合并门槛 | Develata | 账号绑定/CODEOWNERS 与同学实际合并权限待确认；线上有效 ruleset 尚无 required_status_checks，`fmt/clippy/test` 名称已就绪，本次合并逐项核对 CI |
+| 协作权限与合并门槛 | Develata | 线上 Protect main 已有严格的 fmt/clippy/test 必需检查（本轮核验时已存在）；账号绑定与同学实际合并权限仍待确认 |
 
 已有能力、各人下一份具体产物与数据边界以 [README](../README.md)、[TEAM_ASSIGNMENTS](TEAM_ASSIGNMENTS.md)、[ACCEPTANCE](ACCEPTANCE.md) 为准。实际期限前保留已通过回归的功能，剩余范围由 Develata 根据验收结果决定。
 
@@ -76,7 +75,7 @@ CI 已升级 checkout v7.0.1 / rust-cache v2.9.2（Node.js 24，完整 SHA 固�
 - [x] `.github/workflows/ci.yml`：保留 `fmt`、`clippy`、`test` 必需检查名称；clippy/test 分模块并行后汇总，覆盖全部 workspace 成员
 - [x] QCE 合成小样例、Docker 格式合成模板，以及 `fixtures/jsonl/` 下的分析、收件箱、会话与消息协议样例
 - [x] 分支保护（ruleset “Protect main”，已配置）：Restrict updates / deletions；必须经 PR；0 个必需审核；只允许 squash；线性历史；禁止 force push；仓库管理员始终可绕过。按 GitHub 文档，Restrict updates 表示只有具备 bypass 权限的用户能更新 main，合并 PR 预计也受此限制，因此预计只有 @Develata 能合并。待办：用一位同学的账号开一个测试 PR 实测；如果同学也能合并，就把“只由 @Develata 合并”作为约定写进群公告
-- [ ] CI 合入后，在 ruleset 中加必需状态检查 `fmt`、`clippy`、`test`：`ci.yml` 中三个 job 的名字必须**正好**是这三个
+- [x] ruleset 已有必需检查 `fmt`、`clippy`、`test`（2026-09-26 核验），job 名保持一致
 - [ ] 把三位同学加为仓库 collaborator（Write 权限），确认实际任务后把真实用户名追加到 CODEOWNERS 的对应路径
 - [ ] 在群里通知：类型已冻结，`schema_version = 1.0`
 

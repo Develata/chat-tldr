@@ -156,6 +156,34 @@ fn history_commands_do_not_initialize_storage_or_require_model_keys() {
 }
 
 #[test]
+fn relations_are_read_only_and_report_unanalyzed_coverage() {
+    let sandbox = Sandbox::new();
+    sandbox.run(&["relations", "--chat", "qq:group:missing"], 3);
+    assert!(!sandbox.data_dir().exists());
+    let chat = import_fixture(&sandbox);
+    let path = sandbox.data_dir().join("chat-tldr.db");
+    let before = fs::read(&path).unwrap();
+    let stream = sandbox.run(&["relations", "--chat", &chat], 0);
+    let header = payload(&stream, "ack");
+    assert_eq!(header["command"], "relations");
+    assert_eq!(header["detail"]["uncovered_messages"], 2);
+    assert_eq!(header["detail"]["questions"], 0);
+    sandbox.run(
+        &[
+            "relations",
+            "--chat",
+            &chat,
+            "--since",
+            "2026-10-01T00:00:00Z",
+            "--until",
+            "2026-09-01T00:00:00Z",
+        ],
+        2,
+    );
+    assert_eq!(fs::read(path).unwrap(), before);
+}
+
+#[test]
 fn explicit_invalid_configuration_is_an_error() {
     let sandbox = Sandbox::new();
     let events = sandbox.run(&["chats", "--config", "missing.toml"], 4);
@@ -385,7 +413,7 @@ fn analyze_validates_budget_strategy_steps_and_conflicting_outputs() {
         vec!["--budget-usd", "NaN"],
         vec!["--budget-usd", "inf"],
         vec!["--max-steps", "0"],
-        vec!["--strategy", "b0"],
+        vec!["--strategy", "b1"],
         vec!["--dry-run", "--html", "out.html"],
     ] {
         let mut args = vec!["analyze", "--chat", "missing"];

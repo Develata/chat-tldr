@@ -57,6 +57,8 @@ chat-tldr.local.toml
 /logs/
 /tmp/
 /dist/
+__pycache__/
+*.py[cod]
 
 # 临时交接材料保留在本机，正式方案放 docs/
 /HANDOFF_CODEX.md
