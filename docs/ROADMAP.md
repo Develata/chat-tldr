@@ -13,13 +13,19 @@
 
 各人详细的任务说明见 [tasks/](tasks/)。
 
-### 首批初始化的实际范围
+### 当前实现范围
 
-- 已写入：六成员 workspace 与 Cargo.lock、core 协议类型/流校验、QCE JSON 适配器、engine 配置/SQLite 迁移/原子导入/查询、CLI `version/config init/doctor/import/chats/messages`、合成样例和测试。
-- 评估工具先提供 `check-stream` 协议文件校验；分析指标尚未实现。GUI 仍是明确报未实现的占位入口。
-- CI job 名固定为 `fmt`、`clippy`、`test`；fmt 在 Linux，编译检查与测试在 Windows，覆盖主要交付平台。Linux/macOS GUI 构建尚未验证。
-- 后续优先：模型 mock/客户端、temporal/verify、控制器与分析/收件箱/反馈/已读命令，再接 GUI 和评估。
-- 下方原始多日清单保留作范围参考，其未勾选项不代表上方首批代码不存在；当前状态以这里和实际测试为准。
+- 已写入：六成员 workspace 与 Cargo.lock、core 协议类型/流校验、QCE JSON 适配器、engine 配置/SQLite 迁移/原子导入/查询，以及 CLI `version/config init/doctor/import/chats/messages`。
+- 本轮完成 CLI 基础闭环：`analyze`、带原文证据的 `inbox`、`feedback`、`resolve`、`mark-read`，以及 `analyze --html` / `inbox --html`。已读只推进到收件箱返回的安全前缀；反馈替换当前评价，排序调整有界且不改变优先级。
+- 分析包含基础话题分配、结构化抽取、时间规范化、证据校验、规则 @我 和 P0–P3 排序。同步 Jev / DeepSeek 客户端、OpenAI / Anthropic 兼容接口及 Mock 已实现；网络协议与异常路径通过本地假服务器验证，未以真实云调用替代测试。
+- SQLite 保存按话题提交的检查点、模型响应缓存、决策和用量。未完成消息可继续分析；步数、费用预估、超时、有限重试和取消约束执行。`analyze --dry-run` 无需密钥，只读、不联网、不写缓存。
+- QCE Docker 字段核对与导出说明见 [QCE_DOCKER_EXPORT.md](QCE_DOCKER_EXPORT.md)，对应 [template-docker-export.json](../fixtures/qce/template-docker-export.json) 为手写合成模板。实际输入需在 QCE 选择 JSON、关闭流式导出、完成后下载到本机；真实容器导出尚未验收。
+- 实际调用模型需要环境变量密钥；聊天原文会发送到配置的云服务。无密钥预演、配置及 HTML 导出示例见 [README](../README.md)。
+- CI 必需检查名保持 `fmt`、`clippy`、`test`。fmt 在 Linux；clippy 和 test 各按 core/qce/engine/cli/gui/eval 六模块在 Windows 并行，`fail-fast: false`，使用 `--locked`。每次 PR/main push 全量覆盖六模块，公共依赖变更自然覆盖下游；共享规划脚本 `scripts/ci/modules.ps1` 校验 workspace 成员，新增包未登记时失败。汇总检查只接受规划与全部模块成功，失败、取消或意外跳过均不能通过。外部 Actions 固定 40 位提交，工作流仅申请只读权限。实际远程运行结果另行核验；Linux/macOS GUI 构建尚未验证。
+- 当前只支持 `--strategy ours`，它是基础闭环，**不代表完整 PIPELINE 策略已实现**。`MergeTopics`、控制器通过 Jev 选择下一步动作、embedding 候选筛选，以及 `stats/decisions/jev-log` 查询 CLI 均未实现；动作选择目前使用确定性规则。
+- GUI 仍是明确报未实现的占位入口。eval 只有 `check-stream` 协议文件校验；标注导入导出、指标评分、基线比较和校准尚未实现。QCE 管理组件也仍由同学后续接入。
+- 后续优先完成真实单文件导出兼容性验收、获授权的云模型联调、GUI 接入与评估材料。Mock 与本地 HTTP 测试不能证明真实模型质量；合并前由主线统一运行 workspace 的 fmt、clippy 和测试。
+- 下方多日清单保留为原始范围参考，时间与负责人以本页“当前安排”和 TEAM_ASSIGNMENTS 为准；混合多个功能的条目拆开标注，未完成项不作已交付宣传。
 
 ## 里程碑
 
@@ -36,10 +42,10 @@
 ### 上午
 
 **@Develata**
-- [ ] 建 workspace：`crates/core`、`crates/qce`、`crates/engine`、`apps/cli`、`apps/gui`（基于 eframe_template）、`eval`；锁定依赖版本
-- [ ] 在 `crates/core` 实现四个冻结类型 + `ImportBatch` / `ChatMeta` + 各事件 payload，附序列化往返测试
-- [ ] `.github/workflows/ci.yml`（三个 job，名字分别为 `fmt`、`clippy`、`test`）：`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`；使用 `Swatinem/rust-cache`；Linux 安装 GUI 依赖（参照 eframe_template：`libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev`）。**必须在 Cargo.toml 合入的同一个 PR 里加入**，否则 CI 在没有 Cargo.toml 的仓库上会一直失败
-- [ ] `fixtures/`：2 份合成的 QCE 导出（有重叠，含 @全体成员、回复、撤回、图片、合并转发、系统消息）、`fixtures/jsonl/` 下的 mock 输出（`analyze.jsonl`、`inbox.jsonl`、`chats.jsonl`、`messages.jsonl`）
+- [x] 建六成员 workspace 并锁定依赖：`crates/core`、`crates/qce`、`crates/engine`、`apps/cli`、`apps/gui`、`eval`；GUI 目前仅占位
+- [x] 在 `crates/core` 实现冻结类型、`ImportBatch` / `ChatMeta`、事件 payload 与流校验，附序列化测试
+- [x] `.github/workflows/ci.yml`：保留 `fmt`、`clippy`、`test` 必需检查名称；clippy/test 分模块并行后汇总，覆盖全部 workspace 成员
+- [x] QCE 合成小样例、Docker 格式合成模板，以及 `fixtures/jsonl/` 下的分析、收件箱、会话与消息协议样例
 - [x] 分支保护（ruleset “Protect main”，已配置）：Restrict updates / deletions；必须经 PR；0 个必需审核；只允许 squash；线性历史；禁止 force push；仓库管理员始终可绕过。按 GitHub 文档，Restrict updates 表示只有具备 bypass 权限的用户能更新 main，合并 PR 预计也受此限制，因此预计只有 @Develata 能合并。待办：用一位同学的账号开一个测试 PR 实测；如果同学也能合并，就把“只由 @Develata 合并”作为约定写进群公告
 - [ ] CI 合入后，在 ruleset 中加必需状态检查 `fmt`、`clippy`、`test`：`ci.yml` 中三个 job 的名字必须**正好**是这三个
 - [ ] 把三位同学加为仓库 collaborator（Write 权限），确认实际任务后把真实用户名追加到 CODEOWNERS 的对应路径
@@ -65,13 +71,13 @@
 ### 下午（开始并行开发）
 
 **@Develata**
-- [ ] `engine::store`：迁移、表结构、WAL、事务；`import`（去重、别名、游标、悬空引用补全、回填计数）
-- [ ] `apps/cli`：`version`、`import`、`chats`，JSONL writer（stdout 单写者），错误码 → 退出码映射
-- [ ] 幂等测试：同一 fixture 导入两次、两份重叠 fixture 先后导入
+- [x] `engine::store`：迁移、表结构、WAL、事务；`import`（去重、别名、游标、悬空引用补全、回填计数）
+- [x] `apps/cli`：`version`、`import`、`chats`，JSONL writer（stdout 单写者），错误码 → 退出码映射
+- [x] 幂等、重复/重叠导入、回填和批次回滚测试
 
 **同学 A**
-- [ ] `crates/qce`：`parse_qce_json`，覆盖 text / at / face / market_face / image / video / audio / file / reply / forward / system / 未知类型
-- [ ] 每种元素一个单元测试；撤回消息、缺 selfUid 的测试
+- [x] `crates/qce`：`parse_qce_json` 与元素规范化；具体支持边界见 [fixtures/qce/README](../fixtures/qce/README.md)
+- [x] 元素、撤回、缺身份、未知字段等合成测试；真实导出验收另行完成
 
 **同学 B**
 - [ ] GUI 骨架：三栏布局 + 中文字体 + 读取 `fixtures/jsonl/*.jsonl` 并展示
@@ -83,17 +89,19 @@
 ## 第 2 天
 
 **@Develata**
-- [ ] `render`、`segment`（burst、候选、归属、关闭）
-- [ ] `JevDecider`、`LlmDecider`、`OpenAiCompatClient`、`AnthropicCompatClient`、Mock 实现；缓存与用量记录
-- [ ] `extract`（AnalyzeTopic、AnalyzeDirect、MentionMe 规则）
-- [ ] `agent`（观测、规则、Jev 选择、检查点、决策日志）、`rank`
-- [ ] CLI：`analyze`、`inbox`、`messages`、`feedback`、`resolve`、`mark-read`、`stats`、`decisions`、`jev-log`
+- [x] `render` 与基础话题处理（burst、时间候选、回复归属和 Decider 归属）
+- [x] `JevDecider`、`LlmDecider`、`OpenAiCompatClient`、`AnthropicCompatClient`、Mock；缓存与用量记录
+- [x] `extract`（AnalyzeTopic、AnalyzeDirect、MentionMe 规则）
+- [x] 基于规则动作选择的 `agent`、检查点、决策日志与 `rank`
+- [ ] 完整策略：控制器 Jev 动作选择、`MergeTopics`、embedding 候选
+- [x] CLI：`analyze`、`inbox`、`messages`、`feedback`、`resolve`、`mark-read`
+- [ ] 查询 CLI：`stats`、`decisions`、`jev-log`
 - [ ] 审核并合并 A、B、C 的 PR（尽量在 2 小时内响应）
 
 **同学 A**
 - [ ] 上午：qce 收尾（真实样本上零 panic）
-- [ ] `engine::temporal`：规则表 + 测试（至少 40 个用例）
-- [ ] `engine::verify`：`verify` + `find_quote` + 测试
+- [x] `engine::temporal`：已实现高频规则与边界测试，其他表达仍保留原文或标注低置信推测
+- [x] `engine::verify`：`verify`、`find_quote` 与 Unicode、撤回、截止日期等边界测试
 
 **同学 B**
 - [ ] 子进程运行器：后台线程 + channel + `try_recv` + `request_repaint`；启动时 `version` 握手
@@ -110,7 +118,8 @@
 
 ## 第 3 天
 
-- [ ] **@Develata**：修联调问题；`--strategy b0 / b1 / sim-tfidf`；`--html` 模板；12:00 功能冻结
+- [x] CLI `--html` 独立收件箱导出，可用浏览器演示
+- [ ] **主线**：修联调问题；`--strategy b0 / b1 / sim-tfidf`；按实际截止时间完成冻结
 - [ ] **同学 A**：修 bug；补充 temporal、verify 的边界用例；协助 C 跑实验
 - [ ] **同学 B**：修 bug；GUI 打磨；准备演示用的数据目录
 - [ ] **同学 C**：跑全部系统（EVALUATION §6）、`calibrate`、汇总表；报告；录演示视频（GUI 为主，`--html` 为备用）
@@ -123,16 +132,16 @@
 3. LLM 复核档（`tau_low ≤ confidence < tau_high` 改为直接归入最高项）
 4. 反馈个性化（按钮保留，只记录不生效）
 5. B1 基线
-6. GUI 决策日志面板（改用 `chat-tldr decisions` 的输出截图）
+6. GUI 决策日志面板（当前可录制 analyze 的 decision 事件；`chat-tldr decisions` 查询尚未实现）
 
-**绝不砍**：证据校验、幂等导入、@我 规则、JSONL 协议、Ours vs B0 对比、Jev 校准曲线。
+**原定交付底线**：证据校验、幂等导入、@我 规则、JSONL 协议、Ours vs B0 对比、Jev 校准曲线。前四项已有基础实现；后两项仍待评估工具与数据，不能以 Mock 测试替代结果。
 
 ## 降级预案
 
 | 故障 | 预案 |
 |---|---|
-| Jev 不可用 | `--decider llm`（自动降级 + `W_DECIDER_FALLBACK`）；报告中用 Ours-LLM 的数字 |
-| 话题切分失败 | `--strategy b1`：时间间隔 + 固定切块 |
+| Jev 不可用 | 已支持自动降级并输出 `W_DECIDER_FALLBACK`，或显式 `--decider llm`；效果数字仍需实际评估 |
+| 话题切分失败 | 当前保留失败状态后重试；计划中的 `--strategy b1` 尚不可用 |
 | 截止日期规范化不确定 | 只保留 `raw` |
 | GUI 出问题 | `chat-tldr inbox --chat <ID> --html demo.html`，用浏览器演示 |
 | 真实测试群数据来不及 | 用合成集完成全部流程，报告中如实注明 |

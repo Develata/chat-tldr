@@ -39,6 +39,16 @@ pub enum Command {
     Chats,
     /// List rendered messages in a chat, ordered by cursor.
     Messages(MessagesArgs),
+    /// Analyze pending messages and retain completed checkpoints on failure.
+    Analyze(AnalyzeArgs),
+    /// Read a consistent inbox snapshot with evidence.
+    Inbox(InboxArgs),
+    /// Set the current preference vote for an insight.
+    Feedback(FeedbackArgs),
+    /// Set the lifecycle of an insight.
+    Resolve(ResolveArgs),
+    /// Mark only the safe prefix returned by inbox as reviewed.
+    MarkRead(MarkReadArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -72,4 +82,74 @@ pub struct MessagesArgs {
     /// Exclusive RFC 3339 timestamp, including an explicit timezone offset.
     #[arg(long, value_name = "TIME")]
     pub until: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct AnalyzeArgs {
+    #[arg(long, value_name = "ID")]
+    pub chat: String,
+    #[arg(long, value_name = "TIME")]
+    pub since: Option<String>,
+    #[arg(long, value_name = "TIME")]
+    pub until: Option<String>,
+    #[arg(long, default_value = "jev", value_parser = ["jev", "llm"])]
+    pub decider: String,
+    #[arg(long, default_value = "ours")]
+    pub strategy: String,
+    #[arg(long)]
+    pub max_steps: Option<u32>,
+    #[arg(long, allow_hyphen_values = true)]
+    pub budget_usd: Option<f64>,
+    #[arg(long, value_name = "FILE", conflicts_with = "dry_run")]
+    pub html: Option<PathBuf>,
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct InboxArgs {
+    #[arg(long, value_name = "ID")]
+    pub chat: String,
+    #[arg(long)]
+    pub all: bool,
+    #[arg(long)]
+    pub include_resolved: bool,
+    #[arg(long)]
+    pub include_rejected: bool,
+    #[arg(long, value_name = "FILE")]
+    pub html: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+#[group(skip)]
+#[command(group(clap::ArgGroup::new("feedback_choice").required(true).multiple(false).args(["useful", "not_important"])))]
+pub struct FeedbackArgs {
+    #[arg(value_name = "INSIGHT_ID")]
+    pub id: String,
+    #[arg(long)]
+    pub useful: bool,
+    #[arg(long)]
+    pub not_important: bool,
+}
+
+#[derive(Debug, Args)]
+#[group(skip)]
+#[command(group(clap::ArgGroup::new("resolve_choice").required(true).multiple(false).args(["done", "dismiss", "reopen"])))]
+pub struct ResolveArgs {
+    #[arg(value_name = "INSIGHT_ID")]
+    pub id: String,
+    #[arg(long)]
+    pub done: bool,
+    #[arg(long)]
+    pub dismiss: bool,
+    #[arg(long)]
+    pub reopen: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct MarkReadArgs {
+    #[arg(long, value_name = "ID")]
+    pub chat: String,
+    #[arg(long, value_name = "CURSOR")]
+    pub up_to: String,
 }

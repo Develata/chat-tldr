@@ -1,0 +1,201 @@
+{
+  "metadata": {
+    "name": "QQChatExporter",
+    "copyright": "https://github.com/shuakami/qq-chat-exporter",
+    "version": "0.1.0"
+  },
+  "chatInfo": {
+    "name": "人工合成 Docker 导出模板群",
+    "type": "group",
+    "selfUid": "u_synthetic_b",
+    "selfUin": "10002",
+    "selfName": "合成乙",
+    "peerUid": "synthetic-docker-group",
+    "peerUin": "100000001",
+    "participantCount": 2
+  },
+  "statistics": {
+    "totalMessages": 7,
+    "timeRange": {
+      "start": "2026-09-26T12:00:00.000Z",
+      "end": "2026-09-26T12:06:00.000Z",
+      "durationDays": 1
+    },
+    "messageTypes": { "text": 2, "reply": 1, "forward": 1, "system": 2, "json": 1 },
+    "senders": [
+      { "uid": "u_synthetic_a", "name": "合成甲", "messageCount": 3, "percentage": 42.86 },
+      { "uid": "u_synthetic_b", "name": "合成乙", "messageCount": 2, "percentage": 28.57 }
+    ],
+    "resources": {
+      "total": 4,
+      "byType": { "image": 1, "video": 1, "audio": 1, "file": 1 },
+      "totalSize": 400
+    }
+  },
+  "messages": [
+    {
+      "id": "9000000000000000001",
+      "seq": "1",
+      "timestamp": 1790424000000,
+      "time": "2026-09-26T12:00:00.000Z",
+      "sender": { "uid": "u_synthetic_a", "uin": "10001", "name": "合成甲", "nickname": "甲", "groupCard": "合成组长", "remark": "合成联系人" },
+      "type": "text",
+      "content": {
+        "text": "@全体成员 9月27日23:59之前，张三交合成报告。",
+        "elements": [
+          { "type": "at", "data": { "uid": "all", "uin": "0", "name": "全体成员", "atType": 1 } },
+          { "type": "text", "data": { "text": " 9月27日23:59之前，张三交合成报告。" } }
+        ],
+        "resources": [],
+        "mentions": [{ "uid": "all", "name": "全体成员", "type": "all" }]
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "id": "9000000000000000002",
+      "seq": "2",
+      "timestamp": 1790424060000,
+      "time": "2026-09-26T12:01:00.000Z",
+      "sender": { "uid": "u_synthetic_b", "uin": "10002", "name": "合成乙" },
+      "type": "reply",
+      "content": {
+        "text": "@合成甲 我负责合成演示。",
+        "elements": [
+          { "type": "reply", "data": {
+            "messageId": "9000000000000000001", "referencedMessageId": "9000000000000000001",
+            "senderUin": "10001", "senderName": "合成甲",
+            "content": "@全体成员 9月27日23:59之前，张三交合成报告。",
+            "timestamp": 1790424000, "previewElements": []
+          } },
+          { "type": "at", "data": { "uid": "u_synthetic_a", "uin": "10001", "name": "合成甲", "atType": 2 } },
+          { "type": "text", "data": { "text": " 我负责合成演示。" } }
+        ],
+        "resources": [],
+        "mentions": [{ "uid": "u_synthetic_a", "name": "合成甲", "type": "user" }]
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "id": "9000000000000000003",
+      "seq": "3",
+      "timestamp": 1790424120000,
+      "time": "2026-09-26T12:02:00.000Z",
+      "sender": { "uid": "u_synthetic_a", "uin": "10001", "name": "合成甲" },
+      "type": "text",
+      "content": {
+        "text": "合成附件：微笑[合成表情][图片:synthetic.png][视频:synthetic.mp4][语音:synthetic.ogg][文件:synthetic.txt]",
+        "elements": [
+          { "type": "text", "data": { "text": "合成附件：" } },
+          { "type": "face", "data": { "id": "14", "name": "微笑" } },
+          { "type": "market_face", "data": { "name": "合成表情", "tabName": "", "key": "", "emojiId": "", "emojiPackageId": null, "url": "", "fallbackUrl": "" } },
+          { "type": "image", "data": { "filename": "synthetic.png", "size": 100, "width": 10, "height": 10, "md5": null, "url": "", "subType": "photo" } },
+          { "type": "video", "data": { "filename": "synthetic.mp4", "size": 100, "duration": 1, "thumbSize": 0 } },
+          { "type": "audio", "data": { "filename": "synthetic.ogg", "size": 100, "duration": 1 } },
+          { "type": "file", "data": { "filename": "synthetic.txt", "size": 100, "md5": null } }
+        ],
+        "resources": [
+          { "type": "image", "filename": "synthetic.png", "size": 100, "url": "", "width": 10, "height": 10 },
+          { "type": "video", "filename": "synthetic.mp4", "size": 100, "duration": 1.0 },
+          { "type": "audio", "filename": "synthetic.ogg", "size": 100, "duration": 1.0 },
+          { "type": "file", "filename": "synthetic.txt", "size": 100 }
+        ],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "id": "9000000000000000004",
+      "seq": "4",
+      "timestamp": 1790424180000,
+      "time": "2026-09-26T12:03:00.000Z",
+      "sender": { "uid": "u_synthetic_b", "uin": "10002", "name": "合成乙" },
+      "type": "forward",
+      "content": {
+        "text": "[合成转发记录]",
+        "elements": [{ "type": "forward", "data": {
+          "title": "合成转发记录", "resId": "synthetic-forward-only",
+          "summary": "查看1条转发消息", "preview": ["合成甲：合成转发内容"], "messageCount": 1,
+          "messages": [{
+            "id": "9000000000000000101",
+            "timestamp": 1790423940000,
+            "time": "2026-09-26T11:59:00.000Z",
+            "sender": { "uid": "u_synthetic_a", "uin": "10001", "name": "合成甲" },
+            "content": {
+              "text": "合成转发内容：明天下午3点演练。",
+              "elements": [{ "type": "text", "data": { "text": "合成转发内容：明天下午3点演练。" } }]
+            }
+          }]
+        } }],
+        "resources": [],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "id": "9000000000000000005",
+      "seq": "5",
+      "timestamp": 1790424240000,
+      "time": "2026-09-26T12:04:00.000Z",
+      "sender": { "uid": "未知", "name": "系统消息" },
+      "type": "system",
+      "content": {
+        "text": "合成甲撤回了一条消息",
+        "elements": [{ "type": "system", "data": { "subType": 1, "text": "合成甲撤回了一条消息", "summary": "合成甲撤回了一条消息", "items": [], "originalData": {} } }],
+        "resources": [],
+        "mentions": []
+      },
+      "recalled": true,
+      "system": true
+    },
+    {
+      "id": "9000000000000000006",
+      "seq": "6",
+      "timestamp": 1790424300000,
+      "time": "2026-09-26T12:05:00.000Z",
+      "sender": { "uid": "未知", "name": "系统消息" },
+      "type": "system",
+      "content": {
+        "text": "合成乙加入了群聊",
+        "elements": [{ "type": "system", "data": { "subType": 4, "text": "合成乙加入了群聊", "summary": "合成乙加入了群聊", "items": [], "originalData": {} } }],
+        "resources": [],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": true
+    },
+    {
+      "id": "9000000000000000007",
+      "seq": "7",
+      "timestamp": 1790424360000,
+      "time": "2026-09-26T12:06:00.000Z",
+      "sender": { "uid": "u_synthetic_a", "uin": "10001", "name": "合成甲" },
+      "type": "json",
+      "content": {
+        "text": "[JSON:合成卡片][位置消息]",
+        "elements": [
+          { "type": "json", "data": { "content": "{\"title\":\"合成卡片\"}", "title": "合成卡片", "description": null, "url": null, "preview": null, "appName": null, "summary": "合成卡片" } },
+          { "type": "location", "data": { "title": "位置消息", "summary": "分享了位置" } }
+        ],
+        "resources": [],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    }
+  ],
+  "exportOptions": {
+    "includedFields": ["id", "timestamp", "sender", "content", "resources"],
+    "filters": {},
+    "options": {
+      "includeResourceLinks": true,
+      "includeSystemMessages": true,
+      "preferGroupMemberName": true,
+      "timeFormat": "YYYY-MM-DD HH:mm:ss",
+      "encoding": "utf-8"
+    }
+  }
+}

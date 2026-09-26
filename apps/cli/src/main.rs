@@ -1,5 +1,7 @@
+mod analyze;
 mod args;
 mod commands;
+mod html;
 mod output;
 mod paths;
 
@@ -43,7 +45,10 @@ impl From<chat_tldr_engine::EngineError> for Failure {
             } else {
                 "cli"
             },
-            retryable: matches!(error.code(), "E_DB_BUSY" | "E_RUN_IN_PROGRESS"),
+            retryable: match &error {
+                chat_tldr_engine::EngineError::Provider(provider) => provider.retryable(),
+                _ => matches!(error.code(), "E_DB_BUSY" | "E_RUN_IN_PROGRESS"),
+            },
             message: error.to_string(),
         }
     }
@@ -83,7 +88,7 @@ fn main() -> ExitCode {
         }
     };
     let exit_code = match result {
-        Ok(()) => 0,
+        Ok(()) => output.exit_code(),
         Err(error) => {
             let code = error.exit_code;
             if output

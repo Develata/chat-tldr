@@ -1,5 +1,5 @@
 use chat_tldr_core::{AttachmentKind, MentionTarget};
-use chat_tldr_qce::{QceOptions, parse_qce_json};
+use chat_tldr_qce::{QceError, QceOptions, parse_qce_json};
 use chrono::FixedOffset;
 use serde_json::{Value, json};
 
@@ -337,4 +337,46 @@ fn invalid_options_and_missing_chat_identity_fail() {
             parse_qce_json(&serde_json::to_vec(&raw).unwrap(), &QceOptions::default()).is_err()
         );
     }
+}
+
+#[test]
+fn recognized_upstream_chunked_manifest_is_an_unsupported_format_not_a_parse_error() {
+    let manifest = json!({
+        "metadata":{"name":"QQChatExporter","version":"0.1.0"},
+        "chatInfo":{"type":"group","peerUid":"synthetic-chunked"},
+        "statistics":{"totalMessages":0},
+        "chunked":{
+            "format":"jsonl", "chunksDir":"chunks", "chunkFileExt":".jsonl",
+            "maxMessagesPerChunk":50000, "maxBytesPerChunk":52428800, "chunks":[]
+        }
+    });
+    let error = parse_qce_json(
+        &serde_json::to_vec(&manifest).unwrap(),
+        &QceOptions::default(),
+    )
+    .unwrap_err();
+    assert!(matches!(error, QceError::UnsupportedExport));
+    let mut malformed = manifest;
+    malformed["chunked"]["chunks"] = json!("not an array");
+    assert!(matches!(
+        parse_qce_json(
+            &serde_json::to_vec(&malformed).unwrap(),
+            &QceOptions::default()
+        ),
+        Err(QceError::Json(_))
+    ));
+}
+
+#[test]
+fn unfamiliar_chunked_fields_do_not_reclassify_a_valid_single_file_export() {
+    let mut single = export(json!([]));
+    single["chunked"] =
+        json!({"format":"jsonl","chunksDir":"chunks","chunkFileExt":".jsonl","chunks":[]});
+    assert!(
+        parse_qce_json(
+            &serde_json::to_vec(&single).unwrap(),
+            &QceOptions::default()
+        )
+        .is_ok()
+    );
 }

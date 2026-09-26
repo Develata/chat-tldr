@@ -34,6 +34,8 @@ pub enum QceError {
     Field(String),
     #[error("unsupported QCE chat type (expected group or private)")]
     ChatType,
+    #[error("QCE chunked JSONL manifests are unsupported; export a single JSON file")]
+    UnsupportedExport,
     #[error("max_forward_depth must be between 0 and 2")]
     ForwardDepth,
 }
@@ -44,7 +46,20 @@ pub fn parse_qce_json(bytes: &[u8], opts: &QceOptions) -> Result<ImportBatch, Qc
     if opts.max_forward_depth > 2 {
         return Err(QceError::ForwardDepth);
     }
-    let raw: Export = serde_json::from_slice(bytes)?;
+    let raw: Export = match serde_json::from_slice(bytes) {
+        Ok(raw) => raw,
+        Err(error) => {
+            // Inspect only the failure path: successful single-file imports
+            // should not allocate a second complete JSON tree.
+            if serde_json::from_slice::<serde_json::Value>(bytes)
+                .ok()
+                .is_some_and(|value| is_chunked_manifest(&value))
+            {
+                return Err(QceError::UnsupportedExport);
+            }
+            return Err(QceError::Json(error));
+        }
+    };
     let kind = match raw.chat_info.kind.as_str() {
         "group" => ChatKind::Group,
         "private" => ChatKind::Private,
@@ -85,6 +100,25 @@ pub fn parse_qce_json(bytes: &[u8], opts: &QceOptions) -> Result<ImportBatch, Qc
         warnings,
         file_hash,
     })
+}
+
+fn is_chunked_manifest(value: &serde_json::Value) -> bool {
+    // Exact discriminator and shape from upstream 7fcca888, json_exporter.rs
+    // ChunkedJsonlManifest / ChunkedSection. Filenames alone are not evidence.
+    let Some(chunked) = value.get("chunked") else {
+        return false;
+    };
+    value.get("messages").is_none()
+        && ["metadata", "chatInfo", "statistics"]
+            .iter()
+            .all(|key| value.get(key).is_some_and(serde_json::Value::is_object))
+        && chunked.get("format").and_then(serde_json::Value::as_str) == Some("jsonl")
+        && ["chunksDir", "chunkFileExt"]
+            .iter()
+            .all(|key| chunked.get(key).is_some_and(serde_json::Value::is_string))
+        && chunked
+            .get("chunks")
+            .is_some_and(serde_json::Value::is_array)
 }
 
 fn normalize_message(
