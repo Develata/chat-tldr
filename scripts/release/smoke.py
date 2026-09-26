@@ -5,12 +5,16 @@ Python's standard library is only a CI/developer dependency, never an image inpu
 
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
+import tarfile
 import tempfile
 import threading
+import uuid
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -77,9 +81,50 @@ def check(condition, message):
         raise RuntimeError(message)
 
 
-def smoke(options, directory, server):
+@contextmanager
+def docker_storage(image):
+    if not image:
+        yield None
+        return
+    user = subprocess.check_output(
+        ["docker", "image", "inspect", image, "--format", "{{.Config.User}}"],
+        text=True, timeout=30).strip()
+    check(user == "10001:10001", "image must retain its non-root default user")
+    volume = f"chat-tldr-release-smoke-{uuid.uuid4().hex}"
+    subprocess.run(["docker", "volume", "create", volume], check=True,
+                   capture_output=True, timeout=30)
+    try:
+        yield volume
+    finally:
+        # This randomly named volume is created exclusively by this invocation.
+        subprocess.run(["docker", "volume", "rm", volume], check=True,
+                       capture_output=True, timeout=30)
+
+
+def stored_bytes(directory, relative, image, volume):
+    if not image:
+        return (directory / relative).read_bytes()
+    container = subprocess.check_output(
+        ["docker", "create", "--mount", f"type=volume,source={volume},target=/data",
+         image, "version"], text=True, timeout=30).strip()
+    try:
+        # Read through Docker, preserving private file permissions and UID 10001.
+        data = subprocess.check_output(
+            ["docker", "cp", f"{container}:/data/{relative}", "-"], timeout=30)
+        with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+            files = [entry for entry in archive.getmembers() if entry.isfile()]
+            check(len(files) == 1, "expected one exported artifact")
+            with archive.extractfile(files[0]) as stream:
+                return stream.read()
+    finally:
+        subprocess.run(["docker", "rm", container], check=True,
+                       capture_output=True, timeout=30)
+
+
+def smoke(options, directory, server, volume):
     docker = bool(options.image)
-    root = "/work" if docker else str(directory)
+    root = "/data" if docker else str(directory)
+    inputs = "/imports" if docker else str(directory)
     fixture = ROOT / "fixtures/qce/synthetic-group.json"
     before = hashlib.sha256(fixture.read_bytes()).digest()
     (directory / "input.json").write_bytes(fixture.read_bytes())
@@ -92,18 +137,20 @@ def smoke(options, directory, server):
     env["RELEASE_SMOKE_KEY"] = "synthetic-release-key"
     env["NO_PROXY"] = "127.0.0.1,localhost,host.docker.internal"
     if docker:
-        # The ephemeral bind directory is synthetic, isolated, and writable by UID 10001.
-        directory.chmod(0o777)
-        (directory / "profile").mkdir(mode=0o777)
-        (directory / "profile").chmod(0o777)
+        # Inputs are synthetic and read-only. The named volume keeps POSIX file
+        # ownership inside Docker, just as the production Compose setup does.
+        directory.chmod(0o755)
+        for name in ("input.json", "local.toml"):
+            (directory / name).chmod(0o644)
         base = ["docker", "run", "--rm", "--read-only", "--cap-drop=ALL",
                 "--security-opt=no-new-privileges", "--tmpfs", "/tmp:mode=1777",
                 "--add-host=host.docker.internal:host-gateway", "-e", "RELEASE_SMOKE_KEY",
-                "-e", "NO_PROXY", "--mount", f"type=bind,source={directory},target=/work",
+                "-e", "NO_PROXY", "--mount", f"type=bind,source={directory},target=/imports,readonly",
+                "--mount", f"type=volume,source={volume},target=/data",
                 options.image]
     else:
         base = [str(Path(options.binary).resolve())]
-    base += ["--data-dir", f"{root}/profile", "--config", f"{root}/local.toml"]
+    base += ["--data-dir", f"{root}/profile", "--config", f"{inputs}/local.toml"]
     checks = 0
 
     def cli(*args, expected=0):
@@ -126,11 +173,11 @@ def smoke(options, directory, server):
     check(version["cli_version"] == options.version, "wrong packaged CLI version")
     check("overview" in version["capabilities"]["commands"], "missing core capability")
     cli("config", "init")
-    original_config = (directory / "profile/config.toml").read_bytes()
+    original_config = stored_bytes(directory, "profile/config.toml", options.image, volume)
     cli("config", "init", expected=4)
-    check((directory / "profile/config.toml").read_bytes() == original_config, "config overwritten")
-    cli("import", f"{root}/input.json")
-    repeated = cli("import", f"{root}/input.json")
+    check(stored_bytes(directory, "profile/config.toml", options.image, volume) == original_config, "config overwritten")
+    cli("import", f"{inputs}/input.json")
+    repeated = cli("import", f"{inputs}/input.json")
     check(payload(repeated, "stats")["inserted"] == 0, "import is not idempotent")
     cli("chats")
     cli("messages", "--chat", CHAT)
@@ -145,7 +192,7 @@ def smoke(options, directory, server):
                 if row["event"] == "insight" and row["payload"]["insight"]["kind"] == "todo")
     check(item["priority"] == "P0" and item["assignee"] == "other"
           and item["verification_status"] == "verified", "deadline/evidence policy changed")
-    html = (directory / "analysis.html").read_text(encoding="utf-8")
+    html = stored_bytes(directory, "analysis.html", options.image, volume).decode("utf-8")
     check("&lt;script&gt;" in html and "<script>" not in html, "unsafe HTML")
     cli("overview", "--chat", CHAT, "--since", "2026-09-25T00:00:00+08:00",
         "--until", "2026-09-28T00:00:00+08:00", "--html", f"{root}/overview.html")
@@ -178,8 +225,8 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        with tempfile.TemporaryDirectory(prefix="chat-tldr-release-") as temporary:
-            smoke(options, Path(temporary), server)
+        with tempfile.TemporaryDirectory(prefix="chat-tldr-release-") as temporary, docker_storage(options.image) as volume:
+            smoke(options, Path(temporary), server, volume)
     finally:
         server.shutdown()
         server.server_close()

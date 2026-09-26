@@ -39,4 +39,4 @@ Actions 提供的 `docker-image.tar` 可用 `docker load -i docker-image.tar` �
 
 ## 验证边界
 
-`scripts/release/smoke.py --image <IMAGE> --version 0.1.0` 在最终 scratch 镜像中运行合成导入、模型假服务、证据/P0、状态操作、历史、HTML 和关系覆盖查询。测试服务器仅提供合成响应，不接入云模型。Linux CLI 归档从同一镜像提取并再次运行验收。真实模型质量需要独立人工标注。
+`scripts/release/smoke.py --image <IMAGE> --version 0.1.0` 在最终 scratch 镜像中运行合成导入、模型假服务、证据/P0、状态操作、历史、HTML 和关系覆盖查询。它保持镜像的 UID/GID 10001，使用一次性命名卷保存输出，通过 Docker 读取私有文件，避免宿主用户与容器 UID 不同导致 Linux 权限错误。只读挂载合成输入，结束后仅移除本次创建的卷。测试服务器仅提供合成响应，不接入云模型。Linux CLI 归档从同一镜像提取并再次运行验收。真实模型质量需要独立人工标注。
