@@ -4,12 +4,26 @@
 
 ## 2026-09-26 首版 CLI/Docker 验收
 
-- 当前 workspace **427 项 Rust 测试通过**；新增关系事务/迁移回滚、用户反馈/游标保留、完整/部分回答、撤回与时间窗口、B0、Jev 控制器、话题指标和校准回归。严格 clippy、fmt 按当前提交核验，远程 CI 是合并门槛。
+- `v0.1.0` 对应源码 **427 项 Rust 测试通过**；新增关系事务/迁移回滚、用户反馈/游标保留、完整/部分回答、撤回与时间窗口、B0、Jev 控制器、话题指标和校准回归。严格 clippy、fmt 及远程 CI 通过，后续提交仍需按对应版本核验。
 - 真实 Ours/B0 在全新独立 profile 各完成 200 条，分析退出码均为 0；估算费用分别 $0.040238394 / $0.0103278。Ours 有 15 次 Jev 控制器选择，也记录了一次 Jev 降级。完整运行与限制见 [报告](../reports/2026-09-26/README.md)。
 - 真实质量与 Jev 校准曲线为**待标注**。已导出 200 条未标注 CSV 给同学 C；禁止 LLM 生成真实 gold。合成对比表与校准 SVG 只证明工具流程/手算一致。
 - 发布范围为 Windows CLI、Linux 静态 CLI 和 scratch Docker；GUI 打包后续补齐。分支模拟和 tag 正式发布规则见 [RELEASING](RELEASING.md)。模拟成功不能代替真实平台/云质量验收。
-- 本机 Windows release exe 与最终 Docker 镜像各通过 **22 次 CLI 调用**的本地假服务验收。镜像大小 **4,646,233 bytes**，UID/GID 10001，scratch、只读根文件系统；Windows ZIP 打包及 SHA-256 生成通过。远程 Linux/Windows 模拟发布结果仍需对照实际 CI。
+- 本机 Windows release exe 与 Docker 镜像各通过 **22 次 CLI 调用**的本地假服务验收；正式发布 CI 的 Windows/Linux CLI 与 Docker 冒烟也通过。发布镜像 inspect 大小 **4,645,400 bytes**，UID/GID 10001，scratch、只读根文件系统；该尺寸不等于压缩下载大小。
 - Compose 配置校验及隔离命名卷验收通过：第一次容器导入合成数据，第二次容器查询到同一会话。仅清理本次验收创建的卷，未操作用户数据卷。
+
+### 已发布版本与复核凭据
+
+首版 [v0.1.0](https://github.com/Develata/chat-tldr/releases/tag/v0.1.0) 已于 2026-09-26 20:38:37 UTC 发布，来源为 [PR #4](https://github.com/Develata/chat-tldr/pull/4) 的合并提交 `f9960d082369c79706eeb2f4dee71acaaf20a968`。后续文档修订不移动该 tag。
+
+| 验收项 | 结果与证据 |
+|---|---|
+| 源码质量 | [main CI](https://github.com/Develata/chat-tldr/actions/runs/36269891059) 成功；线上 Protect main 严格要求 `fmt`、`clippy`、`test` |
+| 发布链 | [main 模拟发布](https://github.com/Develata/chat-tldr/actions/runs/36269891359) 与 [tag 正式发布](https://github.com/Develata/chat-tldr/actions/runs/36269921242) 均成功 |
+| 可下载产物 | Windows ZIP、Linux musl tar.gz、Docker 镜像归档及 SHA256SUMS 已发布；下载后逐件校验 SHA-256，实际运行 Windows exe 的 `version` |
+| 容器分发 | `ghcr.io/develata/chat-tldr:0.1.0` 匿名拉取成功，digest 为 `sha256:1f80db8d4a15d522af57a9617ed78d3387afc0fbb8f264f26e4ccefd932069f9`；拉取的镜像以只读根文件系统运行 `version` 成功 |
+| 真实运行复核 | Ours/B0 共 16 份原始 JSONL 与退出码再次通过 `check-stream`；200 行标注 CSV 仍未填写，真实质量/校准继续标为待标注 |
+
+真实云实验运行的是报告中记录 SHA-256 的本地构建，不是下载后的发布 exe；发布产物验证与云实验分别记录，不能互相替代。程序化的关系/引用校验也不代表人工语义质量通过。
 
 ## QCE 单文件离线验收
 

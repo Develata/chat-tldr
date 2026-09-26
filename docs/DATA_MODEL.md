@@ -12,7 +12,7 @@
 - 本文 §2–§5 的类型实现在 `crates/core`，**冻结后只有 @Develata 能修改**。
 - 任何修改必须：① 升级 `schema_version`（见 [CLI_PROTOCOL.md](CLI_PROTOCOL.md) §6 版本规则）；② 同步更新本文；③ 在群里通知。
 - 其他人发现类型不够用：开 issue 或在群里提，交由 @Develata 审核后修改 `crates/core`。CODEOWNERS 提示审阅归属，不是文件权限隔离；是否强制审阅取决于分支规则。
-- 共享类型已实现在 `crates/core/src/{ids,message,insight,agent,protocol}.rs`，从 crate 根重导出。2026-09-26 用户采纳 CLI v1 评审稿，本次作为首次 `1.0` 冻结；尚未有已发布的旧协议使用方。
+- 共享类型已实现在 `crates/core/src/{ids,message,insight,agent,protocol}.rs`，从 crate 根重导出。2026-09-26 用户采纳 CLI v1 评审稿，作为首次 `1.0` 冻结；冻结时尚无已发布的旧协议使用方。该协议现已随 `v0.1.0` 发布，后续修改遵循上述版本规则。
 - `crates/core` 里还有一些辅助类型（`ImportBatch`、`ChatMeta`、各事件的 payload 结构体），定义见 [ARCHITECTURE.md](ARCHITECTURE.md) §4.1 和 [CLI_PROTOCOL.md](CLI_PROTOCOL.md) §3，同样只由 @Develata 修改。
 
 ## 1. 通用约定

@@ -19,7 +19,7 @@
 | 关系抽取覆盖消息 | 200 | 200 |
 | 质量评分 | 待标注 | 待标注 |
 
-Ours 有 69 次 TypeSafe、59 次 DeepSeek 调用。控制器 method 为 rule 32、jev 15、fallback 13；一次 `W_DECIDER_FALLBACK` 后其余决策改走 LLM，4 条结论被引用校验拒绝。B0 不调用 Jev，保留被拒结论供评分。结论数量及 rejected 数不能代替准确率/召回率。
+Ours 有 69 次 TypeSafe、59 次 DeepSeek 调用。控制器 method 为 rule 32、jev 15、fallback 13；一次 `W_DECIDER_FALLBACK` 后，后续消息/话题判别改走 LlmDecider，控制器采用规则默认动作。4 条结论被引用校验拒绝。B0 不调用 Jev，保留被拒结论供评分。结论数量及 rejected 数不能代替准确率/召回率。
 
 calls 是逻辑调用，不等于 HTTP 重试次数；费用按已报告用量和配置费率估算，不是账单。上表只对应最终这两次独立运行，不含此前调试/失败尝试。耗时为单次观测，不是性能基准。收据以 debug CLI 的 SHA-256 标识构建；当时源码在尚未提交的发布工作树，不能冒充已发布二进制的云验收。
 
