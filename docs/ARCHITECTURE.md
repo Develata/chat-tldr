@@ -107,7 +107,7 @@ qce 不做 IO（不读文件、不访问数据库），这样测试只需要喂�
 | 模块 | 职责 |
 |---|---|
 | `store` | SQLite 连接、迁移、事务、全部读写（唯一访问数据库的地方） |
-| `render` | `render(msg, profile)`、脱敏代号表 |
+| `render` | `render(msg, profile)` |
 | `segment` | burst、候选话题、归属、关闭、合并候选 |
 | `decider` | `Decider` trait、`JevDecider`、`LlmDecider`、`MockDecider` |
 | `llm` | `LlmClient` trait、OpenAI 兼容与 Anthropic 兼容两种实现、Mock |

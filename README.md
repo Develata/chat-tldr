@@ -37,7 +37,7 @@
 # 1. 配置密钥（只放在环境变量中，不写进任何文件）
 #    PowerShell 写法：$env:TYPESAFE_API_KEY = "..."
 export TYPESAFE_API_KEY=...          # Jev
-export CHAT_TLDR_LLM_API_KEY=...     # 任意 OpenAI 兼容或 Anthropic 兼容的 LLM
+export CHAT_TLDR_LLM_API_KEY=...     # DeepSeek（也可换成任意 OpenAI / Anthropic 兼容的 LLM）
 
 # 2. 导入 QCE 导出的群聊 JSON（可重复导入，结果不变）
 chat-tldr import ./exports/my-group.json
@@ -57,7 +57,7 @@ LLM 的 `base_url`、模型名和接口格式（`openai` / `anthropic`）在 `co
 
 ### 隐私
 
-聊天内容会发送给 Jev 和你配置的 LLM 两个云服务。默认开启脱敏：昵称、群号替换为代号，图片不上传。仓库中不包含任何真实聊天记录或密钥。
+程序和数据库都在本机，但聊天文本会发送给 Jev（TypeSafe）和你配置的 LLM（默认 DeepSeek）两个云服务，不做脱敏；图片不上传。仓库中不包含任何真实聊天记录或密钥。
 
 ### 文档
 
@@ -113,7 +113,7 @@ See the Chinese section above. The commands are identical.
 
 ### Privacy
 
-Chat content is sent to two cloud services: Jev and the LLM you configure. Redaction is on by default: nicknames and group numbers are replaced with codes, and images are never uploaded. The repository contains no real chat logs and no keys.
+The program and its database run locally, but chat text is sent unredacted to two cloud services: Jev (TypeSafe) and the LLM you configure (DeepSeek by default). Images are never uploaded. The repository contains no real chat logs and no keys.
 
 ### License
 

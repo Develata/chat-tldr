@@ -70,7 +70,7 @@ GUI 会调用的命令：
 - 点开证据：显示 `EvidenceView.display_text`，把 `highlight` 区间（**字符下标**）高亮。`highlight` 为 `null` 时只显示原文。高亮用 `egui::text::LayoutJob` 分段设置颜色。
 - 决策日志：表格，列出 step、候选动作、选择的动作、method（rule / jev / fallback）、概率、理由。
 - 运行统计：来自 `stats` 事件（消息数、话题数、被拒结论数、token、估算费用、耗时）。
-- 首次运行时弹窗说明：聊天内容会发送给 Jev 和配置的 LLM 云服务，默认会做脱敏。
+- 首次运行时弹窗说明：程序在本机运行，但聊天文本会发送给 Jev 和 DeepSeek 两个云服务（不做脱敏，图片不上传）。
 
 ## 验收标准
 

@@ -22,7 +22,6 @@
 | `--data-dir <DIR>` | 系统数据目录下的 `chat-tldr/`（Windows：`%APPDATA%\chat-tldr`） | 数据库 `chat-tldr.db` 与配置 `config.toml` 所在目录 |
 | `--config <FILE>` | `<data-dir>/config.toml` | 配置文件，见 §7 |
 | `--self-uid <UID>` / `--self-uin <UIN>` | 取导出文件的 `chatInfo.selfUid` / `selfUin` | 两者都可能缺失，缺失又没传参数时，“@我”判断会降级并发出 `warning` |
-| `--no-redact` | 关闭 | 默认发送前做脱敏，此参数关闭脱敏 |
 | `-v` / `-vv` | | stderr 日志级别 |
 
 ### 2.2 命令一览
@@ -124,14 +123,12 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
   "sender_display": "班长-小王",
   "sent_at": "2026-09-23T21:05:33+08:00",
   "display_text": "@全体成员 周五前把实验报告交到课代表那里[图片]",
-  "display_quote": "周五前把实验报告交到课代表那里",
   "highlight": [6, 21],
   "ok": true
 }
 ```
-- `display_text` = `render(message, redact=false)`；`display_quote` = 把 quote 里的 `⟦…⟧` 脱敏代号还原后的文本。
-- `insight.title`、`insight.summary` 已由 CLI 还原脱敏代号；`insight.evidence[].quote` 保持模型看到的原样（用于审计）。`topic` 事件的 `title` 同样已还原。
-- `highlight` 是 `display_text` 中的**字符**下标区间（Unicode scalar，左闭右开）；还原失败时为 `null`，GUI 只显示原文，不高亮。
+- `display_text` = `render(message, profile)`，即模型看到的同一份文本。
+- `highlight` 是 quote 在 `display_text` 中的**字符**下标区间（Unicode scalar，左闭右开），由 `verify::find_quote` 计算；找不到时为 `null`，GUI 只显示原文，不高亮。
 - `ok` 是这条证据的校验结果。
 
 ### 3.6 `inbox`（`inbox` 命令的第一行）
@@ -202,7 +199,7 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
  "recalled":false,"system":false,"reply_to":null,"mentions_me":true,
  "topic_id":"t_a19c3b0d77e2","burst_id":"b_0012","cursor":"1790168733000:1532"}
 ```
-`display_text` 为 `render(message, redact=false)`；`topic_id`、`burst_id` 在尚未切分时为 `null`。
+`display_text` 为 `render(message, profile)`；`topic_id`、`burst_id` 在尚未切分时为 `null`。
 
 ## 4. 错误码
 
@@ -266,13 +263,16 @@ model = "jev-1.13.0"                 # 固定版本，避免 jev-latest 漂移�
 api_key_env = "TYPESAFE_API_KEY"
 timeout_secs = 30
 
-[llm]
-api_format = "openai"                # "openai" | "anthropic"
-base_url = "https://example.invalid/v1"   # 必须自行填写，无默认 provider
-model = "your-model-name"
+[llm]                                # 团队统一配置（Q-LLM-1）：DeepSeek 官方 API
+api_format = "openai"                # "openai" | "anthropic"；DeepSeek 两种都支持
+base_url = "https://api.deepseek.com"          # anthropic 格式为 https://api.deepseek.com/anthropic
+model = "deepseek-flash"
 api_key_env = "CHAT_TLDR_LLM_API_KEY"
-price_input_per_mtok = 0.0           # 用于估算费用，自行填写
-price_output_per_mtok = 0.0
+temperature = 0.0
+json_mode = true                     # 仅 openai 格式：response_format = {"type":"json_object"}
+extra_body = { thinking = { type = "disabled" } }   # 原样合并进请求体；关闭 thinking 以便 temperature 生效
+price_input_per_mtok = 0.30          # 按高峰价估算（缓存未命中）；非高峰为一半，缓存命中 0.006
+price_output_per_mtok = 1.20
 timeout_secs = 120
 
 [embedding]                          # 可选；不配置则不启用 embedding 粗筛
@@ -304,6 +304,6 @@ gamma = 0.1                          # 候选分：时间衰减
 sim_threshold = 0.35                 # 仅 sim-tfidf / sim-embed 基线使用
 ```
 
-- `api_format = "openai"`：请求 `POST {base_url}/chat/completions`，Header `Authorization: Bearer <key>`。
+- `api_format = "openai"`：请求 `POST {base_url}/chat/completions`，Header `Authorization: Bearer <key>`。`extra_body` 中的字段原样合并进请求 JSON。
 - `api_format = "anthropic"`：请求 `POST {base_url}/v1/messages`，Header `x-api-key: <key>` 与 `anthropic-version: 2023-06-01`。
 - 具体取舍见 [decisions/0008-llm-client.md](decisions/0008-llm-client.md)。

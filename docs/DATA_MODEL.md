@@ -56,17 +56,16 @@ pub struct Cursor { pub sent_at_ms: i64, pub ordinal: i64 }
 
 ### 1.4 RenderProfile（渲染视图）
 
-**证据校验的对象是“发给模型的那份文本”，不是原始文本。** 因为脱敏会替换昵称，图片会变成 `[图片]`，合并转发会被展开。
+**证据校验的对象是“发给模型的那份文本”，不是原始 JSON。** 因为图片会变成 `[图片]`，合并转发会被展开，系统消息会加前缀。
 
 ```rust
-/// 序列化为 "r1" 或 "r1-redact"。
-pub struct RenderProfile { pub version: u16, pub redact: bool }
+/// 序列化为 "r1"、"r2"…
+pub struct RenderProfile { pub version: u16 }
 ```
 
 - `render(msg, profile) -> String` 是 engine 中的纯函数，确定性输出。它既用来生成发给 Jev/LLM 的文本，也用来做证据校验。
 - 规则改动必须升级 `version`。`version` 同时进入缓存键和每条 Evidence。
-- 脱敏代号的形式为 `⟦U3⟧`（带定界符，见 PIPELINE §2.2）。
-- 显示给用户时使用 `redact=false` 的渲染结果；模型生成的文本（话题标题、结论 title/summary、quote）由 CLI 在输出时把代号还原为本地名字（见 PIPELINE §2.2“还原”与 CLI_PROTOCOL 中的 `EvidenceView`）。
+- 不做脱敏（2026-09-26 决定，见 OPEN_QUESTIONS Q-DEC-2）：显示给用户的文本与发给模型的文本相同，都是 `render(msg, profile)`。
 
 ---
 
@@ -81,7 +80,7 @@ qce 适配器的输出，也是 engine 的输入。一个 `UnifiedMessage` 对�
 | `sender` | `PersonId` | 发送者 | 只来自 `sender.uid`；系统消息可为 `qq:system` |
 | `sender_display` | `String` | 导入时的展示名 | 可变属性，仅用于显示和别名表，**不参与身份判断** |
 | `sent_at` | `DateTime` | 发送时间 | 来自 QCE `timestamp`（毫秒），转为配置时区 |
-| `text` | `String` | 基础文本（未脱敏） | 由适配器按 §2.1 规则从 `content.elements` 生成；撤回消息为空串 |
+| `text` | `String` | 基础文本 | 由适配器按 §2.1 规则从 `content.elements` 生成；撤回消息为空串 |
 | `mentions` | `Vec<Mention>` | @ 列表 | 保留全部，包括 @全体成员 |
 | `reply_to` | `Option<ReplyRef>` | 回复引用 | 允许悬空（被引用消息不在本次导出中） |
 | `attachments` | `Vec<Attachment>` | 附件元数据 | 不含二进制内容；图片永不上传 |
@@ -196,8 +195,8 @@ pub struct SourceMeta {
 | `id` | `InsightId` | 稳定 ID | 更新时不变 |
 | `chat_id` | `ChatId` | 所属会话 | |
 | `kind` | `InsightKind` | 类型 | 见 §3.1 |
-| `title` | `String` | 一行标题 | ≤ 40 个汉字；CLI 输出时已还原脱敏代号 |
-| `summary` | `String` | 一两句说明 | ≤ 200 个汉字；CLI 输出时已还原脱敏代号 |
+| `title` | `String` | 一行标题 | ≤ 40 个汉字 |
+| `summary` | `String` | 一两句说明 | ≤ 200 个汉字 |
 | `priority` | `Priority` | 层级 P0–P3 | 由规则决定，**反馈不能改变层级** |
 | `rank_score` | `f32` | 层内排序分 | 规则先验 + 个性化修正（修正幅度限制在 ±0.5），见 PIPELINE §7 |
 | `confidence` | `Option<f32>` | 该结论成立的模型概率 | `MentionMe`（规则产生）为 `1.0`；`Todo` / `Announcement` 取各证据消息对应的 Decider noul（`n{i}_todo` / `n{i}_announcement`，Jev 或 LlmDecider）中最大的 `p_yes`；`Decision`、`TopicSummary` 为 `null` |
@@ -278,7 +277,7 @@ pub struct Evidence {
     {
       "message_id": "m_3f9a1c0b7d2e4a51",
       "quote": "周五前把实验报告交到课代表那里",
-      "render_profile": "r1-redact"
+      "render_profile": "r1"
     }
   ],
   "topic_id": "t_a19c3b0d77e2",
@@ -413,10 +412,6 @@ CREATE TABLE person_aliases (                 -- 昵称/群名片历史，只是
   alias_kind TEXT NOT NULL,                   -- name | nickname | group_card | remark
   first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
   PRIMARY KEY (person_id, chat_id, alias, alias_kind)
-);
-CREATE TABLE redaction_codes (                -- 脱敏代号表，只存本地
-  chat_id TEXT NOT NULL, original TEXT NOT NULL, code TEXT NOT NULL,
-  PRIMARY KEY (chat_id, original), UNIQUE (chat_id, code)
 );
 
 CREATE TABLE imports (

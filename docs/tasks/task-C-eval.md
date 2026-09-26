@@ -28,7 +28,7 @@
 
 | 子命令 | 输入 | 输出 |
 |---|---|---|
-| `export-sheet --messages <messages.jsonl> --out sheet.csv` | `chat-tldr messages` 的输出 | CSV：message_id、时间、发送者代号、文本、以及空的标注列 |
+| `export-sheet --messages <messages.jsonl> --out sheet.csv` | `chat-tldr messages` 的输出 | CSV：message_id、时间、发送者、文本、以及空的标注列 |
 | `import-sheet sheet.csv --out gold/` | 填好的 CSV | `gold/messages.jsonl`、`gold/items.jsonl`（格式见 EVALUATION §5.1） |
 | `score --gold <DIR> --run <DIR> --out <CSV>` | 标注 + 系统输出 | 切分、抽取、排序、幻觉指标 |
 | `agreement --a <DIR> --b <DIR>` | 两人的标注 | κ、1-to-1、item F1 |

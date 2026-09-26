@@ -14,7 +14,7 @@
 
 ## 2. 系统与基线
 
-**所有系统使用同一个 LLM、同一份配置、temperature = 0。** 所有系统都要求输出同一套 JSON（items + 证据引用），这样才能用同一套指标比较。
+**所有系统使用同一个 LLM（DeepSeek `deepseek-flash`，关闭 thinking 模式）、同一份配置、temperature = 0。** 所有系统都要求输出同一套 JSON（items + 证据引用），这样才能用同一套指标比较。
 
 | 名称 | CLI 参数 | 说明 |
 |---|---|---|
@@ -89,13 +89,13 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
 - 画**可靠性曲线**（10 个等宽区间，横轴预测概率，纵轴实际正确率），报告 **ECE** 和 **Brier score**。
 - 同样的图也画 LlmDecider 的“口头概率”，作为对照。
 - 用于调 `tau_high` / `tau_low`：选择在验证集上使切分 F1 最大、且 LLM 复核比例 ≤ 20% 的组合。
-- **风险**：Jev 官方文档说明中文精度低于英文（docs.typesafe.ai/models#language-support）。如果 ECE 明显偏高，报告里如实写明，并考虑：英文 instructions（Q-JEV-2）、调整阈值、提高 LLM 复核比例。
+- **风险**：Jev 官方文档说明中文精度低于英文（docs.typesafe.ai/models#language-support）。如果 ECE 明显偏高，报告里如实写明，并考虑：调整阈值、提高 LLM 复核比例。（提示词已统一用英文，见 Q-JEV-2。）
 
 ## 4. 数据
 
 | 数据 | 来源 | 放在哪 | 用途 |
 |---|---|---|---|
-| **评估集** | 一个征得全体成员同意的真实测试群，约 200 条消息，脱敏后使用 | **只放本地** `eval/private/`（已加入 `.gitignore`） | 全部指标 |
+| **评估集** | 一个征得全体成员同意的真实测试群，约 200 条消息 | **只放本地** `eval/private/`（已加入 `.gitignore`） | 全部指标 |
 | **合成集** | 手写或用 LLM 生成的群聊（含交织话题、@、回复、截止日期），附带标注 | `fixtures/`、`eval/synthetic/`（可提交） | 冒烟测试、演示、CI |
 | 公开数据集 | VCSum（中文会议，含话题边界与分段摘要）、CSDS（中文客服对话摘要） | 不下载进仓库 | 仅作写报告时的参考与讨论，不作主评估 |
 
@@ -134,7 +134,7 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
 - 两人话题划分之间的 1-to-1 overlap；
 - 两人 item 之间的 F1（以一人为“标准答案”）。
 
-**F. 标注工具**：`chat-tldr-eval export-sheet` 把消息导出成 CSV（每行一条消息：message_id、时间、代号、文本），用任意表格软件填写；`chat-tldr-eval import-sheet` 转回 `gold/*.jsonl`。不需要会用 Git 以外的任何工具。
+**F. 标注工具**：`chat-tldr-eval export-sheet` 把消息导出成 CSV（每行一条消息：message_id、时间、发送者、文本），用任意表格软件填写；`chat-tldr-eval import-sheet` 转回 `gold/*.jsonl`。不需要会用 Git 以外的任何工具。
 
 ### 5.1 标注文件格式
 

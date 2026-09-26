@@ -91,14 +91,12 @@ QCE JSON ─▶ qce 适配器 ─▶ UnifiedMessage ─▶ import（去重、游
 
 1. 以 `UnifiedMessage.text` 为基础。
 2. 合并转发展开为：`[合并转发:<title>]` 后跟每条内部消息一行 `  > <sender_display>: <text>`，深度 2 缩进 4 格。
-3. `redact=true` 时，按本 chat 的 `redaction_codes` 做字符串替换：已知的昵称、群名片、备注 → `⟦U1⟧`、`⟦U2⟧`…，群号、QQ 号 → `⟦G1⟧`、`⟦Q1⟧`…。代号用 `⟦ ⟧`（U+27E6/U+27E7）包住，这样还原时不会误伤正文中本来就有的“U3”这类文字，引用匹配也不会有歧义。按长度从长到短替换，避免部分匹配。代号表只存在本地数据库。
+3. 系统消息加前缀 `[系统]`。
 4. 规则有任何改动 → `RenderProfile.version + 1`。
 
-**还原（un-redact）**：模型生成的文本（话题标题、结论的 title 和 summary、证据 quote）都处在脱敏的命名空间里。数据库中**原样保存**，校验也针对原样文本进行。CLI 在输出 `topic`、`insight` 事件和 `--html` 时，把其中的 `⟦…⟧` 代号还原为本地名字：`Insight.title`、`Insight.summary`、`topic.title` 输出还原后的文本；`Insight.evidence[].quote` 保持原样（用于审计），还原后的文本放在 `EvidenceView.display_quote`。无法识别的 `⟦…⟧` 保持原样。
+不做脱敏（Q-DEC-2 已决定）：发给模型的文本、校验用的文本、显示给用户的文本是同一份 `render` 结果。
 
-> 局限：脱敏只替换**已知别名**。正文里用外号、简称提到的人无法识别。这一点写进报告的局限性部分。
-
-发给模型的消息格式：一行一条，`<ref> [<HH:MM>] <发送者代号或名字>: <渲染文本>`。`<ref>` 是本次请求内的短引用（`n1`、`n2`…，上下文消息为 `c1`…），由 Rust 维护与 `MessageId` 的映射。模型只需要复述短引用，出错时更容易发现。
+发给模型的消息格式：一行一条，`<ref> [<HH:MM>] <发送者显示名>: <渲染文本>`。`<ref>` 是本次请求内的短引用（`n1`、`n2`…，上下文消息为 `c1`…），由 Rust 维护与 `MessageId` 的映射。模型只需要复述短引用，出错时更容易发现。
 
 ## 3. 话题切分（混合式，不训练模型）
 
@@ -212,12 +210,12 @@ pub trait Embedder {
   "model": "jev-1.13.0",
   "state": {
     "candidate_topics": [
-      {"key": "T1", "title": "实验报告提交", "recent": ["U3: 报告模板在群文件", "U7: 封面要写学号吗"]},
-      {"key": "T2", "title": "周末聚餐", "recent": ["U2: 周六晚上可以吗"]}
+      {"key": "T1", "title": "实验报告提交", "recent": ["小李: 报告模板在群文件", "小张: 封面要写学号吗"]},
+      {"key": "T2", "title": "周末聚餐", "recent": ["小陈: 周六晚上可以吗"]}
     ],
     "new_messages": [
-      {"ref": "n1", "sender": "U1", "time": "21:05", "text": "@全体成员 周五前把实验报告交到课代表那里[图片]"},
-      {"ref": "n2", "sender": "U4", "time": "21:06", "text": "收到"}
+      {"ref": "n1", "sender": "班长-小王", "time": "21:05", "text": "@全体成员 周五前把实验报告交到课代表那里[图片]"},
+      {"ref": "n2", "sender": "小赵", "time": "21:06", "text": "收到"}
     ]
   },
   "questions": {
@@ -235,7 +233,7 @@ pub trait Embedder {
 ```
 
 - `n{i}_needs_action` 只对 @我 / @全体成员 的消息提问；纯占位消息（如“收到”“[表情]”）不提分类问题。
-- instructions 用英文写（Jev 的主要训练语言），内容保持中文。这个做法是否更好，列为实验项（Q-JEV-2）。
+- instructions 与 criteria 一律用英文（Q-JEV-2 已决定）；state 中的聊天内容保持原文（中文或英文），不翻译。
 - 结果缓存（§9），所有答案写入 `jev_answers`。
 
 ### 4.3 LlmDecider（降级与消融）
@@ -244,6 +242,8 @@ pub trait Embedder {
 
 ### 4.4 LLM 调用约定
 
+- **所有提示词模板一律用英文**（system prompt、指令、schema 说明、示例说明）；插入其中的聊天内容保持原文，不翻译；要求模型输出的 title/summary 使用聊天的主要语言（中文群输出中文）。
+- 评估与演示统一使用 DeepSeek `deepseek-flash`，并关闭 thinking 模式（`{"thinking": {"type": "disabled"}}`）：thinking 模式下 `temperature` 不生效，结果无法复现（依据 api-docs.deepseek.com，2026-09-26 查阅）。`api_format = "openai"` 时另外开启 `response_format = {"type": "json_object"}`（DeepSeek 支持；要求提示词中出现 “json” 并给出示例）。
 - 不依赖 provider 的 `json_schema` 严格模式：用 `schemars` 从 Rust 类型生成 JSON Schema 写进提示词；输出用 `serde_json` 解析和校验；失败时把错误信息附在提示词后**重试一次**，仍失败 → `E_LLM_OUTPUT_INVALID`，该话题记为失败。
 - 两种接口格式（`openai` / `anthropic`），见 CLI_PROTOCOL §7。
 - temperature 固定为 0（provider 支持时），以便缓存和复现。
@@ -473,9 +473,9 @@ GUI 三栏：“需要你处理”= P0，“值得知道”= P1，“其他话�
 **用量**：每次调用记录输入/输出 token 和估算费用（按 `config.toml` 中的单价计算；Jev 只收输入 token 的费用）。缓存命中计入 `cache_hits`，不计费用。
 
 **隐私**：
-- 默认开启脱敏（§2.2），图片永不上传；
-- 聊天内容会发送给 Jev 和配置的 LLM 两个云服务，README 和 GUI 首次运行时都要明确告知；
-- 数据库、导出文件放在 `.gitignore` 覆盖的目录，仓库只放脱敏或合成数据。
+- 不做脱敏（Q-DEC-2 已决定）；图片永不上传；
+- 程序本身在本机运行、数据库只在本机，但聊天文本会发送给 Jev（TypeSafe）和 DeepSeek 两个云服务，README 和 GUI 首次运行时都要明确告知；
+- 数据库、导出文件放在 `.gitignore` 覆盖的目录，仓库只放合成数据。
 
 ## 10. 降级路径
 

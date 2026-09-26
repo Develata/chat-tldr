@@ -1,5 +1,6 @@
-# 规则：后出现的匹配优先。每一行都带上 @Develata：
-# 作者不能审核自己的 PR，如果某个目录只有同学一个人是 owner，他自己的 PR 就永远无法获得 Code Owner 审核。
+# 规则：后出现的匹配优先。
+# 当前 ruleset 不要求 Code Owner 审核，本文件只用于自动请求审核人，并说明各目录由谁负责。
+# 每一行都带上 @Develata，这样以后即使开启 Code Owner 审核，同学自己的 PR 也不会卡住。
 # TODO(Q-COL-1)：把占位符替换为三位同学真实的 GitHub 用户名。
 
 *                                  @Develata

@@ -92,9 +92,9 @@ git push -u origin a/qce-parser
 2. 标题写清楚做了什么，正文按模板填写（模板会自动出现）。在正文中写 `Closes #<任务 issue 编号>`，合并后 issue 会自动关闭。
 3. 点 **Create pull request**。
 4. 等待两件事：
-   - CI 检查变绿（✅）；
-   - @Develata 审核通过（Approve）。
-5. 两者都满足后，由 @Develata 点 **Squash and merge**。你不需要自己合并。
+   - CI 检查（`fmt`、`clippy`、`test`）全部变绿（✅）；
+   - @Develata 看过代码。
+5. 两者都满足后，由 @Develata 点 **Squash and merge**。**你不需要、也不要自己点合并**，即使按钮可以点。
 
 审核意见要求修改时：在同一个分支上继续改，然后重复第 3–5 步（`git push` 即可），PR 会自动更新。
 

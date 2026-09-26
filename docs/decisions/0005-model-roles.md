@@ -15,5 +15,6 @@
 - `Decider` 抽象带来三个好处：Jev 不可用时降级；做 Ours vs Ours-LLM 的消融实验；测试时注入 Mock。
 
 **代价**
-- 同时依赖两个云服务，隐私暴露面更大。缓解：默认脱敏，图片不上传，在 README 与 GUI 中明确告知。
+- 同时依赖两个云服务，聊天文本会离开本机。决定不做脱敏（Q-DEC-2）；缓解：图片不上传，在 README 与 GUI 中明确告知，演示只用合成数据或征得同意的测试群。
+- 所有提示词（Jev 的 instructions/criteria、LLM 的模板）一律用英文，聊天内容保持原文（Q-JEV-2）。LLM 统一使用 DeepSeek `deepseek-flash`，关闭 thinking 模式（Q-LLM-1）。
 - Jev 的中文能力需要验证。见 ADR-0004 的缓解措施。

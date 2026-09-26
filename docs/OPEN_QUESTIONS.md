@@ -7,9 +7,9 @@
 
 | ID | 问题 | 当前默认 | 影响 |
 |---|---|---|---|
-| Q-DEC-1 | LLM 客户端偏离最初建议：不用 `async-openai`，改为基于 `reqwest::blocking` 自写 OpenAI / Anthropic 两种客户端，全项目不用 async（ADR-0008） | 按 ADR-0008 执行 | engine 的依赖和代码风格 |
-| Q-DEC-2 | 默认开启脱敏（`--no-redact` 才关闭）。开启后模型看不到真实昵称，生成的摘要里是 `⟦U3⟧` 这类代号，由 CLI 在输出时还原；正文里用外号提到的人无法脱敏 | 默认开启 | 隐私与摘要可读性 |
-| Q-DEC-3 | 分支保护要求 Code Owner 审核，但 @Develata 不能审核自己的 PR | @Develata 用管理员权限绕过合并自己的 PR | 协作流程 |
+| Q-DEC-1 ✅ | LLM 客户端：不用 `async-openai`，基于 `reqwest::blocking` 自写 OpenAI / Anthropic 两种客户端，全项目不用 async | **2026-09-26 已接受**，按 ADR-0008 执行 | — |
+| Q-DEC-2 ✅ | 是否脱敏 | **2026-09-26 决定：不做脱敏。** 程序与数据库在本机运行；聊天文本仍会发送给 Jev 与 DeepSeek，README 与 GUI 如实告知 | 删除了 `--no-redact`、代号表与还原逻辑 |
+| Q-DEC-3 ✅ | 分支保护 | **2026-09-26 已配置**：main 的 ruleset 为 Restrict updates / deletions、必须经 PR、0 个必需审核、只允许 squash、线性历史、禁止 force push，仓库管理员始终可绕过；CI 建好后加必需检查 `fmt`、`clippy`、`test` | 见 ROADMAP 第 1 天、CONTRIBUTING 第 6 步 |
 | Q-DEC-4 | 单次 `analyze` 的默认上限：`budget_usd = 0.50`，`max_steps = 64` | 按默认值 | 演示时的成本 |
 | Q-DEC-5 | Rust edition 2024，stable 工具链，不设 MSRV | 按默认值 | 骨架 |
 | Q-DEC-6 | 评估代码也用 Rust（`chat-tldr-eval` + `plotters` 画图），不用 Python | 按默认值 | 同学 C 的工作量 |
@@ -35,7 +35,7 @@
 | ID | 问题 | 当前默认 |
 |---|---|---|
 | Q-JEV-1 | 我们账号的实际限流和额度；`jev-1.13.0` 是否可用（用 `GET /v1/models` 确认） | 按文档：1200 次/分钟；固定版本 `jev-1.13.0` |
-| Q-JEV-2 | instructions 用英文还是中文？官方说明英文精度最好，中文较低 | instructions 与 criteria 用英文，消息内容保持中文；在 20 条标注消息上做对比，选好的一种 |
+| Q-JEV-2 ✅ | 提示词语言 | **2026-09-26 决定**：项目中全部提示词（Jev 的 instructions/criteria、LLM 的模板）一律用英文；聊天内容保持原文（中文或英文），不翻译 |
 | Q-JEV-3 | LlmDecider 计算 choice confidence 的公式 `(n·p_max − 1)/(n − 1)` 取自官方 Confidence 页面的交互示例代码，不是正式定义 | 按该公式；报告中注明来源 |
 | Q-JEV-4 | 数据处理政策：官方说明不使用客户数据训练，零数据保留（ZDR）只对企业客户提供 | README 与 GUI 首次运行时如实告知 |
 
@@ -43,7 +43,8 @@
 
 | ID | 问题 | 当前默认 |
 |---|---|---|
-| Q-LLM-1 | 评估和演示使用哪个 LLM（`base_url`、模型名、单价）。所有基线必须用同一个 | 未定；第 1 天由 @Develata 在团队配置中确定 |
+| Q-LLM-1 ✅ | 评估和演示使用的 LLM | **2026-09-26 决定**：DeepSeek 官方 API，模型 `deepseek-flash`（base URL `https://api.deepseek.com`），所有基线使用同一个；配置见 CLI_PROTOCOL §7 |
+| Q-LLM-2 | DeepSeek 的 thinking 模式开不开 | 默认**关闭**：thinking 模式下 `temperature` 不生效，结果无法复现，而且更慢、更贵。如果抽取质量不够，再在消融实验里对比开启的效果 |
 | Q-EMB-1 | 如果启用 embedding 粗筛，使用哪个 OpenAI 兼容的 embedding 服务 | 默认不启用；`sim-embed` 基线列为可选 |
 
 ## E. 阈值与参数（用标注数据调优）

@@ -22,9 +22,10 @@
 **@Develata**
 - [ ] 建 workspace：`crates/core`、`crates/qce`、`crates/engine`、`apps/cli`、`apps/gui`（基于 eframe_template）、`eval`；锁定依赖版本
 - [ ] 在 `crates/core` 实现四个冻结类型 + `ImportBatch` / `ChatMeta` + 各事件 payload，附序列化往返测试
-- [ ] `.github/workflows/ci.yml`：`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`；使用 `Swatinem/rust-cache`；Linux 安装 GUI 依赖（参照 eframe_template：`libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev`）。**必须在 Cargo.toml 合入的同一个 PR 里加入**，否则 CI 在没有 Cargo.toml 的仓库上会一直失败
+- [ ] `.github/workflows/ci.yml`（三个 job，名字分别为 `fmt`、`clippy`、`test`）：`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`；使用 `Swatinem/rust-cache`；Linux 安装 GUI 依赖（参照 eframe_template：`libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev`）。**必须在 Cargo.toml 合入的同一个 PR 里加入**，否则 CI 在没有 Cargo.toml 的仓库上会一直失败
 - [ ] `fixtures/`：2 份合成的 QCE 导出（有重叠，含 @全体成员、回复、撤回、图片、合并转发、系统消息）、`fixtures/jsonl/` 下的 mock 输出（`analyze.jsonl`、`inbox.jsonl`、`chats.jsonl`、`messages.jsonl`）
-- [ ] 分支保护：main 禁止直接推送；需要 CI 通过；需要 1 个 Code Owner 审核；只允许 squash merge；@Develata 自己的 PR 通过管理员权限合并（或请一位同学点 Approve）
+- [x] 分支保护（ruleset “Protect main”，已配置）：Restrict updates / deletions；必须经 PR；0 个必需审核；只允许 squash；线性历史；禁止 force push；仓库管理员始终可绕过。按 GitHub 文档，Restrict updates 表示只有具备 bypass 权限的用户能更新 main，合并 PR 预计也受此限制，因此预计只有 @Develata 能合并。待办：用一位同学的账号开一个测试 PR 实测；如果同学也能合并，就把“只由 @Develata 合并”作为约定写进群公告
+- [ ] CI 合入后，在 ruleset 中加必需状态检查 `fmt`、`clippy`、`test`：`ci.yml` 中三个 job 的名字必须**正好**是这三个
 - [ ] 把三位同学加为仓库 collaborator（Write 权限），把 CODEOWNERS 里的占位符换成真实用户名
 - [ ] 在群里通知：类型已冻结，`schema_version = 1.0`
 
@@ -66,7 +67,7 @@
 ## 第 2 天
 
 **@Develata**
-- [ ] `render`（含脱敏）、`segment`（burst、候选、归属、关闭）
+- [ ] `render`、`segment`（burst、候选、归属、关闭）
 - [ ] `JevDecider`、`LlmDecider`、`OpenAiCompatClient`、`AnthropicCompatClient`、Mock 实现；缓存与用量记录
 - [ ] `extract`（AnalyzeTopic、AnalyzeDirect、MentionMe 规则）
 - [ ] `agent`（观测、规则、Jev 选择、检查点、决策日志）、`rank`
@@ -97,7 +98,7 @@
 - [ ] **同学 A**：修 bug；补充 temporal、verify 的边界用例；协助 C 跑实验
 - [ ] **同学 B**：修 bug；GUI 打磨；准备演示用的数据目录
 - [ ] **同学 C**：跑全部系统（EVALUATION §6）、`calibrate`、汇总表；报告；录演示视频（GUI 为主，`--html` 为备用）
-- [ ] 全员：报告的“局限性”部分（脱敏只替换已知别名、Jev 中文精度、样本规模小）
+- [ ] 全员：报告的“局限性”部分（聊天文本发送到云服务、Jev 中文精度、样本规模小）
 
 ## 砍需求顺序（落后时从上往下砍）
 
@@ -134,6 +135,6 @@
 - 支持 QCE chunked-JSONL 与更多导出工具
 - 本地 embedding（fastembed-rs）与本地 LLM（Ollama），减少云端依赖
 - 更完整的时间表达式解析（农历、节假日、“月底”“学期末”）
-- 基于正文的人名识别，提升脱敏覆盖率
+- 可选的脱敏模式（发送前把昵称、群号替换为代号）
 - 并行执行 AnalyzeTopic
 - 用积累的反馈与标注做离线阈值搜索
