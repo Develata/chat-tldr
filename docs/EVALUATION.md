@@ -35,7 +35,7 @@ B0 一次处理整个待分析窗口，有界格式重试，不使用 Jev 分类
 
 Jev 不可用时，消息/话题判别可降级到 LlmDecider；控制器采用规则允许集合中的默认动作，不让 LLM 接管调度。报告必须区分这两种回退，按日志的实际 provider/model 与 `decision.method` 统计。
 
-B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行同一个 `verify`，只用于计算幻觉率，不过滤它们的结果（`score` 在计算抽取和排序指标时，对 B0/B1 保留 `rejected` 条目，对 Ours 系列则排除）。所有系统都用 `inbox --include-rejected` 导出结论。
+B0 不让证据校验参与生成或修复；对输出**事后**运行同一个 `verify`，保留 `rejected` 条目用于抽取、排序和快照拒绝比例评估，对 Ours 则排除被拒条目。拒绝比例不是人工语义幻觉率。B1 计划沿用这一对照规则，但当前尚未实现。所有系统都用 `inbox --all --include-resolved --include-rejected` 导出结论。
 
 ## 3. 指标
 
@@ -168,7 +168,7 @@ CSV 的 `thread/todo/announcement/items_json` 必须明确填写；无结论写 
 
 每个系统使用独立的数据目录，避免缓存和状态互相影响。
 
-按 [FILE_LAYOUT.md](FILE_LAYOUT.md) 存放：`runs/<experiment-id>/<system>/profile/` 是 CLI 的 `--data-dir`，上一层保存供评分使用的 JSONL。下面用 `exp-01`、`course-demo` 作为示例实验/数据集 ID；先准备好对应的输出目录。
+按 [FILE_LAYOUT.md](FILE_LAYOUT.md) 存放：`runs/<experiment-id>/<system>/profile/` 是 CLI 的 `--data-dir`，上一层保存供评分使用的 JSONL。下面用 `exp-01`、`course-demo` 作为示例实验/数据集 ID；先准备运行目录和 results 父目录，`calibrate --out` 的目标目录由命令新建。
 
 ```bash
 # 1. 导入（每个系统一份独立的数据目录）
@@ -178,13 +178,15 @@ chat-tldr --data-dir eval/private/runs/exp-01/ours/profile analyze --chat <CHAT_
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile inbox --chat <CHAT_ID> --all --include-resolved --include-rejected > eval/private/runs/exp-01/ours/inbox.jsonl
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile messages --chat <CHAT_ID> > eval/private/runs/exp-01/ours/messages.jsonl
 chat-tldr --data-dir eval/private/runs/exp-01/ours/profile jev-log --run <RUN_ID> > eval/private/runs/exp-01/ours/jev.jsonl
-# 3. 已实现的 Ours 离线评分（其余指标显式不可用）
+# 3. 离线评分（未实现或缺输入的指标显式标记，不补零）
 chat-tldr-eval score --gold eval/private/gold/course-demo --run eval/private/runs/exp-01/ours --out eval/private/results/exp-01/ours.csv
-# 4. 未来校准入口；当前版本不支持
-chat-tldr-eval calibrate --gold eval/private/gold/course-demo --jev eval/private/runs/exp-01/ours/jev.jsonl --out eval/private/results/exp-01/calibration_ours.png
+# 4. Jev 校准；--out 是尚不存在的目录，输出 calibration.json 和 reliability.svg
+chat-tldr-eval calibrate --gold eval/private/gold/course-demo --jev eval/private/runs/exp-01/ours/jev.jsonl --out eval/private/results/exp-01/calibration_ours
 ```
 
-- 未来其他系统替换 `--strategy` / `--decider` 和目录名；当前只可切换 ours 的 decider，不能据此声称已完成各基线。
+- B0 已实现：将步骤 1–3 的 `ours` 目录替换为 `b0`，在独立的新 profile 导入同一输入，再用 `--strategy b0 --decider llm` 分析。保留完整的 analyze/inbox/messages 流；B0 不调用 Jev，不执行步骤 4。不能复用已分析的 Ours profile。
+- Ours-LLM 使用另一份独立目录和 `--strategy ours --decider llm`，控制器改用规则，消息/话题判断使用 LLM。B1/sim-* 尚未实现，CLI 会拒绝对应策略。
+- `score` 和 `calibrate` 的 gold 必须是独立人工标注；没有真实 gold 时，只报告真实运行/费用，将真实质量和校准写为“待标注”。合成数据可使用按源文本明确编写的期望来验证工具，不能替代真实评估。
 - 规划中的汇总表命令（未实现）：`chat-tldr-eval summarize eval/private/results/exp-01/*.csv > eval/private/results/exp-01/summary.md`。
 - 结果表中只放聚合数字，**不放消息原文**，这样汇总表可以放进报告。
 - `score` 要求成功的完整流和与 gold 完全相等的未撤回消息 ID 集，拒绝 partial / dry-run；保存每条 CLI 的实际退出码，用 `check-stream --exit-code` 验证后再评分。评分目前只做流内退出码自检，且不能证明跨文件快照相同或调用者确实使用了完整视图参数；导出期间不要修改 profile。用量指标只描述 `analyze.jsonl` 里该次运行，不能当作历史累计成本。

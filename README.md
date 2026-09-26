@@ -8,6 +8,8 @@
 
 [![CI](https://github.com/Develata/chat-tldr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Develata/chat-tldr/actions/workflows/ci.yml)
 
+首版 [v0.1.0 下载](https://github.com/Develata/chat-tldr/releases/tag/v0.1.0)：Windows CLI、Linux 静态 CLI；公开镜像 `ghcr.io/develata/chat-tldr:0.1.0`。发布与下载校验记录见 [ACCEPTANCE](docs/ACCEPTANCE.md#已发布版本与复核凭据)。
+
 ---
 
 ## 中文
