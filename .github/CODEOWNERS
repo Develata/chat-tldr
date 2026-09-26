@@ -1,0 +1,18 @@
+# 规则：后出现的匹配优先。每一行都带上 @Develata：
+# 作者不能审核自己的 PR，如果某个目录只有同学一个人是 owner，他自己的 PR 就永远无法获得 Code Owner 审核。
+# TODO(Q-COL-1)：把占位符替换为三位同学真实的 GitHub 用户名。
+
+*                                  @Develata
+
+/crates/core/                      @Develata
+/crates/engine/                    @Develata
+/apps/cli/                         @Develata
+/docs/                             @Develata
+/.github/                          @Develata
+
+/crates/qce/                       @Develata @TODO-student-a
+/crates/engine/src/temporal/       @Develata @TODO-student-a
+/crates/engine/src/verify/         @Develata @TODO-student-a
+/apps/gui/                         @Develata @TODO-student-b
+/eval/                             @Develata @TODO-student-c
+/README.md                         @Develata @TODO-student-c
