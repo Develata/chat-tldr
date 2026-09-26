@@ -1,7 +1,9 @@
 # 任务 C：评估、演示数据、README 与报告
 
 > 用途：同学 C 的任务 issue 正文。可以直接复制到 GitHub issue。
-> 负责人：同学 C。审核：@Develata。
+> 当前安排：Codex 负责评估工具编码，同学的数据、标注与报告任务另行分配。审核：@Develata。
+
+源码、合成数据、真实数据、实验运行和报告的存放位置见 [FILE_LAYOUT.md](../FILE_LAYOUT.md) 与 [eval/README.md](../../eval/README.md)。
 
 ## 目标
 

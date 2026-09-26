@@ -1,7 +1,7 @@
 # 任务 A：QCE 适配器 + 截止日期规范化 + 证据校验
 
 > 用途：同学 A 的任务 issue 正文。可以直接复制到 GitHub issue。
-> 负责人：同学 A。审核：@Develata。
+> 当前负责人：Codex 主线实现，@Develata 审核。原“同学 A”分工已调整；本文件的接口与验收要求继续作为实现依据。QCE 管理组件的同学任务见 [apps/qce-manager/README.md](../../apps/qce-manager/README.md)。
 
 ## 目标
 

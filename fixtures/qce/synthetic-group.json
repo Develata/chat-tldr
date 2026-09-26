@@ -1,0 +1,43 @@
+{
+  "metadata": { "source": "synthetic fixture, not an actual chat export" },
+  "chatInfo": {
+    "type": "group", "name": "合成学习群", "peerUid": "synthetic-study",
+    "selfUid": "u_self_fixture", "selfUin": "10000"
+  },
+  "statistics": { "totalMessages": 3 },
+  "messages": [
+    {
+      "id": "synthetic-001", "seq": "1", "timestamp": 1790400000000,
+      "sender": { "uid": "u_alice_fixture", "name": "合成甲", "nickname": "甲", "groupCard": "小组长" },
+      "type": "type_1", "recalled": false, "system": false,
+      "content": {
+        "text": "@全体成员 周五前交合成报告。",
+        "elements": [
+          { "type": "at", "data": { "uid": "all", "uin": "0", "name": "全体成员" } },
+          { "type": "text", "data": { "text": " 周五前交合成报告。" } }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-002", "seq": "2", "timestamp": 1790400001000,
+      "sender": { "uid": "u_self_fixture", "name": "合成乙" },
+      "type": "type_1", "recalled": false, "system": false,
+      "content": {
+        "text": "收到。",
+        "elements": [
+          { "type": "reply", "data": { "referencedMessageId": "synthetic-001" } },
+          { "type": "text", "data": { "text": "收到。" } }
+        ]
+      }
+    },
+    {
+      "id": "synthetic-003", "seq": "3", "timestamp": 1790400002000,
+      "sender": { "uid": "u_alice_fixture", "name": "合成甲" },
+      "type": "type_1", "recalled": true, "system": false,
+      "content": {
+        "text": "这是一条已经撤回的合成内容。",
+        "elements": [{ "type": "text", "data": { "text": "这是一条已经撤回的合成内容。" } }]
+      }
+    }
+  ]
+}

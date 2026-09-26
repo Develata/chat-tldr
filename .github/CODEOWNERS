@@ -1,7 +1,7 @@
 # 规则：后出现的匹配优先。
 # 当前 ruleset 不要求 Code Owner 审核，本文件只用于自动请求审核人，并说明各目录由谁负责。
-# 每一行都带上 @Develata，这样以后即使开启 Code Owner 审核，同学自己的 PR 也不会卡住。
-# TODO(Q-COL-1)：把占位符替换为三位同学真实的 GitHub 用户名。
+# 当前主线由 Codex 编码、@Develata 审核。
+# TODO(Q-COL-1)：实际任务和同学用户名确认后，在对应路径追加审核人；不把占位用户名当真实 owner。
 
 *                                  @Develata
 
@@ -11,9 +11,13 @@
 /docs/                             @Develata
 /.github/                          @Develata
 
-/crates/qce/                       @Develata @TODO-student-a
-/crates/engine/src/temporal/       @Develata @TODO-student-a
-/crates/engine/src/verify/         @Develata @TODO-student-a
-/apps/gui/                         @Develata @TODO-student-b
-/eval/                             @Develata @TODO-student-c
-/README.md                         @Develata @TODO-student-c
+/crates/qce/                       @Develata
+/crates/engine/src/temporal/       @Develata
+/crates/engine/src/verify/         @Develata
+/apps/gui/                         @Develata
+/apps/qce-manager/                 @Develata
+/docs/ui/                          @Develata
+/eval/                             @Develata
+/fixtures/                         @Develata
+/reports/                          @Develata
+/README.md                         @Develata

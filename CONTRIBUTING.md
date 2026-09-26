@@ -6,12 +6,13 @@
 
 1. **不要直接改 `main` 分支**。每项工作都开一个新分支，通过 PR 合并。
 2. **不要 rebase，不要 force push**（`git rebase`、`git push -f` 一律不用）。分支落后时点网页上的 “Update branch” 按钮。
-3. **只改自己负责的目录**：
-   - 同学 A：`crates/qce/`、`crates/engine/src/temporal/`、`crates/engine/src/verify/`
-   - 同学 B：`apps/gui/`
-   - 同学 C：`eval/`、`README.md`、`fixtures/` 下新增的合成数据
+3. **只改当前任务分配的目录**（最新分工见 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md)，文件归属见 [FILE_LAYOUT](docs/FILE_LAYOUT.md)）：
+   - QCE 管理任务：`apps/qce-manager/`；QCE JSON 导入适配器 `crates/qce/` 已由 Codex 主线承担。
+   - GUI 设计任务：`docs/ui/`；需要参与界面实现时，由任务明确分配 `apps/gui/` 中的范围。
+   - 合成数据、标注与报告协作：按任务分别放 `fixtures/`、`eval/synthetic/`、`reports/`；真实数据只放 `eval/private/`。
+   - core、engine、CLI、导入适配器及主线工具由 Codex 实现、@Develata 审核。`docs/tasks/` 中的早期 A/B/C 名称不代表当前已经分派。
 
-   `crates/core`（共享类型）只有 @Develata 能改。需要改动时在群里说。
+   `crates/core`（共享类型）由 @Develata 决策、授权 Codex 实现。其他同学需要改动时先说明接口需求；CODEOWNERS 用于请求审核，不是写权限控制。
 
 另外：**绝不提交真实聊天记录和 API key**。真实数据放 `eval/private/` 或 `private/`（已被 Git 忽略），key 只放在环境变量里。
 
@@ -47,11 +48,11 @@ cd chat-tldr
 ```bash
 git switch main
 git pull
-git switch -c a/qce-parser
+git switch -c a/qce-manager
 ```
 
 - 前两行：把本地的 main 更新到最新。
-- 第三行：从最新的 main 建一个新分支。分支名格式为 `<你的字母>/<简短英文描述>`，例如 `a/qce-parser`、`b/inbox-panel`、`c/metrics`。
+- 第三行：从最新的 main 建一个新分支。分支名格式为 `<你的字母>/<简短英文描述>`，例如 `a/qce-manager`、`b/gui-design`、`c/synthetic-cases`。
 - **一个分支只做一件事**，做完合并后就不再使用。
 
 ## 第 3 步：写代码，并在提交前自检
@@ -69,8 +70,8 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 
 ```bash
 git status
-git add crates/qce
-git commit -m "qce: 解析 at 与 reply 元素"
+git add apps/qce-manager
+git commit -m "qce-manager: 补充导出流程与失败处理"
 ```
 
 - `git status` 列出改动过的文件。**检查一遍**：里面不应该有真实聊天记录、`.env`、数据库文件。
@@ -81,7 +82,7 @@ git commit -m "qce: 解析 at 与 reply 元素"
 ## 第 5 步：推送
 
 ```bash
-git push -u origin a/qce-parser
+git push -u origin a/qce-manager
 ```
 
 第一次推送这个分支时带上 `-u origin <分支名>`，之后同一个分支再推送只需要 `git push`。

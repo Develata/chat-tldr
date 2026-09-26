@@ -65,6 +65,6 @@
 |---|---|---|
 | Q-EV-1 | 1-to-1 overlap、exact-match F1 等指标的准确定义，写报告前核对原论文 | 按 EVALUATION §3.1 的描述实现 |
 | Q-EV-2 | 50 条双人标注的第二位标注者是谁 | 同学 C + 同学 A |
-| Q-COL-1 | 三位同学的 GitHub 用户名（替换 `.github/CODEOWNERS` 中的占位符） | 占位符 `@TODO-student-a` 等 |
+| Q-COL-1 | 三位同学的 GitHub 用户名与实际任务范围（确认后追加到 `.github/CODEOWNERS` 的对应路径） | 目前由 `@Develata` 审核；不使用虚假的占位 owner，分工以 ROADMAP 顶部为准 |
 | Q-COL-2 | 测试群成员的同意方式与记录 | 群内公告 + 截图，只存本地 |
 | Q-GUI-1 | 打包哪款中文字体（许可证必须允许再分发，如 OFL）以及字体子集化后的体积 | 同学 B 第 1 天确定 |

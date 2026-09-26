@@ -1,7 +1,9 @@
 # 任务 B：egui 图形界面
 
 > 用途：同学 B 的任务 issue 正文。可以直接复制到 GitHub issue。
-> 负责人：同学 B。审核：@Develata。
+> 当前安排：Codex 负责主线实现与 CLI 接入，同学先协助 GUI 设计，具体实现范围按任务分派。审核：@Develata。
+
+设计稿放 `docs/ui/`，正式程序资源放 `apps/gui/assets/`，运行中的界面偏好放 `<data-dir>/gui-state.json`；完整归属见 [FILE_LAYOUT.md](../FILE_LAYOUT.md)。
 
 ## 目标
 

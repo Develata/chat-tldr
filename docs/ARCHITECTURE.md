@@ -17,20 +17,24 @@ chat-tldr 与“把聊天记录直接丢给通用 LLM 总结”的区别，决�
 
 ## 2. 仓库结构
 
+目录、运行文件和清理边界统一见 [FILE_LAYOUT.md](FILE_LAYOUT.md)。这里保留模块及依赖关系；分工按 ROADMAP 顶部的用户更新执行。
+
 Cargo workspace：
 
 | 路径 | crate 名 | 类型 | 负责人 | 职责 |
 |---|---|---|---|---|
 | `crates/core` | `chat-tldr-core` | lib | @Develata | 共享类型（冻结）：UnifiedMessage、Insight、CliEvent、AgentAction 及其子类型；`ImportBatch` |
-| `crates/qce` | `chat-tldr-qce` | lib | 同学 A | QCE JSON → `ImportBatch`（UnifiedMessage 列表 + 会话元数据） |
+| `crates/qce` | `chat-tldr-qce` | lib | Codex，@Develata 审核 | QCE JSON → `ImportBatch`（UnifiedMessage 列表 + 会话元数据） |
 | `crates/engine` | `chat-tldr-engine` | lib | @Develata | 存储、渲染、切分、Decider/LLM/Embedder、抽取、校验、排序、控制器 |
-| `crates/engine/src/temporal` | （engine 的模块） | | 同学 A | 截止日期规范化（纯函数） |
-| `crates/engine/src/verify` | （engine 的模块） | | 同学 A | 证据校验（纯函数） |
+| `crates/engine/src/temporal` | （engine 的模块） | | Codex，@Develata 审核 | 截止日期规范化（纯函数） |
+| `crates/engine/src/verify` | （engine 的模块） | | Codex，@Develata 审核 | 证据校验（纯函数） |
 | `apps/cli` | `chat-tldr`（二进制） | bin | @Develata | 命令解析、JSONL 输出、`--html` 渲染 |
-| `apps/gui` | `chat-tldr-gui` | bin | 同学 B | egui/eframe 面板，通过子进程调用 CLI |
-| `eval/` | `chat-tldr-eval` | bin | 同学 C | 标注数据、指标计算、实验脚本、演示数据 |
+| `apps/gui` | `chat-tldr-gui` | bin | Codex 实现，同学协助界面设计 | egui/eframe 面板，通过子进程调用 CLI |
+| `eval/` | `chat-tldr-eval` | bin | Codex 实现，资料准备按实际分工 | 标注数据、指标计算、实验脚本、演示数据 |
 | `fixtures/` | — | 数据 | @Develata 建立，各自补充 | 合成的 QCE 导出样例、mock JSONL、mock 模型响应 |
 | `docs/` | — | 文档 | @Develata | 本文档集 |
+
+另外预留 `apps/qce-manager/` 给同学实现 QCE 的获取、导出和管理组件；它尚未加入 workspace。该组件通过完成后的本地 JSON 文件与主 CLI 对接，不访问业务数据库，见 [任务边界](../apps/qce-manager/README.md)。
 
 依赖方向（箭头表示“依赖于”）：
 
@@ -77,7 +81,7 @@ flowchart TD
 
 ## 4. 模块边界
 
-### 4.1 `crates/qce`（对外接口，冻结给同学 A）
+### 4.1 `crates/qce`（主线导入适配器接口）
 
 ```rust
 pub fn parse_qce_json(bytes: &[u8], opts: &QceOptions) -> Result<ImportBatch, QceError>;
@@ -113,8 +117,8 @@ qce 不做 IO（不读文件、不访问数据库），这样测试只需要喂�
 | `llm` | `LlmClient` trait、OpenAI 兼容与 Anthropic 兼容两种实现、Mock |
 | `embed` | `Embedder` trait、`OpenAiCompatEmbedder`、`TfIdfEmbedder`、Mock |
 | `extract` | 话题抽取提示词、输出 schema、MentionMe 生成 |
-| `temporal` | 截止日期规范化（同学 A） |
-| `verify` | 证据校验（同学 A） |
+| `temporal` | 截止日期规范化 |
+| `verify` | 证据校验 |
 | `rank` | 分层、先验分、偏好权重 |
 | `agent` | 观测、规则、Jev 选择、执行、检查点 |
 | `cache` | 缓存键、读写、用量统计 |
@@ -177,6 +181,7 @@ qce 不做 IO（不读文件、不访问数据库），这样测试只需要喂�
 
 ## 8. 相关文档
 
+- 文件布局与运行数据：[FILE_LAYOUT.md](FILE_LAYOUT.md)
 - 类型与表结构：[DATA_MODEL.md](DATA_MODEL.md)
 - 命令与事件：[CLI_PROTOCOL.md](CLI_PROTOCOL.md)
 - 算法与规则：[PIPELINE.md](PIPELINE.md)

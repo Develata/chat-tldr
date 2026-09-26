@@ -1,14 +1,14 @@
 # 数据模型（DATA_MODEL）
 
-> 用途：冻结跨模块共享的四个类型（UnifiedMessage、Insight、CliEvent、AgentAction），并给出 SQLite 表结构草案。
+> 用途：定义跨模块共享的四个类型（UnifiedMessage、Insight、CliEvent、AgentAction）及 SQLite 字段含义。
 > 读者：全体成员。qce 适配器、GUI、eval 都只依赖这里定义的类型。
 
 ## 0. 冻结规则
 
 - 本文 §2–§5 的类型实现在 `crates/core`，**冻结后只有 @Develata 能修改**。
 - 任何修改必须：① 升级 `schema_version`（见 [CLI_PROTOCOL.md](CLI_PROTOCOL.md) §6 版本规则）；② 同步更新本文；③ 在群里通知。
-- 其他人发现类型不够用：开 issue 或在群里提，不要自己改 `crates/core`（CODEOWNERS 会拦）。
-- Rust 结构体只是草案，放在文档里；实际源码由 @Develata 在第 1 天上午写入 `crates/core`。
+- 其他人发现类型不够用：开 issue 或在群里提，交由 @Develata 审核后修改 `crates/core`。CODEOWNERS 提示审阅归属，不是文件权限隔离；是否强制审阅取决于分支规则。
+- 共享类型已实现在 `crates/core/src/{ids,message,insight,agent,protocol}.rs`，从 crate 根重导出。2026-09-26 用户采纳 CLI v1 评审稿，本次作为首次 `1.0` 冻结；尚未有已发布的旧协议使用方。
 - `crates/core` 里还有一些辅助类型（`ImportBatch`、`ChatMeta`、各事件的 payload 结构体），定义见 [ARCHITECTURE.md](ARCHITECTURE.md) §4.1 和 [CLI_PROTOCOL.md](CLI_PROTOCOL.md) §3，同样只由 @Develata 修改。
 
 ## 1. 通用约定
@@ -20,6 +20,7 @@
 | 概率/置信度 | `f32`，范围 [0, 1] |
 | 枚举序列化 | JSON 中用 `snake_case` 字符串（如 `"mention_me"`），Priority 例外，用 `"P0"`…`"P3"` |
 | 未知字段 | 反序列化时**忽略未知字段**（不要用 `deny_unknown_fields`），以支持 MINOR 版本向后兼容 |
+| 未知枚举 | 共享枚举用 `Unknown` 容纳新值，GUI 显示“其他”；不要将未知业务值当作已知操作执行 |
 | 可空字段 | JSON 中可为 `null`，Rust 中为 `Option<T>` |
 
 ### 1.1 ID 生成规则
@@ -39,7 +40,7 @@
 
 1. `qce:<id>`：QCE `messages[].id` 非空时使用；
 2. `seq:<seq>@<timestamp>`：`seq` 与 `timestamp` 都非空时使用；
-3. `hash:<blake3(sender.uid, timestamp, content.text)>`：兜底。
+3. `hash:<blake3(...)>`：兜底。把 `[sender.uid, timestamp, content.text]` 序列化为无额外空白的 JSON 数组，取其 UTF-8 字节计算 BLAKE3；使用数组编码分隔字段，避免字符串直接拼接产生歧义。
 
 数据库对 `(chat_id, source_identity)` 建唯一约束。`seq` **不保证连续**，只作为游标提示，不作为“没有漏消息”的证明。
 
@@ -53,6 +54,7 @@ pub struct Cursor { pub sent_at_ms: i64, pub ordinal: i64 }
 - `ordinal` 是 `messages` 表的自增主键 `pk`。排序键 `(sent_at_ms, ordinal)` 是全序：同一毫秒的两条消息也能比较。
 - 每个 chat 有三个游标（语义见 [PIPELINE.md](PIPELINE.md) §1）：`last_ingested`、`last_analyzed`、`last_reviewed`。
 - GUI 只把 Cursor 当作**不透明字符串**原样回传（`mark-read --up-to`），不要解析它。
+- `inbox.view_cursor` 是 `Option<Cursor>`，由同一读快照的连续 `done/skipped` 前缀计算，不能跨越 `failed/pending`，不存在时为 `null`。它不是第四个持久化游标，也不直接等同于 `last_analyzed`。
 
 ### 1.4 RenderProfile（渲染视图）
 
@@ -106,6 +108,8 @@ qce 适配器的输出，也是 engine 的输入。一个 `UnifiedMessage` 对�
 | `system` / `json` / `location` / 其他 | `[<type>]`，**TODO(Q-QCE-2)**：各类型 `data` 的字段待按真实样本确认，确认后再决定是否输出其中的文字 |
 
 > 依据：QCE `qq-chat-export-server/src/parser/simple_parser.rs`、`qq-chat-export-core/src/types.rs`，commit `7fcca88`（2026-09-11）。
+
+当 `content.elements` 缺失或为空而 `content.text` 非空时，保留该原文并输出导入警告。此时无法从原文可靠重建结构化 mentions/attachments，不根据昵称或文本猜测身份。合成样例及当前覆盖范围见 [fixtures/qce/README.md](../fixtures/qce/README.md)。
 
 ### 2.2 子类型
 
@@ -185,6 +189,22 @@ pub struct SourceMeta {
 `MentionTarget` 的 JSON 形式：`{"type":"all"}` 或 `{"type":"user","uid":"u_…","uin":"12345"}`。
 
 ---
+
+### 2.4 导入交接类型
+
+`ImportBatch` / `ChatMeta` 沿用 [ARCHITECTURE.md](ARCHITECTURE.md) §4.1。`warnings` 为 `Vec<String>`，由 CLI 转为结构化 warning；`QceOptions` 属于 qce crate，不属于跨模块协议。别名记录为：
+
+```rust
+pub struct AliasObservation {
+    pub person_id: PersonId,
+    pub alias: String,
+    pub kind: AliasKind,
+}
+pub enum AliasKind { Name, Nickname, GroupCard, Remark, Unknown }
+pub enum ChatKind { Group, Private, Unknown }
+```
+
+导入参数中的 self_uid/self_uin 由 CLI/engine 处理：显式值与已有身份冲突则拒绝；未提供时保留已存身份，新会话回退到文件元数据。解析器不负责切换会话身份。
 
 ## 3. Insight
 
@@ -303,7 +323,6 @@ CLI 在 stdout 上输出的每一行都是一个 CliEvent（JSON Lines）。完�
 | `payload` | `object` | 事件内容 | 结构由 `event` 决定 |
 
 ```rust
-#[serde(tag = "event", content = "payload", rename_all = "snake_case")]
 pub enum EventBody {
     Progress(ProgressPayload),
     Decision(DecisionPayload),
@@ -318,6 +337,7 @@ pub enum EventBody {
     Warning(WarningPayload),
     Error(ErrorPayload),
     Done(DonePayload),
+    Unknown { event: String, payload: serde_json::Value },
 }
 pub struct CliEvent {
     pub schema_version: String,
@@ -328,7 +348,7 @@ pub struct CliEvent {
 }
 ```
 
-GUI 反序列化时遇到未知的 `event` 值应忽略该行（并写日志），不能崩溃。
+`EventBody` 使用按事件名称分派的自定义 serde 实现，JSON 仍为 `event` / `payload`。未知事件保留原名称与对象 payload，GUI 可以略过并写日志；已知事件缺少必需字段或字段类型错误必须报错，不能被宽松兜底误当作未知事件。`EventStreamValidator` 检查版本主号、run_id、连续 seq、末尾唯一 done 和进程退出码。JSONL payload 与合成样例由 core 集成测试验证。
 
 ```json
 {"schema_version":"1.0","run_id":"r_20260926T090112_4b1e","seq":0,"event":"progress","payload":{"stage":"import","current":0,"total":1532,"message":"读取导出文件"}}
@@ -386,11 +406,12 @@ JSON 示例：
 
 ---
 
-## 6. SQLite 表结构草案
+## 6. SQLite 表结构与迁移
 
 > 只有 CLI（`crates/engine` 的 store 模块）访问数据库，GUI 永远不直接读写。
 > 连接参数：`journal_mode=WAL`、`busy_timeout=5000`、`foreign_keys=ON`；所有写操作在事务中完成。
 > 迁移：`meta.db_version` 整数 + 启动时按序执行迁移脚本。
+> 可执行 SQL 以 [`crates/engine/migrations/0001_initial.sql`](../crates/engine/migrations/0001_initial.sql) 为准；下方是字段说明。建立全套表不代表分析、反馈等用例已实现，当前命令能力以 CLI version 为准。
 
 ```sql
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);   -- db_version 等
@@ -469,7 +490,7 @@ CREATE TABLE evidence (
 );
 
 CREATE TABLE feedback (
-  feedback_id INTEGER PRIMARY KEY, insight_id TEXT NOT NULL,
+  feedback_id INTEGER PRIMARY KEY, insight_id TEXT NOT NULL UNIQUE,
   label TEXT NOT NULL,                    -- useful | not_important
   created_at TEXT NOT NULL
 );
@@ -515,5 +536,6 @@ CREATE TABLE usage (
 
 说明：
 - `body_json` 存完整的冻结类型，常用字段另外拆列以便查询。以 `body_json` 为准。
+- `feedback` 每个 insight 仅一条当前有效评价；相同值重复设置无业务变化，切换值替换旧评价，不增加有效票数。如需审计历史，另设历史表，不能把审计行全部计入偏好权重。
 - `runs.status = running` 但 `heartbeat_at` 超过 60 秒未更新的，下次启动时标为 `cancelled`（GUI 可能直接杀掉子进程）。
 - 同一 chat 同时只允许一个 `analyze` 运行；第二个会得到错误码 `E_RUN_IN_PROGRESS`。

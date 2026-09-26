@@ -3,6 +3,8 @@
 > 用途：说明从 UnifiedMessage 到 Insight 的每一步算法、规则、阈值和不变量。
 > 读者：@Develata（engine 实现）、同学 A（`temporal`、`verify` 两个模块）、同学 C（评估时需要理解每个阶段）。类型定义见 [DATA_MODEL.md](DATA_MODEL.md)。
 
+> 状态：本文是流水线实现契约，不是全量实现报告。基础导入与查询先行；模型、控制器、证据校验、反馈和收件箱按主线计划继续实现。实际可用命令由 `version.capabilities` 报告。
+
 所有阈值都是**初始值**，汇总在 `config.toml` 的 `[segment]` 节（见 [CLI_PROTOCOL.md](CLI_PROTOCOL.md) §7），待用标注数据调优（[OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) Q-TH-1）。
 
 ## 0. 总览
@@ -38,6 +40,8 @@ QCE JSON ─▶ qce 适配器 ─▶ UnifiedMessage ─▶ import（去重、游
 
 游标类型是 `Cursor(sent_at_ms, ordinal)`，见 DATA_MODEL §1.3。
 
+`last_analyzed` 的“已了结”允许 failed，只用于分析进度；它不是安全已读边界。`inbox.view_cursor` 从同一快照计算连续 `done/skipped` 前缀的末尾，不能越过 failed/pending，无安全位置时为 null。GUI 只回传已完整显示的非空 view_cursor，CLI 还须校验会话归属和安全上界。
+
 **消息的分析状态** `messages.analysis_state`：
 
 | 值 | 含义 | 何时设置 |
@@ -62,7 +66,8 @@ QCE JSON ─▶ qce 适配器 ─▶ UnifiedMessage ─▶ import（去重、游
 
 - `analyze` 默认处理全部待切分消息和脏话题（即“自上次分析以来”的增量）。话题状态随之持续维护，不会每次从头重算。
 - “自上次查看以来”是**收件箱的展示窗口**（§7.4），不是分析范围。
-- `--since/--until` 只用于评估和调试，限制哪些待切分消息参与本次运行。
+- `--since/--until` 使用带偏移的 RFC 3339，按 `[since, until)` 限制本次可处理消息；启动时固定快照，期间新增消息留待下次。范围外消息可作上下文，不能随之推进分析状态。这与 `MessageRange(after, up_to]` 的 Cursor 约定不同。
+- `--dry-run` 仅输出只读计划，不联网、不写数据库/缓存、不推进任何游标。没有工作时正常结束，不调用模型。
 
 ### 1.3 结论生命周期
 
@@ -73,6 +78,8 @@ QCE JSON ─▶ qce 适配器 ─▶ UnifiedMessage ─▶ import（去重、游
 ## 2. 预处理与渲染
 
 ### 2.1 导入时（qce 适配器 + import）
+
+多文件 import 是单个原子批次，任一文件无效则全部回滚。提交后才发出 ack（去重排序后的 chat_ids），输入文件本身始终只读。显式自身身份不能与已存值冲突，未提供时保留已存身份，新会话才回退文件元数据。
 
 | 情况 | 处理 |
 |---|---|
@@ -309,7 +316,7 @@ pub fn normalize(raw: &str, anchor: DateTime<FixedOffset>) -> TemporalConstraint
 - `target = All`（@全体成员 视同 @我）；或
 - `target = User`，且 `uid == self_uid`，或者 `uin == self_uin`，或者 `uid == self_uin`（QCE 可能把 QQ 号放进 uid）。
 
-`self_uid`/`self_uin` 来自导出文件的 `chatInfo`，或者命令行参数 `--self-uid`/`--self-uin`。两者都没有时，所有消息都不算“@我”，并发出 `W_SELF_ID_MISSING`。
+`self_uid`/`self_uin` 是 import 时保存的会话身份；显式参数优先，缺少显式值时保留已存值，新会话回退导出元数据。两者都没有时，个人 @ 无法判断并发出 `W_SELF_ID_MISSING`；`target = All` 仍算“@我”。昵称不参与身份判断。
 
 对 @我 的消息，如果它没有被同话题的 Todo、Announcement、Decision 结论引用为证据，就生成一条 `MentionMe` 结论，证据就是这条消息本身（quote 取渲染文本的前 60 个字符）。
 
@@ -397,10 +404,11 @@ pub fn find_quote(haystack: &str, quote: &str) -> Option<(usize, usize)>;
 这是**在线偏好校准，不是训练推荐模型**：只调整少数几个特征的权重，幅度有上限，并且会向先验回归。
 
 - 特征：`kind:<kind>`、`topic:<topic_id>`、`sender:<首条证据的发送者>`、`has_deadline:<bool>`。
-- 反馈 `y = +1`（有用）或 `−1`（不重要）。对该结论命中的每个特征：
+- 每个结论只有一个当前有效评价：`y = +1`（有用）或 `−1`（不重要）。相同评价重复提交无变化；切换评价替换旧值，不算两次有效反馈。对有效评价涉及的每个特征，初始更新式为：
   `w ← clamp((1 − λ)·w + η·y, −0.5, 0.5)`，其中 `η = 0.2`，`λ = 0.05`。
 - 每次 `analyze` 开始时，所有权重乘以 `(1 − λ)`，即向 0（先验）回归。
 - `rank_score = rank_prior + clamp(mean(命中特征的 w), −0.5, 0.5)`。
+- 更换或删除评价后必须依据当前有效集合重算或撤销旧贡献，不能直接再累加一票；具体重算顺序和衰减记录在实现该模块时固定并测试。审计历史不能直接作为有效票集。
 - **不变量**：层级只由 §7.1 决定，反馈永远不能把 P0 降级；“不重要”只会让结论在 P0 层内靠后。
 
 ### 7.4 收件箱内容（`inbox` 命令）
@@ -411,7 +419,9 @@ pub fn find_quote(haystack: &str, quote: &str) -> Option<(usize, usize)>;
 2. `priority = P1` 且截止日期未过；
 3. 至少一条证据消息晚于 `last_reviewed`（即“自上次查看以来”的窗口）。
 
-`view_cursor = last_analyzed`：用户看到的是分析过的内容，因此 `mark-read` 最多推进到这里，还没分析的消息不会被标为已读。
+`view_cursor: Option<Cursor>` 是本次快照中连续 `done/skipped` 前缀的末尾，不直接取 `last_analyzed`；不能越过 `pending/failed`。没有安全位置时返回 null，GUI 禁用标为已读。CLI 检查合法位置，但不把 Cursor 当成用户确实阅读过界面的凭证。
+
+`--all` 关闭上述展示窗口，生命周期/校验过滤仍独立生效。元数据、计数、topic、insight 和可选 HTML 均来自同一读快照；排序按 P0–P3、层内分数降序、InsightId 升序。查询不写数据库。
 
 已知且接受的行为：展示窗口按消息的 `sent_at` 判断。回填进来的、早于 `last_reviewed` 的消息，其 P2/P3 结论不会出现在默认视图中（P0 与未过期的 P1 不受影响）。
 
@@ -431,8 +441,8 @@ GUI 三栏：“需要你处理”= P0，“值得知道”= P1，“其他话�
 |---|---|---|---|
 | R0 | `steps_taken ≥ max_steps` / `cost_usd ≥ budget_usd` / 收到取消 | `Finish(MaxSteps / BudgetExceeded / Cancelled)` | — |
 | R1 | `pending_verification > 0` | `Verify(全部草稿结论)` | — |
-| R2a | `pending ≤ direct_max(60)` 且 `interleave < 0.2` | `AnalyzeDirect` | — |
-| R2b | `pending ≤ direct_max` 且 `interleave ≥ 0.2` | `AnalyzeDirect`、`Segment` | `Segment` |
+| R2a | `0 < pending ≤ direct_max(60)` 且 `interleave < 0.2` | `AnalyzeDirect` | — |
+| R2b | `0 < pending ≤ direct_max` 且 `interleave ≥ 0.2` | `AnalyzeDirect`、`Segment` | `Segment` |
 | R2c | `pending > direct_max` | `Segment`（每步最多处理 300 条） | — |
 | R3 | `dirty_topics > 0` 或 `merge_candidates > 0` | `AnalyzeTopic(信号最强的脏话题)`，以及存在合并候选时的 `MergeTopics(最佳一对)` | 互相指向的回复边 ≥ 3 时选 `MergeTopics`，否则选 `AnalyzeTopic` |
 | R4 | 以上都不满足 | `Finish(Done)` | — |
@@ -443,20 +453,11 @@ GUI 三栏：“需要你处理”= P0，“值得知道”= P1，“其他话�
 - **草稿结论**：`AnalyzeTopic` / `AnalyzeDirect` 的输出先作为草稿保存在本次运行的内存中，`pending_verification` 就是草稿数。`Verify` 处理全部草稿：通过的写入数据库（`verified` 或 `unverified`），不通过的重试一次，仍不通过的以 `rejected` 写入。之后草稿数归零。已经存进数据库的 `unverified` 结论**不算**草稿，不会再次触发 R1。进程在两步之间被杀时草稿丢失，对应话题仍是脏话题，下次重新抽取（有缓存，不会重复付费）。
 - 单个话题抽取失败（重试后仍失败）：该话题本次的待分析消息 `analysis_state` 标为 `failed`，不再算作脏话题，本次运行最终状态为 `partial`。**下次 `analyze` 开始时**，`failed` 恢复为 `pending`，重试一次。
 
-### 8.3 终止性
+### 8.3 有界执行与待验证的终止性
 
-除 R0 的硬上限外，循环也一定会结束。按字典序比较四元组
+必须实施的边界是正整数 `max_steps`、请求超时和有限次重试、取消检查，以及在请求前预留的费用预算。每个已执行动作（含失败动作）计入 steps；达到上限后结束为 partial，保存已有检查点。这些约束仍需在控制器实现与测试中逐项验证，不能由文档直接视为已实现。
 
-`(待切分消息数, 活跃话题数, 合并候选数 + 脏话题数, 草稿结论数)`，
-
-每个动作都会让它严格减小（只要求字典序减小，排在后面的分量可以增加）：
-- `Segment`、`AnalyzeDirect`：第一项减小（可能新建话题、产生草稿，都在后面的分量）；
-- `MergeTopics` 成功：第一项不变，活跃话题数减 1；
-- `MergeTopics` 被 Jev 否决：前两项不变，这一对被记住、不再提议，合并候选数减 1；
-- `AnalyzeTopic`（成功或失败）：前两项不变，合并候选不变，脏话题数减 1（失败时消息标为 `failed`，同样不再是脏话题）；
-- `Verify`：前三项不变，草稿数归零。
-
-话题因超时自动关闭只会让活跃话题数减少，不影响上述结论。`max_steps`（默认 64）和 `budget_usd`（默认 0.50 美元）是额外的安全上限。
+早期草稿提出按 `(待切分消息数, 活跃话题数, 合并候选数 + 脏话题数, 草稿结论数)` 字典序递减，但当前状态定义不足以成立：AnalyzeTopic 成功后尚未 Verify 提交，消息仍是 pending，脏话题数未减少而草稿数增加。因此撤回“每个动作都严格减小、无硬上限也必终止”的断言。后续实现必须明确抽取中/待校验状态、空抽取结果和合并后的候选更新，再给出与实际状态机一致的论证；本轮不声称完成该证明。
 
 ### 8.4 检查点
 

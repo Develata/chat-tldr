@@ -1,0 +1,47 @@
+timezone = "+08:00"
+
+[jev]
+base_url = "https://api.typesafe.ai"
+model = "jev-1.13.0"                 # 固定版本，避免 jev-latest 漂移导致阈值失效
+api_key_env = "TYPESAFE_API_KEY"
+timeout_secs = 30
+
+[llm]                                # 团队统一配置（Q-LLM-1）：DeepSeek 官方 API
+api_format = "openai"                # "openai" | "anthropic"；DeepSeek 两种都支持
+base_url = "https://api.deepseek.com"          # anthropic 格式为 https://api.deepseek.com/anthropic
+model = "deepseek-flash"
+api_key_env = "CHAT_TLDR_LLM_API_KEY"
+temperature = 0.0
+json_mode = true                     # 仅 openai 格式：response_format = {"type":"json_object"}
+extra_body = { thinking = { type = "disabled" } }   # 原样合并进请求体；关闭 thinking 以便 temperature 生效
+price_input_per_mtok = 0.30          # 按高峰价估算（缓存未命中）；非高峰为一半，缓存命中 0.006
+price_output_per_mtok = 1.20
+timeout_secs = 120
+
+[embedding]                          # 可选；不配置则不启用 embedding 粗筛
+# base_url = "..."                   # OpenAI 兼容的 /embeddings
+# model = "..."
+# api_key_env = "CHAT_TLDR_EMBED_API_KEY"
+
+[agent]
+max_steps = 64
+budget_usd = 0.50
+direct_max = 60                      # 积压 ≤ 此值时允许 AnalyzeDirect
+direct_interleave_max = 0.2
+segment_batch = 300                  # 每个 Segment 步最多处理的消息数
+
+[segment]                            # 初始值，均待标注数据调优，见 OPEN_QUESTIONS
+weak_gap_secs = 300
+strong_gap_secs = 1800
+same_sender_join_secs = 60
+burst_max_messages = 20
+topic_close_secs = 21600
+tau_high = 0.60
+tau_low = 0.25
+candidate_k = 5
+all_candidates_max = 40
+state_token_budget = 24000
+alpha = 0.6                          # 候选分：embedding 余弦（未配置 embedding 时视为 0）
+beta = 0.3                           # 候选分：回复/@ 连边
+gamma = 0.1                          # 候选分：时间衰减
+sim_threshold = 0.35                 # 仅 sim-tfidf / sim-embed 基线使用

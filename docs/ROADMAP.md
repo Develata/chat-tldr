@@ -3,7 +3,23 @@
 > 用途：3 天的任务清单（按人拆分，可勾选）、里程碑、砍需求的顺序、降级预案，以及非目标与未来工作。
 > 读者：全体成员。每天开始和结束时对照一次。
 
+## 当前安排（2026-09-26 用户更新）
+
+- **实际交付截止：2026-09-27 23:59，America/Santiago（UTC−3）。**
+- 主线编码（包含 QCE JSON 导入适配器）主要由 Codex 承担，Develata 参与设计与架构审核；三位同学尚未开工，先承担 QCE 的拉取、下载、清理与集成管理、GUI 设计等外围任务。QCE 管理组件向主线交付本地导出文件路径。下方 A/B/C 的原始完整分工是参考方案，后续按实际分配调整。
+- CLI 与文件布局草案已经用户批准，见 [CLI_V1_REVIEW.md](CLI_V1_REVIEW.md)。**当前分工以 [TEAM_ASSIGNMENTS.md](TEAM_ASSIGNMENTS.md) 为准**：Codex 主线编码，A 做 QCE 管理，B 做 GUI 设计，C 做合成场景与验收材料；字母仍未绑定真实账号。
+- 文件存放与组件读写归属见 [FILE_LAYOUT.md](FILE_LAYOUT.md)；QCE 管理组件预留在 `apps/qce-manager/`，主线导入适配器保持在 `crates/qce/`。
+- 下方“第 1/2/3 天”是原始相对计划，不代表在实际截止日期之后另有开发时间。
+
 各人详细的任务说明见 [tasks/](tasks/)。
+
+### 首批初始化的实际范围
+
+- 已写入：六成员 workspace 与 Cargo.lock、core 协议类型/流校验、QCE JSON 适配器、engine 配置/SQLite 迁移/原子导入/查询、CLI `version/config init/doctor/import/chats/messages`、合成样例和测试。
+- 评估工具先提供 `check-stream` 协议文件校验；分析指标尚未实现。GUI 仍是明确报未实现的占位入口。
+- CI job 名固定为 `fmt`、`clippy`、`test`；fmt 在 Linux，编译检查与测试在 Windows，覆盖主要交付平台。Linux/macOS GUI 构建尚未验证。
+- 后续优先：模型 mock/客户端、temporal/verify、控制器与分析/收件箱/反馈/已读命令，再接 GUI 和评估。
+- 下方原始多日清单保留作范围参考，其未勾选项不代表上方首批代码不存在；当前状态以这里和实际测试为准。
 
 ## 里程碑
 
@@ -26,7 +42,7 @@
 - [ ] `fixtures/`：2 份合成的 QCE 导出（有重叠，含 @全体成员、回复、撤回、图片、合并转发、系统消息）、`fixtures/jsonl/` 下的 mock 输出（`analyze.jsonl`、`inbox.jsonl`、`chats.jsonl`、`messages.jsonl`）
 - [x] 分支保护（ruleset “Protect main”，已配置）：Restrict updates / deletions；必须经 PR；0 个必需审核；只允许 squash；线性历史；禁止 force push；仓库管理员始终可绕过。按 GitHub 文档，Restrict updates 表示只有具备 bypass 权限的用户能更新 main，合并 PR 预计也受此限制，因此预计只有 @Develata 能合并。待办：用一位同学的账号开一个测试 PR 实测；如果同学也能合并，就把“只由 @Develata 合并”作为约定写进群公告
 - [ ] CI 合入后，在 ruleset 中加必需状态检查 `fmt`、`clippy`、`test`：`ci.yml` 中三个 job 的名字必须**正好**是这三个
-- [ ] 把三位同学加为仓库 collaborator（Write 权限），把 CODEOWNERS 里的占位符换成真实用户名
+- [ ] 把三位同学加为仓库 collaborator（Write 权限），确认实际任务后把真实用户名追加到 CODEOWNERS 的对应路径
 - [ ] 在群里通知：类型已冻结，`schema_version = 1.0`
 
 **同学 A**
@@ -123,7 +139,7 @@
 
 ## 非目标
 
-- 内嵌 QCE 或依赖 NapCat 实时抓取；微信支持；实时机器人
+- 将 QCE 源码链接进主程序，或由主线自行实现 NapCat 实时抓取；微信支持；实时机器人。独立 QCE 管理组件可由同学提供，并通过导出文件与主线集成
 - 向量数据库、RAG、Agent 框架（如 Rig、LangChain）、模型微调、训练话题切分模型
 - 纯本地模式（Jev 是云服务）
 - 完整的中文时间解析库（只做高频规则）

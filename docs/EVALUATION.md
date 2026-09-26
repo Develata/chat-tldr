@@ -152,21 +152,23 @@ B0、B1 本身不做证据校验。评估时对它们的输出**事后**运行�
 
 每个系统使用独立的数据目录，避免缓存和状态互相影响。
 
+按 [FILE_LAYOUT.md](FILE_LAYOUT.md) 存放：`runs/<experiment-id>/<system>/profile/` 是 CLI 的 `--data-dir`，上一层保存供评分使用的 JSONL。下面用 `exp-01`、`course-demo` 作为示例实验/数据集 ID；先准备好对应的输出目录。
+
 ```bash
 # 1. 导入（每个系统一份独立的数据目录）
-chat-tldr --data-dir eval/private/runs/ours import eval/private/data/group.json
+chat-tldr --data-dir eval/private/runs/exp-01/ours/profile import eval/private/data/course-demo/group.json
 # 2. 分析，保存 JSONL
-chat-tldr --data-dir eval/private/runs/ours analyze --chat <CHAT_ID> --strategy ours --decider jev > eval/private/runs/ours/analyze.jsonl
-chat-tldr --data-dir eval/private/runs/ours inbox --chat <CHAT_ID> --include-rejected > eval/private/runs/ours/inbox.jsonl
-chat-tldr --data-dir eval/private/runs/ours messages --chat <CHAT_ID> > eval/private/runs/ours/messages.jsonl
-chat-tldr --data-dir eval/private/runs/ours jev-log --run <RUN_ID> > eval/private/runs/ours/jev.jsonl
+chat-tldr --data-dir eval/private/runs/exp-01/ours/profile analyze --chat <CHAT_ID> --strategy ours --decider jev > eval/private/runs/exp-01/ours/analyze.jsonl
+chat-tldr --data-dir eval/private/runs/exp-01/ours/profile inbox --chat <CHAT_ID> --include-rejected > eval/private/runs/exp-01/ours/inbox.jsonl
+chat-tldr --data-dir eval/private/runs/exp-01/ours/profile messages --chat <CHAT_ID> > eval/private/runs/exp-01/ours/messages.jsonl
+chat-tldr --data-dir eval/private/runs/exp-01/ours/profile jev-log --run <RUN_ID> > eval/private/runs/exp-01/ours/jev.jsonl
 # 3. 打分
-chat-tldr-eval score --gold eval/private/gold --run eval/private/runs/ours --out eval/private/results/ours.csv
-chat-tldr-eval calibrate --gold eval/private/gold --jev eval/private/runs/ours/jev.jsonl --out eval/private/results/calibration_ours.png
+chat-tldr-eval score --gold eval/private/gold/course-demo --run eval/private/runs/exp-01/ours --out eval/private/results/exp-01/ours.csv
+chat-tldr-eval calibrate --gold eval/private/gold/course-demo --jev eval/private/runs/exp-01/ours/jev.jsonl --out eval/private/results/exp-01/calibration_ours.png
 ```
 
 - 其他系统只需替换 `--strategy` / `--decider` 和目录名。
-- 汇总表：`chat-tldr-eval summarize eval/private/results/*.csv > eval/private/results/summary.md`。
+- 汇总表：`chat-tldr-eval summarize eval/private/results/exp-01/*.csv > eval/private/results/exp-01/summary.md`。
 - 结果表中只放聚合数字，**不放消息原文**，这样汇总表可以放进报告。
 
 ## 7. 报告里的结果表模板

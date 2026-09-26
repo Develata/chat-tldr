@@ -2,7 +2,7 @@
 
 **背景**：最初建议使用 `async-openai` + `schemars`。之后确定：不预设 LLM provider，由用户配置 `base_url`、`api_key` 以及接口格式，格式可以是 OpenAI 兼容或 Anthropic 兼容。并非所有兼容接口都支持严格的 `json_schema` 输出。
 
-**决策**（**偏离最初建议，需要 @Develata 确认**）
+**决策**（已接受，见 OPEN_QUESTIONS Q-DEC-1；客户端仍按主线计划实现）
 - 不使用 `async-openai`。用 `reqwest` 自写两个最小客户端：`OpenAiCompatClient`（`POST {base_url}/chat/completions`）和 `AnthropicCompatClient`（`POST {base_url}/v1/messages`），都实现 `LlmClient` trait。Jev 与 embedding 也用同一个 `reqwest` 客户端。
 - 输出约束统一处理：用 `schemars` 生成 schema 写进提示词，用 `serde` 校验，失败重试一次。
 - 使用**同步 IO**（`reqwest::blocking`），不引入 async/tokio。
