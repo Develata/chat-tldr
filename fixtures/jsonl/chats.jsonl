@@ -1,0 +1,2 @@
+{"schema_version":"1.0","run_id":"r_20260926T120100_0002","seq":0,"event":"chat","payload":{"chat_id":"qq:group:synthetic-course","display_name":"合成课程群","kind":"group","last_ingested":"1790416800000:2","last_analyzed":null,"last_reviewed":null,"unreviewed_messages":2,"open_p0":0}}
+{"schema_version":"1.0","run_id":"r_20260926T120100_0002","seq":1,"event":"done","payload":{"status":"complete","exit_code":0,"elapsed_ms":2}}

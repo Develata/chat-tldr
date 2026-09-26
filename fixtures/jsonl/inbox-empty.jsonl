@@ -1,0 +1,2 @@
+{"schema_version":"1.0","run_id":"r_20260926T120200_0003","seq":0,"event":"inbox","payload":{"chat_id":"qq:group:synthetic-course","view_cursor":null,"last_reviewed":null,"counts":{"P0":0,"P1":0,"P2":0,"P3":0},"rejected_insights":0,"generated_at":"2026-09-26T20:02:00+08:00"}}
+{"schema_version":"1.0","run_id":"r_20260926T120200_0003","seq":1,"event":"done","payload":{"status":"complete","exit_code":0,"elapsed_ms":2}}
