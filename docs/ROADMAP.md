@@ -19,9 +19,9 @@
 - 本轮完成 CLI 基础闭环：`analyze`、带原文证据的 `inbox`、`feedback`、`resolve`、`mark-read`，以及 `analyze --html` / `inbox --html`。已读只推进到收件箱返回的安全前缀；反馈替换当前评价，排序调整有界且不改变优先级。
 - 分析包含基础话题分配、结构化抽取、时间规范化、证据校验、规则 @我 和 P0–P3 排序。同步 Jev / DeepSeek 客户端、OpenAI / Anthropic 兼容接口及 Mock 已实现；网络协议与异常路径通过本地假服务器验证，未以真实云调用替代测试。
 - SQLite 保存按话题提交的检查点、模型响应缓存、决策和用量。未完成消息可继续分析；步数、费用预估、超时、有限重试和取消约束执行。`analyze --dry-run` 无需密钥，只读、不联网、不写缓存。
-- QCE Docker 字段核对与导出说明见 [QCE_DOCKER_EXPORT.md](QCE_DOCKER_EXPORT.md)，对应 [template-docker-export.json](../fixtures/qce/template-docker-export.json) 为手写合成模板。实际输入需在 QCE 选择 JSON、关闭流式导出、完成后下载到本机；真实容器导出尚未验收。
+- QCE Docker 字段核对与导出说明见 [QCE_DOCKER_EXPORT.md](QCE_DOCKER_EXPORT.md)，对应 [template-docker-export.json](../fixtures/qce/template-docker-export.json) 为手写合成模板。本机容器的 CRLF 入口重启故障已用独立修复镜像恢复，6099 页面可访问；QQ 登录、QCE 服务启动和 40653 实际发布仍待复核，真实容器导出尚未验收。完整单文件下载后，可用 `scripts/verify-qce.ps1` 验证重复导入、消息计数、协议与游标，见 [ACCEPTANCE](ACCEPTANCE.md)。
 - 实际调用模型需要环境变量密钥；聊天原文会发送到配置的云服务。无密钥预演、配置及 HTML 导出示例见 [README](../README.md)。
-- CI 必需检查名保持 `fmt`、`clippy`、`test`。fmt 在 Linux；clippy 和 test 各按 core/qce/engine/cli/gui/eval 六模块在 Windows 并行，`fail-fast: false`，使用 `--locked`。另有 Linux CLI/eval 检查和测试，验证 POSIX 上 gold 目录发布的并发保护与 HTML 路径别名。每次 PR/main push 全量覆盖六模块，公共依赖变更自然覆盖下游；共享规划脚本 `scripts/ci/modules.ps1` 校验 workspace 成员，新增包未登记时失败。汇总检查只接受规划、全部模块及 Linux CLI/eval 成功，失败、取消或意外跳过均不能通过。外部 Actions 固定 40 位提交，工作流仅申请只读权限。实际远程运行结果另行核验；Linux/macOS GUI 构建尚未验证。
+- CI 必需检查名保持 `fmt`、`clippy`、`test`。fmt 在 Linux；clippy 和 test 各按 core/qce/engine/cli/gui/eval 六模块在 Windows 并行，`fail-fast: false`，使用 `--locked`。Linux CLI/eval 检查 POSIX 发布保护、HTML 路径别名并运行合成离线验收脚本；macOS 将 CLI、GUI、eval 三模块并行检查和测试。每次 PR/main push 全量覆盖六模块，公共依赖变更自然覆盖下游；共享规划脚本 `scripts/ci/modules.ps1` 校验 workspace 成员，新增包未登记时失败。汇总检查只接受规划、全部 Windows 模块、Linux 及 macOS 检查成功，失败、取消或意外跳过均不能通过。外部 Actions 固定 40 位提交，工作流仅申请只读权限。远程结果以当前提交为准；Linux GUI 构建、Linux/macOS 原生桌面交互仍待验收。
 - `stats/decisions/jev-log` 历史查询 CLI 已实现，查询不建库、不调用模型；新记录保存可重放的决策与真实 subject。旧记录缺失精确计数或归属时明确告警，不能用于伪造评估对齐。
 - 当前只支持 `--strategy ours`，它是基础闭环，**不代表完整 PIPELINE 策略已实现**。`MergeTopics`、控制器通过 Jev 选择下一步动作、embedding 候选筛选均未实现；动作选择目前使用确定性规则。
 - 原生 GUI 已通过 CLI 子进程接入导入、分析、收件箱、反馈/处理/已读和历史查询；Windows 合成数据联调、浅/深色及窄窗口截图和 egui 指针交互测试通过，详见 [GUI_VERIFICATION](GUI_VERIFICATION.md)。真实数据和云模型验收仍待完成。eval 已实现 `check-stream`、`export-sheet` / `import-sheet`，尚无 `score/calibrate/summarize`、基线比较或校准结果。QCE 管理组件仍由同学后续接入。

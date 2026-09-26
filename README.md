@@ -117,6 +117,8 @@ LLM 的 `base_url`、模型名和接口格式（`openai` / `anthropic`）在 `co
 
 导出步骤及已核对的上游字段见 [QCE_DOCKER_EXPORT](docs/QCE_DOCKER_EXPORT.md)。可先用 [fixtures/qce/template-docker-export.json](fixtures/qce/template-docker-export.json) 联调；它是按上游源码手写的 7 条合成消息，不能作为真实容器导出成功的证明。真实导出只保存在 `private/` 或数据目录，勿提交到仓库。
 
+下载完成后，可在 PowerShell 7.2+ 执行 `pwsh -NoProfile -File .\scripts\verify-qce.ps1 -InputFile 'C:\path\group.json'`。先用 `cargo build -p chat-tldr -p chat-tldr-eval --locked` 编译；脚本在新建私有目录中核对重复导入、JSONL 协议、消息数量和游标，保存可追溯回执，全程不调用模型。参数与真实云联调步骤见 [交付验收](docs/ACCEPTANCE.md)。
+
 ### 隐私
 
 程序和数据库都在本机，但聊天文本会发送给 Jev（TypeSafe）和你配置的 LLM（默认 DeepSeek）两个云服务，不做脱敏；图片不上传。仓库中不包含任何真实聊天记录或密钥。

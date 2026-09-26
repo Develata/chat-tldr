@@ -1,8 +1,26 @@
 # QCE Docker 导出模板与输入边界
 
-已核对本地源码 `E:/gitclone/qq-chat-exporter`，HEAD 为 `7fcca88880c2eb8c12c51c2b6cc49ee805a53d0c`，受检查的跟踪文件无工作区修改。核对只读取源码及 compose；未读取容器日志、登录令牌、真实聊天或导出文件，未操作容器。因此这里确认的是该源码的格式，尚未确认运行中的镜像、QQ 登录状态和真实导出成功与否。
+字段核对基于本地源码 `E:/gitclone/qq-chat-exporter`，HEAD 为 `7fcca88880c2eb8c12c51c2b6cc49ee805a53d0c`，受检查的跟踪文件无工作区修改。初次格式核对只读取源码及 compose；它确认该源码的格式，不证明真实导出成功。后续本机容器诊断与修复见下节。
 
 配套文件是 [template-docker-export.json](../fixtures/qce/template-docker-export.json)，共 7 条人工合成消息，可直接作为后续离线处理输入。
+
+## 本机启动修复与剩余缺口（2026-09-26）
+
+实际发现 `napcat-qce` 每次启动不足一秒便以 255 退出，处于重启循环。镜像中 `/docker-entrypoint-qce.sh` 存在且有 59 个 CRLF、没有单独 LF，日志重复报告 `exec /docker-entrypoint-qce.sh: no such file or directory`。这是 Windows 检出换行进入 Linux shebang 的问题，不是脚本真的缺失。
+
+本机已基于原镜像制作 `chat-tldr-qce-local:entrypoint-lf`，只运行 `sed -i 's/\r$//' /docker-entrypoint-qce.sh`。使用原 Compose 项目 `docker` 加本机 override 重建容器前，已比较解析后的配置，确认只有 image 改变；现有 QQ/QCE 数据卷与配置挂载保留。没有删除卷、修改上游实现源码或推送上游仓库。启动后观察到挂载的 `docker/config/napcat.json` 有运行时变更，未读取或回滚其内容，也不纳入本仓库提交。
+
+本机 Dockerfile 与 override 保存在 chat-tldr 的忽略目录 `private/qce-runtime/crlf-entrypoint/`。后续启动该修复版本使用：
+
+```powershell
+docker compose -p docker -f E:/gitclone/qq-chat-exporter/docker/docker-compose.yml -f E:/gitclone/chat-tldr/private/qce-runtime/crlf-entrypoint/compose.override.yml up -d --no-build napcat-qce
+```
+
+原 `docker-napcat-qce` 镜像保留；直接只用原 Compose 可能再次选回未修复镜像。上游长期修复应让 shell 脚本以 LF 检出或在镜像构建时规范化换行，再正常重新构建。
+
+修复后容器保持 running、重启计数为 0，`http://localhost:6099` 返回 HTTP 200。这**不等于 QCE 导出已就绪**：本轮尚无 `qce-server` 进程或容器内 40653 监听，且 Docker 的 40653 实际发布映射为空，虽然 Compose 声明了该端口。Windows 排除端口范围和已发现监听没有证明存在冲突。QQ 登录仍需用户在本机完成，然后分别复查服务启动与端口发布；不能将后者直接归因于未登录。
+
+诊断只向终端输出预定义错误类别、状态与端口信息，未输出登录令牌、二维码或聊天正文，未调用认证导出 API。真实 JSON 下载后用 [交付验收脚本](ACCEPTANCE.md) 验证；当前不能声称真实容器导出成功。
 
 ## 从现有界面取得输入
 

@@ -37,6 +37,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      macos-matrix: ${{ steps.plan.outputs.macos-matrix }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -44,11 +45,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
         with:
           toolchain: stable
-      - name: Validate workspace coverage and emit the shared matrix
+      - name: Validate workspace coverage and emit platform matrices
         id: plan
         run: |
           $matrix = & ./scripts/ci/modules.ps1
+          $macos = & ./scripts/ci/modules.ps1 -Platform macos
           "matrix=$matrix" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "macos-matrix=$macos" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
   clippy-modules:
     name: clippy (${{ matrix.module }})
@@ -117,12 +120,42 @@ jobs:
         run: cargo clippy -p chat-tldr -p chat-tldr-eval --all-targets --locked -- -D warnings
       - name: Test publication races and symbolic aliases on a POSIX filesystem
         run: cargo test -p chat-tldr -p chat-tldr-eval --locked
+      - name: Verify the offline acceptance script using synthetic QCE input
+        run: ./scripts/verify-qce.ps1 -InputFile ./fixtures/qce/template-docker-export.json
+
+  platform-macos:
+    name: ${{ matrix.module }} (macOS)
+    needs: modules
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.modules.outputs.macos-matrix) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          key: native-macos-${{ matrix.module }}
+      - name: Lint native application targets
+        env:
+          CI_PACKAGE: ${{ matrix.package }}
+        run: cargo clippy -p $env:CI_PACKAGE --all-targets --locked -- -D warnings
+      - name: Test native filesystem publication and subprocess behavior
+        env:
+          CI_PACKAGE: ${{ matrix.package }}
+        run: cargo test -p $env:CI_PACKAGE --locked
 
   # Required check names stay stable as individual module jobs evolve.
   # A failed/cancelled/skipped plan or matrix can never satisfy these checks.
   clippy:
     name: clippy
-    needs: [modules, clippy-modules, platform-unix]
+    needs: [modules, clippy-modules, platform-unix, platform-macos]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -136,15 +169,16 @@ jobs:
           CI_PLAN_RESULT: ${{ needs.modules.result }}
           CI_MODULE_RESULT: ${{ needs.clippy-modules.result }}
           CI_UNIX_RESULT: ${{ needs.platform-unix.result }}
+          CI_MACOS_RESULT: ${{ needs.platform-macos.result }}
         run: |
-          if ($env:CI_PLAN_RESULT -ne 'success' -or $env:CI_MODULE_RESULT -ne 'success' -or $env:CI_UNIX_RESULT -ne 'success') {
-            Write-Output "Clippy incomplete: plan=$env:CI_PLAN_RESULT modules=$env:CI_MODULE_RESULT unix=$env:CI_UNIX_RESULT"
+          if ($env:CI_PLAN_RESULT -ne 'success' -or $env:CI_MODULE_RESULT -ne 'success' -or $env:CI_UNIX_RESULT -ne 'success' -or $env:CI_MACOS_RESULT -ne 'success') {
+            Write-Output "Clippy incomplete: plan=$env:CI_PLAN_RESULT modules=$env:CI_MODULE_RESULT unix=$env:CI_UNIX_RESULT macos=$env:CI_MACOS_RESULT"
             exit 1
           }
 
   test:
     name: test
-    needs: [modules, test-modules, platform-unix]
+    needs: [modules, test-modules, platform-unix, platform-macos]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -158,8 +192,9 @@ jobs:
           CI_PLAN_RESULT: ${{ needs.modules.result }}
           CI_MODULE_RESULT: ${{ needs.test-modules.result }}
           CI_UNIX_RESULT: ${{ needs.platform-unix.result }}
+          CI_MACOS_RESULT: ${{ needs.platform-macos.result }}
         run: |
-          if ($env:CI_PLAN_RESULT -ne 'success' -or $env:CI_MODULE_RESULT -ne 'success' -or $env:CI_UNIX_RESULT -ne 'success') {
-            Write-Output "Tests incomplete: plan=$env:CI_PLAN_RESULT modules=$env:CI_MODULE_RESULT unix=$env:CI_UNIX_RESULT"
+          if ($env:CI_PLAN_RESULT -ne 'success' -or $env:CI_MODULE_RESULT -ne 'success' -or $env:CI_UNIX_RESULT -ne 'success' -or $env:CI_MACOS_RESULT -ne 'success') {
+            Write-Output "Tests incomplete: plan=$env:CI_PLAN_RESULT modules=$env:CI_MODULE_RESULT unix=$env:CI_UNIX_RESULT macos=$env:CI_MACOS_RESULT"
             exit 1
           }
