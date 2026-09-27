@@ -42,7 +42,7 @@ impl Harness {
         };
         let mut result = (Vec::new(), None);
         let mut output = self.ctx.run_ui(input, |ui| {
-            result = render(ui, &mut self.state, &self.model, false, self.demo);
+            result = render(ui, &mut self.state, &self.model, false, false, self.demo);
         });
         // This headless harness inspects shapes and has no GPU texture backend.
         output.textures_delta.clear();
@@ -100,6 +100,35 @@ fn capabilities() -> Capabilities {
     }
 }
 
+#[test]
+fn refreshed_global_stats_remain_visible_after_analysis() {
+    let mut gui = Harness::new(1440.0, false);
+    gui.state.logs = true;
+    gui.state.activity_tab = 1;
+    let latest_run = gui.model.stats.take();
+    assert!(latest_run.is_some());
+    gui.model.history_stats.clear();
+    gui.model
+        .history_stats
+        .push_back(chat_tldr_core::StatsPayload::Global(
+            chat_tldr_core::GlobalStats {
+                counts: std::collections::BTreeMap::from([("messages".into(), 777)]),
+                usage: Vec::new(),
+                cost_usd: 123.456,
+            },
+        ));
+    let expected = "全局：1 类计数 · 0 组模型用量 · 估算费用 $123.4560";
+    assert!(
+        text_position(&gui.settled(), expected).is_some(),
+        "control: global stats are painted when no previous run exists"
+    );
+    gui.model.stats = latest_run;
+    assert!(
+        text_position(&gui.settled(), expected).is_some(),
+        "the previous run hides the newly refreshed global stats"
+    );
+}
+
 fn text_position(output: &egui::FullOutput, label: &str) -> Option<egui::Pos2> {
     fn collect(shape: &egui::Shape, clip: egui::Rect, label: &str, found: &mut Vec<egui::Pos2>) {
         match shape {
@@ -145,10 +174,10 @@ fn overview_entry_switches_windows_and_never_enables_mark_read() {
 fn pointer_clicks_open_settings_change_theme_and_toggle_logs() {
     let mut gui = Harness::new(1400.0, false);
     assert!(!gui.state.logs);
-    assert!(gui.click("运行记录").is_empty());
+    assert!(gui.click("运行详情").is_empty());
     assert!(gui.state.logs);
-    assert!(text_position(&gui.settled(), "每类保留最近 200 条").is_some());
-    assert!(gui.click("运行记录").is_empty());
+    assert!(text_position(&gui.settled(), "运行统计").is_some());
+    assert!(gui.click("运行详情").is_empty());
     assert!(!gui.state.logs);
 
     assert!(!gui.state.settings);
@@ -165,10 +194,10 @@ fn pointer_clicks_open_settings_change_theme_and_toggle_logs() {
 fn narrow_layout_tabs_respond_to_pointer_clicks() {
     let mut gui = Harness::new(900.0, false);
     assert_eq!(gui.state.lane, 0);
-    assert!(gui.click("P1 值得关注  0").is_empty());
+    assert!(gui.click("P1 值得关注  1").is_empty());
     assert_eq!(gui.state.lane, 1);
-    assert!(text_position(&gui.settled(), "P1  值得关注 · 0").is_some());
-    assert!(gui.click("P2 / P3 参考  0").is_empty());
+    assert!(text_position(&gui.settled(), "P1 值得关注 · 1").is_some());
+    assert!(gui.click("P2 / P3 参考  2").is_empty());
     assert_eq!(gui.state.lane, 2);
     assert!(gui.click("P0 必须处理  1").is_empty());
     assert_eq!(gui.state.lane, 0);
@@ -182,7 +211,7 @@ fn demo_disables_mutations_even_with_capabilities_and_displayed_cursor() {
     assert!(gui.model.handshake_ok());
     assert!(gui.model.mark_read_cursor().is_some());
     for label in [
-        "导入 JSON",
+        "导入 QCE 文件",
         "分析新消息",
         "标为已读",
         "有用",
@@ -237,7 +266,10 @@ fn unopened_narrow_lanes_do_not_authorize_the_snapshot_cursor() {
     gui.settled();
     assert!(gui.model.mark_read_cursor().is_none());
     assert!(gui.click("标为已读").is_empty());
-    gui.click("P1 值得关注  1");
+    gui.click("P1 值得关注  2");
+    gui.settled();
+    assert!(gui.model.mark_read_cursor().is_none());
+    gui.click("P2 / P3 参考  2");
     gui.settled();
     assert!(gui.model.mark_read_cursor().is_some());
 }

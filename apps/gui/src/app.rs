@@ -10,7 +10,7 @@ use chat_tldr_core::ChatId;
 use eframe::egui;
 
 use crate::{
-    Args, appearance,
+    Args, DemoView, appearance,
     bridge::{self, Bridge, CliSettings, CommandKind, Request, RequestTag},
     model::{FollowUp, GuiModel},
     prefs::{self, Preferences},
@@ -22,7 +22,9 @@ pub struct Startup {
     prefs_path: Option<PathBuf>,
     error: Option<String>,
     demo: bool,
+    demo_view: Option<DemoView>,
     screenshot: Option<PathBuf>,
+    smoke_report: Option<PathBuf>,
     quit_after_capture: bool,
 }
 
@@ -99,7 +101,9 @@ impl Startup {
             prefs_path,
             error,
             demo: args.demo,
+            demo_view: args.demo_view,
             screenshot: args.screenshot,
+            smoke_report: args.smoke_report,
             quit_after_capture: args.quit_after_capture,
         }
     }
@@ -108,7 +112,11 @@ impl Startup {
 enum IoRequest {
     PickFile,
     Save(Option<PathBuf>, Preferences),
-    Screenshot(PathBuf, Arc<egui::ColorImage>),
+    Screenshot(
+        PathBuf,
+        Arc<egui::ColorImage>,
+        Option<(PathBuf, serde_json::Value)>,
+    ),
     Stop,
 }
 enum IoResult {
@@ -130,6 +138,7 @@ pub struct App {
     io_thread: Option<std::thread::JoinHandle<()>>,
     picking_file: bool,
     screenshot: Option<PathBuf>,
+    smoke_report: Option<PathBuf>,
     screenshot_requested: bool,
     quit_after_capture: bool,
     frames: usize,
@@ -145,10 +154,14 @@ impl App {
         } else {
             GuiModel::default()
         };
+        let mut state = UiState::new(startup.prefs.clone());
+        if startup.demo {
+            state.configure_demo(startup.demo_view.unwrap_or_default());
+        }
         let mut app = Self {
             model,
             bridge,
-            state: UiState::new(startup.prefs.clone()),
+            state,
             prefs: startup.prefs,
             prefs_path: startup.prefs_path,
             sequence: 10,
@@ -158,6 +171,7 @@ impl App {
             io_thread: Some(io_thread),
             picking_file: false,
             screenshot: startup.screenshot,
+            smoke_report: startup.smoke_report,
             screenshot_requested: false,
             quit_after_capture: startup.quit_after_capture,
             frames: 0,
@@ -243,6 +257,10 @@ impl App {
     fn act(&mut self, action: Action, ctx: &egui::Context) {
         if action == Action::Cancel {
             self.bridge.cancel();
+            return;
+        }
+        if action == Action::DismissError {
+            self.model.last_error = None;
             return;
         }
         if self.demo || self.bridge.is_busy() || self.picking_file {
@@ -397,7 +415,7 @@ impl App {
                     );
                 }
             }
-            Action::Cancel => {}
+            Action::Cancel | Action::DismissError => {}
         }
     }
 }
@@ -459,7 +477,11 @@ impl eframe::App for App {
         });
         for image in captures {
             if let Some(path) = self.screenshot.take() {
-                let _ = self.io_tx.send(IoRequest::Screenshot(path, image));
+                let report = self
+                    .smoke_report
+                    .take()
+                    .map(|path| (path, crate::capture::report(&self.model, self.demo)));
+                let _ = self.io_tx.send(IoRequest::Screenshot(path, image, report));
             }
         }
     }
@@ -469,7 +491,8 @@ impl eframe::App for App {
             ui,
             &mut self.state,
             &self.model,
-            self.bridge.is_busy() || self.picking_file,
+            self.bridge.is_busy(),
+            self.picking_file,
             self.demo,
         );
         if let Some(request_id) = displayed {
@@ -480,7 +503,11 @@ impl eframe::App for App {
         }
         self.frames += 1;
         if self.screenshot.is_some() && !self.screenshot_requested {
-            if self.frames >= 4 && !self.bridge.is_busy() && !self.picking_file {
+            if self.frames >= 4
+                && !self.bridge.is_busy()
+                && self.model.active.is_none()
+                && !self.picking_file
+            {
                 self.screenshot_requested = true;
                 ui.ctx()
                     .send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
@@ -531,22 +558,8 @@ fn io_worker(
                 IoRequest::Save(path, value) => {
                     IoResult::Saved(prefs::save_profile(path.as_deref(), &value))
                 }
-                IoRequest::Screenshot(path, image) => {
-                    let bytes: Vec<u8> = image
-                        .pixels
-                        .iter()
-                        .flat_map(|pixel| pixel.to_array())
-                        .collect();
-                    IoResult::Screenshot(
-                        image::save_buffer(
-                            &path,
-                            &bytes,
-                            image.width() as u32,
-                            image.height() as u32,
-                            image::ColorType::Rgba8,
-                        )
-                        .map_err(|e| format!("截图保存失败：{e}")),
-                    )
+                IoRequest::Screenshot(path, image, report) => {
+                    IoResult::Screenshot(crate::capture::save(&path, &image, report))
                 }
                 IoRequest::Stop => break,
             };

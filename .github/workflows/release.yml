@@ -42,7 +42,7 @@ jobs:
         run: ./scripts/release/plan.ps1 -Publish:($env:RELEASE_PUBLISH -eq 'true') -Tag $env:RELEASE_TAG -Commit $env:RELEASE_COMMIT -Repository $env:RELEASE_REPOSITORY
 
   windows:
-    name: Package Windows CLI
+    name: Package Windows CLI and GUI
     needs: plan
     runs-on: windows-latest
     timeout-minutes: 30
@@ -56,7 +56,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: release-windows-x86_64
-      - run: cargo build --locked --release -p chat-tldr
+      - run: cargo build --locked --release -p chat-tldr -p chat-tldr-gui
+      - name: Test optimized GUI protocol, errors, priority examples and pointer interactions
+        run: cargo test --locked --release -p chat-tldr-gui
       - name: Exercise and package the actual executable
         env:
           RELEASE_VERSION: ${{ needs.plan.outputs.version }}
@@ -64,6 +66,17 @@ jobs:
           python scripts/release/smoke.py --binary target/release/chat-tldr.exe --version $env:RELEASE_VERSION
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/release/package.py --binary target/release/chat-tldr.exe --target windows-x86_64 --version $env:RELEASE_VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/release/package.py --binary target/release/chat-tldr.exe --gui-binary target/release/chat-tldr-gui.exe --target windows-x86_64 --version $env:RELEASE_VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/release/gui_smoke.py --archive "dist/chat-tldr-gui-$env:RELEASE_VERSION-windows-x86_64.zip" --version $env:RELEASE_VERSION --package-only --out tmp/gui-package-smoke
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: gui-release-test
+          path: tmp/gui-package-smoke/
+          if-no-files-found: warn
+          retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (Node 24)
         with:
           name: release-windows

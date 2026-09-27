@@ -132,6 +132,45 @@ jobs:
       - name: Verify literal env loading and subprocess argument forwarding
         run: ./scripts/tests/test-with-env.ps1
 
+  gui-smoke:
+    name: GUI smoke (Linux)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: gui-native-smoke-ubuntu-26.04
+      - name: Install virtual display and software OpenGL
+        run: |
+          sudo apt-get update
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
+      - name: Test smoke failure detection
+        run: python -m unittest discover -s scripts/tests -p test_gui_smoke.py
+      - name: Build the real GUI and its adjacent CLI
+        run: cargo build --locked -p chat-tldr-gui -p chat-tldr
+      - name: Render all views and exercise the actual CLI bridge
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          $version = (cargo metadata --no-deps --format-version 1 --locked | ConvertFrom-Json).packages | Where-Object name -eq 'chat-tldr-gui' | Select-Object -ExpandProperty version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          xvfb-run -a -s '-screen 0 1600x1200x24' python scripts/release/gui_smoke.py --gui target/debug/chat-tldr-gui --cli target/debug/chat-tldr --version $version --out tmp/gui-smoke
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: gui-native-smoke
+          path: tmp/gui-smoke/
+          if-no-files-found: warn
+          retention-days: 7
+
   platform-macos:
     name: ${{ matrix.module }} (macOS)
     needs: modules
@@ -187,7 +226,7 @@ jobs:
 
   test:
     name: test
-    needs: [modules, test-modules, platform-unix, platform-macos]
+    needs: [modules, test-modules, platform-unix, platform-macos, gui-smoke]
     if: always()
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -202,8 +241,9 @@ jobs:
           CI_MODULE_RESULT: ${{ needs.test-modules.result }}
           CI_UNIX_RESULT: ${{ needs.platform-unix.result }}
           CI_MACOS_RESULT: ${{ needs.platform-macos.result }}
+          CI_GUI_RESULT: ${{ needs.gui-smoke.result }}
         run: |
-          if ($env:CI_PLAN_RESULT -ne 'success' -or $env:CI_MODULE_RESULT -ne 'success' -or $env:CI_UNIX_RESULT -ne 'success' -or $env:CI_MACOS_RESULT -ne 'success') {
-            Write-Output "Tests incomplete: plan=$env:CI_PLAN_RESULT modules=$env:CI_MODULE_RESULT unix=$env:CI_UNIX_RESULT macos=$env:CI_MACOS_RESULT"
+          if ($env:CI_PLAN_RESULT -ne 'success' -or $env:CI_MODULE_RESULT -ne 'success' -or $env:CI_UNIX_RESULT -ne 'success' -or $env:CI_MACOS_RESULT -ne 'success' -or $env:CI_GUI_RESULT -ne 'success') {
+            Write-Output "Tests incomplete: plan=$env:CI_PLAN_RESULT modules=$env:CI_MODULE_RESULT unix=$env:CI_UNIX_RESULT macos=$env:CI_MACOS_RESULT gui=$env:CI_GUI_RESULT"
             exit 1
           }

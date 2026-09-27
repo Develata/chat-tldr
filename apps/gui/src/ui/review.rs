@@ -31,6 +31,10 @@ impl ReviewCoverage {
         self.remaining
     }
 
+    pub(super) fn seen(&self, row: usize) -> bool {
+        self.seen.get(row).copied().unwrap_or(false)
+    }
+
     pub(super) fn observe(&mut self, row: usize, rect: Rect, viewport: Rect) {
         if self.seen.get(row).copied().unwrap_or(true) || !rect.is_positive() {
             return;

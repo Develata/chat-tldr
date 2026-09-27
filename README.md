@@ -3,8 +3,8 @@
 > Turn unread QQ group chats into a personal, traceable action inbox.
 > 把未读群聊变成可追溯的个人行动收件箱。
 
-**状态 / Status（2026-09-26）**：文件导入、增量分析、话题合并/自动关闭/历史回填、收件箱及六个总览已实现。CLI 新增更正/取消/冲突关联与待回应查询；eval 支持 Ours/B0、话题切分和概率校准。真实云调用记录见 [ACCEPTANCE](docs/ACCEPTANCE.md)，真实质量评分与 Jev 校准曲线仍为**待标注**。CLI/Docker 发布见 [RELEASING](docs/RELEASING.md)，分工见 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md)。
-*The CLI supports import, incremental analysis, topic lifecycle, inbox/overview and evidence-backed changes and question states. Ours/B0 scoring, partition metrics and calibration tools are available. Real-data quality and Jev calibration await independent human labels. CLI/Docker packaging is documented in the release guide; GUI packaging comes later.*
+**状态 / Status（2026-09-27）**：文件导入、增量分析、话题合并/自动关闭/历史回填、收件箱及六个总览已实现。CLI 新增更正/取消/冲突关联与待回应查询；eval 支持 Ours/B0、话题切分和概率校准。真实云调用记录见 [ACCEPTANCE](docs/ACCEPTANCE.md)，真实质量评分与 Jev 校准曲线仍为**待标注**。CLI/Windows GUI/Docker 发布见 [RELEASING](docs/RELEASING.md)，分工见 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md)。
+*The CLI supports import, incremental analysis, topic lifecycle, inbox/overview and evidence-backed changes and question states. Ours/B0 scoring, partition metrics and calibration tools are available. Real-data quality and Jev calibration await independent human labels. CI packages the CLI, Windows GUI and Docker image; the GUI bundle will ship with the next tagged release.*
 
 [![CI](https://github.com/Develata/chat-tldr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Develata/chat-tldr/actions/workflows/ci.yml)
 
@@ -42,9 +42,9 @@
 - 只读 `stats`、`decisions --run`、`jev-log --run`：查询累计用量或历史运行，重放决策与带归属的模型回答
 - 更正/取消/冲突与完整/部分回答：独立关系表及只读 `relations`，两端引用重验，不自动更改用户 done/dismissed，见 [ADR-0010](docs/decisions/0010-semantic-relations.md)
 - eval 的 `check-stream`、`export-sheet`、`import-sheet`、`score`、`calibrate`：Ours/B0、最优话题匹配/ARI/NMI、ECE/Brier 和 SVG；缺标注不造分数
-- 极简非 root scratch [Docker 镜像](docs/DOCKER.md)；push 模拟 CLI/Docker 发布，正式 tag 才公开 Release 与推送 GHCR
+- 极简非 root scratch [Docker 镜像](docs/DOCKER.md)；push 模拟 CLI/Windows GUI/Docker 发布，正式 tag 才公开 Release 与推送 GHCR
 
-尚未实现 B1/sim-*、embedding、burst/边界与人工支持率指标、`agreement/summarize` 和 GUI 正式打包。当前策略为 `--strategy ours|b0`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成。QCE 管理组件仅有接入说明；JSON 适配器可独立使用。
+尚未实现 B1/sim-*、embedding、burst/边界与人工支持率指标、`agreement/summarize`。Windows GUI 打包已接入模拟发布，正式下载随下一次 tag 提供。当前策略为 `--strategy ours|b0`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成。QCE 管理组件仅有接入说明；JSON 适配器可独立使用。
 
 ### 已验证到哪里
 
@@ -52,10 +52,10 @@
 |---|---|---|
 | 主线逻辑与协议 | Rust 回归、fmt、严格 clippy；当前证据集中在 ACCEPTANCE | 真实准确率；费用是配置费率估算，非账单 |
 | 输入兼容 | 一个 200 条真实 QCE 单文件通过 51 项离线检查；另有 100 条主样本 + 4 条回填合成样本 | 未出现的真实导出形态、JSON 卡片正文、附件内容 |
-| GUI | Windows 原生收件箱截图与交互回归；新增总览通过 reducer/egui 交互测试 | 新总览截图、真实聊天云分析的完整交互、Linux/macOS 原生窗口 |
+| GUI | 收件箱/总览合成截图、交互回归、Linux 原生 smoke、Windows release 测试与解包验证 | 真实聊天云分析的完整交互、macOS 原生窗口及各平台 GPU/缩放覆盖 |
 | 评估 | 标注往返、Ours/B0 合成流程、话题匹配和校准手算回归 | 独立人工 gold、真实质量比较和真实 Jev 校准曲线 |
 
-CI 按模块并行，覆盖 Windows 六模块、Linux CLI/eval、macOS CLI/GUI/eval，保留 `fmt`、`clippy`、`test` 必需检查名称。Actions 使用 Node.js 24、Linux 使用 Ubuntu 26.04；版本固定完整 SHA，由每周 Dependabot 更新 PR 跟进。运行结果见上方 CI，维护规则见 [CONTRIBUTING](CONTRIBUTING.md#ci-依赖维护)，验收细节见 [ACCEPTANCE](docs/ACCEPTANCE.md) 与 [REVIEW_FIXES](docs/REVIEW_FIXES.md)。
+CI 按模块并行，覆盖 Windows 六模块、Linux CLI/eval 与 GUI 原生 smoke、macOS CLI/GUI/eval，保留 `fmt`、`clippy`、`test` 必需检查名称；GUI smoke 失败或跳过也不能通过 `test`。Actions 使用 Node.js 24、Linux 使用 Ubuntu 26.04；版本固定完整 SHA。GUI 发布验收及平台边界见 [RELEASING](docs/RELEASING.md#gui-自动化验收)，运行结果见上方 CI。
 
 ### 现在就能运行（无需密钥）
 
@@ -195,10 +195,10 @@ LLM 的 `base_url`、模型名和接口格式（`openai` / `anthropic`）在 `co
 | @Develata | 已确认产品规则与接口方向 | 架构/代码审核、真实结果复核、交付取舍 |
 | Codex | 主线代码、六个总览、合成回归材料及 CI 已实现 | 剩余分析语义、集成修复和文档维护 |
 | A：QCE 管理 | 仓库仅有接入说明，尚无管理程序 | 复用已验证导出流程，交付组件管理与完整 JSON 路径 |
-| B：GUI 设计 | 主线 GUI 已由 Codex 实现，未见独立设计交付 | 现有界面与六个总览的设计复核、线框图和交互说明 |
+| B：GUI 设计 | @liguilong256 的 PR #7 已交付界面整理、运行详情与七张合成截图 | Codex 接续修复 review 问题并补自动 smoke/发布测试，B 继续体验复核 |
 | C：验收材料 | 共用合成样本/评估工具已提供，未见独立标注或报告 | 人工期望与 gold、演示步骤、验收报告 |
 
-A/B/C 尚未绑定真实账号，表中状态依据当前仓库；线下进度待本人确认。具体交付和目录边界以 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md) 为准。实际交付截止为 **2026-09-27 23:59，America/Santiago（UTC−3）**。
+A/C 尚未绑定账号，线下进度待本人确认；B 的交付以 PR #7 为据。具体交付和目录边界以 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md) 为准。实际交付截止为 **2026-09-27 23:59，America/Santiago（UTC−3）**。
 
 ---
 

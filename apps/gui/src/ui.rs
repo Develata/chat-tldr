@@ -1,11 +1,13 @@
 //! Rendering returns actions; it never starts processes or reads files.
 use chat_tldr_core::{
-    Assignee, ChatId, EvidenceView, InsightPayload, Lifecycle, Priority, VerificationStatus,
+    Assignee, ChatId, EvidenceView, InsightKind, InsightPayload, Lifecycle, Priority,
+    TemporalConstraint, VerificationStatus,
 };
 use eframe::egui::{self, Color32, RichText};
 
 use crate::{model::GuiModel, prefs::Preferences};
 
+mod activity;
 mod overview;
 mod review;
 use review::ReviewCoverage;
@@ -25,6 +27,8 @@ pub struct UiState {
     pub lane: usize,
     pub settings: bool,
     pub logs: bool,
+    activity_tab: usize,
+    evidence_open: bool,
     pub cloud_notice: bool,
     pub cloud_target: Option<ChatId>,
     pub draft: Preferences,
@@ -39,6 +43,22 @@ impl UiState {
         Self {
             draft,
             ..Default::default()
+        }
+    }
+
+    pub(crate) fn configure_demo(&mut self, view: crate::DemoView) {
+        match view {
+            crate::DemoView::Inbox => {}
+            crate::DemoView::Evidence => self.evidence_open = true,
+            crate::DemoView::Decisions => {
+                self.logs = true;
+                self.activity_tab = 0;
+            }
+            crate::DemoView::Stats => {
+                self.logs = true;
+                self.activity_tab = 1;
+            }
+            crate::DemoView::Overview => self.overview = true,
         }
     }
 }
@@ -59,17 +79,23 @@ pub enum Action {
     Decisions,
     JevLog,
     Overview(u32),
+    DismissError,
 }
 
 pub fn render(
     ui: &mut egui::Ui,
     state: &mut UiState,
     model: &GuiModel,
-    busy: bool,
+    cli_busy: bool,
+    picking_file: bool,
     demo: bool,
 ) -> (Vec<Action>, Option<u64>) {
     let mut actions = Vec::new();
-    let enabled = !busy && !demo && model.handshake_ok();
+    let busy = cli_busy || picking_file;
+    let connected = demo || model.handshake_ok();
+    let local_enabled = !busy && connected;
+    let query_enabled = !busy && !demo && model.handshake_ok();
+    let write_enabled = query_enabled;
     let analysis_supported = model.capabilities.as_ref().is_some_and(|caps| {
         caps.strategies.iter().any(|value| value == "ours")
             && caps.deciders.iter().any(|value| value == "jev")
@@ -87,189 +113,166 @@ pub fn render(
         state.pages = [0; 3];
         state.review.reset(inbox.insights.len());
     }
+    let compact = ui.available_width() < 920.0;
     egui::Panel::top("toolbar").show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("群聊省流").strong().size(21.0));
-            ui.add_space(18.0);
-            if ui.selectable_label(state.overview, "分析总览").clicked()
-                && enabled
-                && model.has_capability("overview")
+            ui.label(RichText::new("群聊省流").strong().size(22.0));
+            ui.add_space(12.0);
+            if ui
+                .add_enabled(
+                    local_enabled,
+                    egui::Button::selectable(!state.overview, "收件箱"),
+                )
+                .clicked()
+            {
+                state.overview = false;
+            }
+            let overview_enabled = local_enabled
                 && model.selected_chat.is_some()
+                && (demo || model.has_capability("overview"));
+            if ui
+                .add_enabled(
+                    overview_enabled,
+                    egui::Button::selectable(state.overview, "分析总览"),
+                )
+                .clicked()
             {
                 state.overview = true;
                 state.overview_page = 0;
-                actions.push(Action::Overview(if state.overview_hours == 0 {
-                    24
-                } else {
-                    state.overview_hours
-                }));
+                if !demo {
+                    actions.push(Action::Overview(if state.overview_hours == 0 {
+                        24
+                    } else {
+                        state.overview_hours
+                    }));
+                }
             }
-            if ui.selectable_label(!state.overview, "收件箱").clicked() {
-                state.overview = false;
-            }
-            button(
-                ui,
-                "导入 JSON",
-                enabled && model.has_capability("import"),
-                Action::PickImport,
-                &mut actions,
-            );
-            button(
-                ui,
-                "分析新消息",
-                enabled
-                    && model.selected_chat.is_some()
-                    && model.has_capability("analyze")
-                    && analysis_supported,
-                Action::Analyze,
-                &mut actions,
-            );
-            button(
-                ui,
-                "标为已读",
-                enabled
-                    && !state.overview
-                    && model.mark_read_cursor().is_some()
-                    && model.has_capability("mark-read"),
-                Action::MarkRead,
-                &mut actions,
-            );
-            button(
-                ui,
-                "刷新",
-                enabled && model.has_capability("chats"),
-                Action::Refresh,
-                &mut actions,
-            );
-            if busy {
-                ui.spinner();
-                button(ui, "停止", true, Action::Cancel, &mut actions);
-            }
+            ui.separator();
+            ui.toggle_value(&mut state.logs, "运行详情");
             if ui.button("设置").clicked() {
                 state.settings = true;
             }
-            ui.toggle_value(&mut state.logs, "运行记录");
+        });
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            button(
+                ui,
+                "导入 QCE 文件",
+                write_enabled && model.has_capability("import"),
+                Action::PickImport,
+                &mut actions,
+            );
+            if ui
+                .add_enabled(
+                    write_enabled
+                        && model.selected_chat.is_some()
+                        && model.has_capability("analyze")
+                        && analysis_supported,
+                    egui::Button::new(RichText::new("分析新消息").strong())
+                        .fill(crate::appearance::ACCENT),
+                )
+                .clicked()
+            {
+                actions.push(Action::Analyze);
+            }
+            let mark_read_enabled = write_enabled
+                && !state.overview
+                && model.mark_read_cursor().is_some()
+                && model.has_capability("mark-read");
+            let mark_read_reason = mark_read_reason(state, model, demo, busy);
+            if ui
+                .add_enabled(mark_read_enabled, egui::Button::new("标为已读"))
+                .on_disabled_hover_text(mark_read_reason)
+                .clicked()
+            {
+                actions.push(Action::MarkRead);
+            }
+            button(
+                ui,
+                "刷新",
+                query_enabled && model.has_capability("chats"),
+                Action::Refresh,
+                &mut actions,
+            );
+            if cli_busy {
+                ui.spinner();
+                ui.weak("正在执行 CLI…");
+                button(ui, "停止", true, Action::Cancel, &mut actions);
+            } else if picking_file {
+                ui.spinner();
+                ui.weak("等待选择文件…");
+            }
         });
         if demo {
-            ui.small("合成演示 · 不读取聊天数据库，不调用云服务，所有写操作已禁用");
+            ui.colored_label(
+                crate::appearance::ACCENT,
+                "合成演示 · 固定虚构数据 · 不读取数据库、不调用云服务，写操作已禁用",
+            );
         }
         if let Some(progress) = &model.progress {
             ui.horizontal(|ui| {
-                ui.small(&progress.message);
+                ui.small(format!(
+                    "{} · {}",
+                    progress_stage(&progress.stage),
+                    progress.message
+                ));
                 if let Some(total) = progress.total.filter(|total| *total > 0) {
                     ui.add(
                         egui::ProgressBar::new((progress.current as f32 / total as f32).min(1.0))
-                            .desired_width(160.0),
+                            .desired_width(180.0)
+                            .text(format!("{} / {}", progress.current, total)),
                     );
                 }
             });
         }
         if let Some(error) = &model.last_error {
-            ui.colored_label(error_color(ui), error);
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.colored_label(error_color(ui), RichText::new("操作未完成").strong());
+                    ui.label(error);
+                    if ui.small_button("检查设置").clicked() {
+                        state.settings = true;
+                    }
+                    if ui.small_button("关闭").clicked() {
+                        actions.push(Action::DismissError);
+                    }
+                });
+            });
         }
     });
-    egui::Panel::left("chats")
-        .default_size(212.0)
-        .min_size(160.0)
-        .resizable(true)
-        .show(ui, |ui| {
-            ui.add_space(12.0);
-            ui.label(RichText::new("群聊").strong());
-            ui.add_space(8.0);
-            egui::ScrollArea::vertical()
-                .id_salt("chat-list")
-                .show(ui, |ui| {
-                    for chat in &model.chats {
-                        let selected = model.selected_chat.as_ref() == Some(&chat.chat_id);
-                        let label = format!(
-                            "{}\n{} 条未读 · {} 项 P0",
-                            chat.display_name, chat.unreviewed_messages, chat.open_p0
-                        );
-                        if ui
-                            .add_enabled(
-                                !busy,
-                                egui::Button::new(label)
-                                    .selected(selected)
-                                    .min_size(egui::vec2(ui.available_width(), 64.0)),
-                            )
-                            .clicked()
-                        {
-                            actions.push(Action::Select(chat.chat_id.clone()));
-                        }
-                    }
-                    if model.chats.is_empty() {
-                        ui.weak("导入 QCE 导出的 JSON，\n即可在这里选择群聊。");
-                    }
-                });
-        });
+    if !compact {
+        egui::Panel::left("chats")
+            .default_size(212.0)
+            .min_size(176.0)
+            .max_size(280.0)
+            .resizable(true)
+            .show(ui, |ui| chat_list(ui, model, busy, &mut actions));
+    }
     if state.logs {
+        // The detail panel contains real tables rather than a one-line log.
+        // Give it enough first-render height to show the table header and at
+        // least one row; users can still resize it with the splitter.
         egui::Panel::bottom("run-log")
-            .default_size(210.0)
+            .default_size(340.0)
             .resizable(true)
             .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.strong("运行记录");
-                    ui.weak("每类保留最近 200 条");
-                    button(
-                        ui,
-                        "统计",
-                        enabled && model.has_capability("stats"),
-                        Action::Stats,
-                        &mut actions,
-                    );
-                    button(
-                        ui,
-                        "决策记录",
-                        enabled && model.stats.is_some() && model.has_capability("decisions"),
-                        Action::Decisions,
-                        &mut actions,
-                    );
-                    button(
-                        ui,
-                        "模型回答",
-                        enabled && model.stats.is_some() && model.has_capability("jev-log"),
-                        Action::JevLog,
-                        &mut actions,
-                    );
-                });
-                egui::ScrollArea::vertical()
-                    .id_salt("log-scroll")
-                    .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        if let Some(stats) = &model.stats {
-                            ui.small(format!(
-                                "本轮 {} 条消息 · 新增 {} 项 · 报告用量费用 ${:.4} · {:.1} 秒",
-                                stats.messages_analyzed,
-                                stats.insights.created,
-                                stats.cost_usd,
-                                stats.elapsed_ms as f64 / 1000.0
-                            ));
-                        }
-                        for decision in &model.decisions {
-                            ui.small(format!(
-                                "步骤 {} · {:?} · {}",
-                                decision.step, decision.chosen, decision.reason
-                            ));
-                        }
-                        for stats in &model.history_stats {
-                            ui.small(format!("{stats:?}"));
-                        }
-                        for answer in &model.jev_answers {
-                            ui.small(format!(
-                                "{} · {} · {}",
-                                answer.model, answer.question_id, answer.answer
-                            ));
-                        }
-                        for line in &model.logs {
-                            ui.small(line);
-                        }
-                    });
+                activity::render(ui, state, model, query_enabled, demo, &mut actions);
             });
     }
     let mut displayed = None;
     egui::CentralPanel::default().show(ui, |ui| {
+        if compact {
+            compact_chat_picker(ui, model, busy, &mut actions);
+            ui.add_space(6.0);
+        }
         if state.overview {
-            overview::render(ui, state, model, enabled, busy, &mut actions);
+            overview::render(
+                ui,
+                state,
+                model,
+                query_enabled && model.has_capability("overview"),
+                &mut actions,
+            );
             return;
         }
         ui.add_space(12.0);
@@ -282,7 +285,7 @@ pub fn render(
         ui.heading(title);
         ui.horizontal_wrapped(|ui| {
             let filter_enabled =
-                enabled && model.has_capability("chats") && model.has_capability("inbox");
+                query_enabled && model.has_capability("chats") && model.has_capability("inbox");
             let changed = ui
                 .add_enabled(
                     filter_enabled,
@@ -309,28 +312,71 @@ pub fn render(
             if busy {
                 ui.label("正在读取，请稍候…");
             } else if !model.handshake_ok() && !demo {
-                ui.label("尚未连接 CLI。请在设置中检查程序路径，然后重新连接。");
+                empty_state(
+                    ui,
+                    "尚未连接 CLI",
+                    "请在设置中检查 CLI 程序与数据目录，然后重新连接。",
+                );
+                if ui.button("打开设置").clicked() {
+                    state.settings = true;
+                }
+            } else if model.chats.is_empty() {
+                empty_state(
+                    ui,
+                    "还没有群聊",
+                    "导入 QCE 已完成并关闭的单文件 JSON 后，即可查看收件箱。",
+                );
+                button(
+                    ui,
+                    "导入 QCE 文件",
+                    write_enabled && model.has_capability("import"),
+                    Action::PickImport,
+                    &mut actions,
+                );
+            } else if model.selected_chat.is_none() {
+                empty_state(ui, "请选择群聊", "从群聊列表选择一个群，查看结论与原文证据。");
             } else {
-                ui.label("选择群聊，查看结论和原文证据。首次使用请先导入 JSON。");
+                empty_state(
+                    ui,
+                    "收件箱尚未载入",
+                    "点击刷新重试；尚未分析的群聊会显示为空收件箱。",
+                );
             }
             return;
         };
-        ui.weak(format!(
-            "{} 个话题 · {} 项结论",
-            inbox.topics.len(),
-            inbox.insights.len()
-        ));
-        if !state.review.complete() {
+        ui.horizontal_wrapped(|ui| {
             ui.weak(format!(
-                "还有 {} 项尚未完整显示；查看各栏、翻页和滚动后才能标为已读。",
-                state.review.remaining()
+                "{} 个话题 · {} 项结论",
+                inbox.topics.len(),
+                inbox.insights.len()
             ));
+            if inbox.meta.rejected_insights > 0 {
+                ui.colored_label(
+                    error_color(ui),
+                    format!("{} 项证据未通过，未放入收件箱", inbox.meta.rejected_insights),
+                );
+            }
+        });
+        if !state.review.complete() {
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                ui.label(format!(
+                    "阅读进度：还有 {} 项未完整查看。请打开各栏、翻页并滚动到底；新快照会重新计算。",
+                    state.review.remaining()
+                ));
+            });
+        } else if inbox.meta.view_cursor.is_none() {
+            ui.weak("已查看当前全部结论，但 CLI 没有返回安全已读位置，因此不能标为已读。");
+        } else {
+            ui.colored_label(
+                crate::appearance::ACCENT,
+                "当前快照已完整查看，可以标为已读。",
+            );
         }
         // Partition only when a new snapshot arrives; lay out at most 20 rows per lane.
         if ui.available_width() >= 1000.0 {
             ui.columns(3, |columns| {
                 for (index, column) in columns.iter_mut().enumerate() {
-                    lane(column, index, state, enabled, model, &mut actions);
+                    lane(column, index, state, write_enabled, model, &mut actions);
                 }
             });
         } else {
@@ -346,7 +392,7 @@ pub fn render(
                     );
                 }
             });
-            lane(ui, state.lane, state, enabled, model, &mut actions);
+            lane(ui, state.lane, state, write_enabled, model, &mut actions);
         }
         if state.review.complete() {
             displayed = Some(inbox.request_id);
@@ -356,22 +402,138 @@ pub fn render(
     (actions, displayed)
 }
 
+fn chat_list(ui: &mut egui::Ui, model: &GuiModel, busy: bool, actions: &mut Vec<Action>) {
+    ui.add_space(12.0);
+    ui.label(RichText::new("群聊").strong().size(17.0));
+    ui.weak(format!("{} 个已导入群聊", model.chats.len()));
+    ui.add_space(8.0);
+    egui::ScrollArea::vertical()
+        .id_salt("chat-list")
+        .show(ui, |ui| {
+            for chat in &model.chats {
+                let selected = model.selected_chat.as_ref() == Some(&chat.chat_id);
+                let label = format!(
+                    "{}\n{} 条未读 · {} 项 P0",
+                    chat.display_name, chat.unreviewed_messages, chat.open_p0
+                );
+                if ui
+                    .add_enabled(
+                        !busy,
+                        egui::Button::new(label)
+                            .selected(selected)
+                            .min_size(egui::vec2(ui.available_width(), 64.0)),
+                    )
+                    .clicked()
+                {
+                    actions.push(Action::Select(chat.chat_id.clone()));
+                }
+            }
+            if model.chats.is_empty() {
+                ui.weak("导入 QCE 单文件 JSON 后，群聊会显示在这里。");
+            }
+        });
+}
+
+fn compact_chat_picker(ui: &mut egui::Ui, model: &GuiModel, busy: bool, actions: &mut Vec<Action>) {
+    let selected = model
+        .chats
+        .iter()
+        .find(|chat| Some(&chat.chat_id) == model.selected_chat.as_ref())
+        .map(|chat| chat.display_name.as_str())
+        .unwrap_or("选择群聊");
+    ui.horizontal(|ui| {
+        ui.strong("当前群聊");
+        ui.add_enabled_ui(!busy, |ui| {
+            egui::ComboBox::from_id_salt("compact-chat-picker")
+                .selected_text(selected)
+                .width(ui.available_width().min(420.0))
+                .show_ui(ui, |ui| {
+                    for chat in &model.chats {
+                        let current = model.selected_chat.as_ref() == Some(&chat.chat_id);
+                        if ui
+                            .selectable_label(
+                                current,
+                                format!(
+                                    "{} · {} 条未读 · {} 项 P0",
+                                    chat.display_name, chat.unreviewed_messages, chat.open_p0
+                                ),
+                            )
+                            .clicked()
+                            && !current
+                        {
+                            actions.push(Action::Select(chat.chat_id.clone()));
+                        }
+                    }
+                });
+        });
+    });
+}
+
+fn empty_state(ui: &mut egui::Ui, title: &str, body: &str) {
+    ui.add_space(36.0);
+    ui.vertical_centered(|ui| {
+        ui.label(RichText::new(title).strong().size(20.0));
+        ui.add_space(6.0);
+        ui.weak(body);
+    });
+}
+
+fn mark_read_reason(state: &UiState, model: &GuiModel, demo: bool, busy: bool) -> String {
+    if demo {
+        return "合成演示不会修改业务状态。".into();
+    }
+    if state.overview {
+        return "分析总览是只读视图，不会推进已读位置。".into();
+    }
+    if busy {
+        return "请等待当前操作完成。".into();
+    }
+    let Some(inbox) = &model.inbox else {
+        return "请先选择群聊并载入收件箱。".into();
+    };
+    if inbox.meta.view_cursor.is_none() {
+        return "CLI 没有返回安全已读位置。".into();
+    }
+    if !state.review.complete() {
+        return format!("还有 {} 项尚未完整查看。", state.review.remaining());
+    }
+    "当前快照刷新中，完成后可标为已读。".into()
+}
+
+fn progress_stage(stage: &str) -> &str {
+    match stage {
+        "import" => "导入",
+        "segment" => "切分话题",
+        "decide" => "选择步骤",
+        "extract" => "提取结论",
+        "verify" => "核验证据",
+        "rank" => "整理优先级",
+        "store" => "保存结果",
+        "render" => "生成视图",
+        _ => "处理中",
+    }
+}
+
 fn lane(
     ui: &mut egui::Ui,
     index: usize,
     state: &mut UiState,
-    enabled: bool,
+    write_enabled: bool,
     model: &GuiModel,
     actions: &mut Vec<Action>,
 ) {
     let rows = &state.lanes[index];
     let page = &mut state.pages[index];
-    let titles = ["P0  必须处理", "P1  值得关注", "P2 / P3  参考"];
-    ui.label(
-        RichText::new(format!("{} · {}", titles[index], rows.len()))
-            .strong()
-            .size(17.0),
-    );
+    let titles = ["P0 必须处理", "P1 值得关注", "P2 / P3 参考"];
+    let viewed = rows.iter().filter(|&&row| state.review.seen(row)).count();
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            RichText::new(format!("{} · {}", titles[index], rows.len()))
+                .strong()
+                .size(17.0),
+        );
+        ui.weak(format!("已查看 {viewed}/{}", rows.len()));
+    });
     ui.weak(
         [
             "含所有带截止日期的结论",
@@ -390,7 +552,9 @@ fn lane(
             {
                 *page -= 1;
             }
-            ui.small(format!("{} / {pages}", *page + 1));
+            let first = *page * 20 + 1;
+            let last = ((*page + 1) * 20).min(rows.len());
+            ui.small(format!("第 {first}–{last} 项 · {} / {pages} 页", *page + 1));
             if ui
                 .add_enabled(*page + 1 < pages, egui::Button::new("下一页"))
                 .clicked()
@@ -400,17 +564,30 @@ fn lane(
         });
     }
     egui::ScrollArea::vertical()
-        .id_salt(("lane", index))
+        .id_salt((
+            "lane",
+            state.inbox_request.unwrap_or_default(),
+            index,
+            *page,
+        ))
         .auto_shrink([false, false])
         .show(ui, |ui| {
             if rows.is_empty() {
                 ui.add_space(18.0);
-                ui.weak("暂无事项");
+                ui.weak(
+                    [
+                        "当前没有必须处理的截止事项。",
+                        "当前没有与你直接相关的关注项。",
+                        "当前没有其他参考信息。",
+                    ][index],
+                );
             }
             for &row_index in rows.iter().skip(*page * 20).take(20) {
                 let row = &model.inbox.as_ref().expect("lane needs inbox").insights[row_index];
                 let rendered = ui.push_id(&row.insight.id.0, |ui| {
-                    insight(ui, row, enabled, model, actions);
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        insight(ui, row, write_enabled, state.evidence_open, model, actions);
+                    })
                 });
                 state
                     .review
@@ -425,12 +602,33 @@ fn lane(
 fn insight(
     ui: &mut egui::Ui,
     row: &InsightPayload,
-    enabled: bool,
+    write_enabled: bool,
+    evidence_default_open: bool,
     model: &GuiModel,
     actions: &mut Vec<Action>,
 ) {
     let item = &row.insight;
-    ui.label(RichText::new(&item.title).size(19.0).strong());
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            RichText::new(priority_label(item.priority))
+                .strong()
+                .color(Color32::WHITE)
+                .background_color(priority_color(item.priority)),
+        );
+        ui.weak(kind_label(item.kind));
+        if item.lifecycle != Lifecycle::Open {
+            ui.label(
+                RichText::new(match item.lifecycle {
+                    Lifecycle::Done => "已完成",
+                    Lifecycle::Dismissed => "已忽略",
+                    Lifecycle::Unknown => "其他状态",
+                    Lifecycle::Open => "进行中",
+                })
+                .strong(),
+            );
+        }
+    });
+    ui.label(RichText::new(&item.title).size(18.0).strong());
     ui.label(&item.summary);
     let assignee = match item.assignee {
         Assignee::Me => "我",
@@ -439,56 +637,76 @@ fn insight(
         Assignee::Unknown => "待确认",
     };
     ui.horizontal_wrapped(|ui| {
-        ui.small(format!("负责人：{assignee}"));
+        ui.small(format!("负责人 · {assignee}"));
         let verification = match item.verification_status {
             VerificationStatus::Verified => "证据已核验",
             VerificationStatus::Unverified => "证据待核验",
-            _ => "证据未通过",
+            VerificationStatus::Rejected => "证据未通过",
+            VerificationStatus::Unknown => "其他验证状态",
         };
-        ui.small(verification);
-        if item.lifecycle != Lifecycle::Open {
-            ui.small(match item.lifecycle {
-                Lifecycle::Done => "已完成",
-                Lifecycle::Dismissed => "已忽略",
-                _ => "未知状态",
-            });
-        }
+        ui.small(format!("· {verification}"));
     });
     if let Some(deadline) = &item.deadline {
-        ui.label(RichText::new(format!("时间：{}", deadline.raw)).color(error_color(ui)));
+        let overdue = deadline_overdue(deadline);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new(if overdue { "已逾期" } else { "截止时间" })
+                    .strong()
+                    .color(if overdue {
+                        error_color(ui)
+                    } else {
+                        crate::appearance::ACCENT
+                    }),
+            );
+            ui.label(&deadline.raw);
+        });
         if let Some(date) = deadline.bound_date {
+            let time = deadline
+                .bound_time
+                .map(|time| time.format("%H:%M").to_string())
+                .unwrap_or_else(|| "当天".into());
             ui.small(format!(
-                "{} {} · 时区 {}",
+                "系统识别 · {} {time} · {}",
                 date,
-                deadline
-                    .bound_time
-                    .map(|t| t.format("%H:%M").to_string())
-                    .unwrap_or_default(),
                 deadline.anchor.offset()
             ));
+        } else {
+            ui.small("时间待确认 · 保留原文，不把模型猜测当作确定日期");
         }
     }
     egui::CollapsingHeader::new(format!("原文证据 · {} 条", row.evidence_view.len()))
-        .default_open(true)
+        .default_open(evidence_default_open)
         .show(ui, |ui| {
             for evidence in &row.evidence_view {
-                ui.small(format!(
-                    "{} · {}",
-                    evidence.sender_display,
-                    evidence.sent_at.format("%m-%d %H:%M")
-                ));
-                ui.label(evidence_layout(
-                    evidence,
-                    ui.visuals().text_color(),
-                    ui.visuals().dark_mode,
-                ));
-                if !evidence.ok {
-                    ui.colored_label(error_color(ui), "引用未通过核验，请直接核对原文。");
-                }
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.small(format!(
+                            "{} · {}",
+                            evidence.sender_display,
+                            evidence.sent_at.format("%m-%d %H:%M")
+                        ));
+                        ui.small(if evidence.ok {
+                            "已核验"
+                        } else {
+                            "待人工核对"
+                        });
+                    });
+                    ui.label(evidence_layout(
+                        evidence,
+                        ui.visuals().text_color(),
+                        ui.visuals().dark_mode,
+                    ));
+                    if evidence.highlight.is_none() {
+                        ui.weak("未定位到逐字引用，以上为 CLI 返回的原文。");
+                    }
+                    if !evidence.ok {
+                        ui.colored_label(error_color(ui), "引用未通过核验，请直接核对原文。");
+                    }
+                });
             }
         });
     ui.horizontal_wrapped(|ui| {
-        let vote = enabled && model.has_capability("feedback");
+        let vote = write_enabled && model.has_capability("feedback");
         button(
             ui,
             "有用",
@@ -503,7 +721,7 @@ fn insight(
             Action::Feedback(item.id.0.clone(), false),
             actions,
         );
-        let resolve = enabled && model.has_capability("resolve");
+        let resolve = write_enabled && model.has_capability("resolve");
         if item.lifecycle == Lifecycle::Open {
             button(
                 ui,
@@ -529,6 +747,49 @@ fn insight(
             );
         }
     });
+}
+
+fn priority_label(priority: Priority) -> &'static str {
+    match priority {
+        Priority::P0 => "P0",
+        Priority::P1 => "P1",
+        Priority::P2 => "P2",
+        Priority::P3 => "P3",
+        Priority::Unknown => "其他",
+    }
+}
+
+fn priority_color(priority: Priority) -> Color32 {
+    match priority {
+        Priority::P0 => Color32::from_rgb(177, 55, 45),
+        Priority::P1 => Color32::from_rgb(184, 112, 24),
+        Priority::P2 => crate::appearance::ACCENT,
+        Priority::P3 | Priority::Unknown => Color32::from_rgb(103, 112, 126),
+    }
+}
+
+fn kind_label(kind: InsightKind) -> &'static str {
+    match kind {
+        InsightKind::MentionMe => "与我有关",
+        InsightKind::Todo => "待办",
+        InsightKind::Announcement => "公告",
+        InsightKind::Decision => "决定",
+        InsightKind::TopicSummary => "话题摘要",
+        InsightKind::Unknown => "其他类型",
+    }
+}
+
+fn deadline_overdue(deadline: &TemporalConstraint) -> bool {
+    let Some(date) = deadline.bound_date else {
+        return false;
+    };
+    let time = deadline.bound_time.unwrap_or_else(|| {
+        chrono::NaiveTime::from_hms_opt(23, 59, 59).expect("valid end-of-day time")
+    });
+    let now = chrono::Utc::now()
+        .with_timezone(deadline.anchor.offset())
+        .naive_local();
+    date.and_time(time) < now
 }
 
 fn lane_of(priority: Priority) -> usize {

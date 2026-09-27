@@ -1,6 +1,6 @@
 # 原生 GUI 使用说明
 
-GUI 通过 CLI 子进程接入主线功能，已提供个人收件箱与六个分析总览。Windows 收件箱原生截图、合成 QCE 导入后的 CLI→GUI 查询联调、egui 指针交互测试已通过；新增总览有完整流/指针交互回归，尚未补原生截图。真实聊天与云模型质量尚未验收。范围与证据见 [GUI 验证记录](../../docs/GUI_VERIFICATION.md) 和 [后续回归](../../docs/REVIEW_FIXES.md)。
+GUI 通过 CLI 子进程接入主线功能，已提供个人收件箱与六个分析总览。同学 B 补充了界面整理、运行详情和 [合成截图](../../docs/ui/README.md)。自动化覆盖原生窗口 smoke、CLI 联调、错误传播、统计刷新及 release 构建/解包；平台边界见 [发布说明](../../docs/RELEASING.md#gui-自动化验收)。真实聊天与云模型质量尚未验收。
 
 在仓库根目录的 PowerShell 中运行：
 
@@ -15,6 +15,10 @@ cargo build --workspace
 - `--data-dir <DIR>`：与 CLI 共用的数据目录；Windows 默认 `%APPDATA%\chat-tldr`。
 - `--config <FILE>`：指定业务配置；省略时使用数据目录内 `config.toml`。
 - `--dark`：使用深色外观。
+
+Windows GUI 发布包须完整解压，保留两份 EXE 的同目录关系。自动截图可使用隐藏的 `--screenshot <PNG> --quit-after-capture`；CI 额外传 `--smoke-report <JSON>` 保存状态回执，只有截图成功写入后才发布回执。该模式不会自动导入或分析，测试脚本只准备独立临时目录和合成数据。
+
+分析失败或部分完成后的自动刷新保留错误提示，直到主动重试分析/导入或关闭提示。运行详情分别显示“最近查询结果”和“最近一次分析”，累计统计不会被上一次运行遮住。
 
 使用真实导出前，先通过 CLI 准备配置和自己的 QQ 身份：
 

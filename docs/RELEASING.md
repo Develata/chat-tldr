@@ -1,15 +1,30 @@
-# CLI 与 Docker 发布
+# CLI、Windows GUI 与 Docker 发布
 
-`.github/workflows/release.yml` 在每次分支 push、PR 和手动运行时模拟发布：并发构建 Windows x86_64 CLI、Linux x86_64 musl CLI 和 scratch Docker 镜像。模拟只上传短期 Actions artifacts，不创建 Release、不推 GHCR、不创建 tag。GUI 打包后续补齐。
+`.github/workflows/release.yml` 在每次分支 push、PR 和手动运行时模拟发布：并发构建 Windows x86_64 CLI/GUI、Linux x86_64 musl CLI 和 scratch Docker 镜像。模拟只上传短期 Actions artifacts，不创建 Release、不推 GHCR、不创建 tag。GUI 归档从下一次正式版本开始提供，不追补或替换已发布的 `v0.1.0` 产物。
 
 ## 发布产物
 
 - `chat-tldr-<VERSION>-windows-x86_64.zip`，包含 `chat-tldr.exe`。
+- `chat-tldr-gui-<VERSION>-windows-x86_64.zip`，包含同目录的 `chat-tldr-gui.exe` 和 `chat-tldr.exe`，以及 GUI 使用说明和内嵌中文字体的 OFL 许可证。
 - `chat-tldr-<VERSION>-linux-x86_64-musl.tar.gz`，包含静态 `chat-tldr`。
 - `docker-image.tar`，为已验证镜像的离线副本。
 - 每个归档的 SHA-256 文件及正式发布的 `SHA256SUMS`。
 
 CLI 归档还含许可证、README、示例配置和 Docker/发布说明。发布程序以显式白名单打包，拒绝覆盖已有归档。构建不需要真实聊天或模型密钥；最终二进制和最终镜像都经过本地假服务验收。
+
+## GUI 自动化验收
+
+- 必需检查 `test` 包含独立并发的 `GUI smoke (Linux)`：Xvfb/Mesa 打开真实 GUI 窗口，覆盖收件箱、证据、决策、统计、总览、窄窗口和深色；另外通过同目录 CLI 导入合成消息，验证 GUI 自动握手与收件箱查询。缺失 CLI 的负例必须明确报错。
+- Windows 发布任务运行 `cargo test --release -p chat-tldr-gui`，验证优化构建中的协议、失败传播与 egui 指针交互；生成 ZIP 后，校验 SHA-256 和文件白名单，解压到独立目录检查两份 EXE 的版本和 CLI 导入/查询。
+- `gui-native-smoke` artifact 保存原生截图、状态回执和二进制哈希；`gui-release-test` 保存 Windows 解包验证记录。目录必须全新，缺失回执、截图损坏、超时或错误状态都会失败。
+
+Windows runner 的解包检查使用 `--package-only`，明确不代表原生窗口渲染；Linux 原生 smoke 也不代替 Windows/macOS GPU、缩放、系统文件选择器或真实云质量验收。Windows 有可用图形桌面时，可以去掉 `--package-only` 对解包后的 release EXE 跑相同原生 smoke。
+
+```powershell
+cargo build --release --locked -p chat-tldr -p chat-tldr-gui
+python scripts/release/package.py --binary target/release/chat-tldr.exe --gui-binary target/release/chat-tldr-gui.exe --target windows-x86_64 --version 0.1.0
+python scripts/release/gui_smoke.py --archive dist/chat-tldr-gui-0.1.0-windows-x86_64.zip --version 0.1.0 --out tmp/gui-release-native
+```
 
 ## 正式 tag
 

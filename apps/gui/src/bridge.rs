@@ -17,6 +17,11 @@ use chat_tldr_core::{ChatId, CliEvent, DonePayload, EventBody, EventStreamValida
 
 const CHANNEL_CAPACITY: usize = 64;
 const MAX_STDOUT_LINE: usize = 1024 * 1024;
+const MAX_STDERR_LINE_CHARS: usize = 2048;
+// A Unicode scalar value occupies at most four UTF-8 bytes. Keeping only this
+// prefix lets us retain MAX_STDERR_LINE_CHARS complete characters while a
+// noisy, unterminated stderr line is drained without unbounded allocation.
+const MAX_STDERR_LINE_BYTES: usize = MAX_STDERR_LINE_CHARS * 4;
 type Repaint = Arc<dyn Fn() + Send + Sync>;
 
 #[derive(Clone, Debug)]
@@ -444,21 +449,18 @@ fn limited_line(reader: &mut impl BufRead) -> io::Result<Option<Vec<u8>>> {
 }
 
 fn read_stderr(
-    mut reader: impl Read,
+    reader: impl Read,
     sender: &SyncSender<BridgeEvent>,
     repaint: &Repaint,
     tag: &RequestTag,
 ) {
-    let mut buffer = [0; 2048];
+    let mut reader = BufReader::new(reader);
     loop {
-        match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(size) => {
+        match limited_stderr_line(&mut reader) {
+            Ok(Some(line)) => {
                 let event = BridgeEvent {
                     request: tag.clone(),
-                    payload: BridgePayload::Stderr(
-                        String::from_utf8_lossy(&buffer[..size]).into_owned(),
-                    ),
+                    payload: BridgePayload::Stderr(line),
                 };
                 match sender.try_send(event) {
                     Ok(()) => repaint(),
@@ -466,10 +468,49 @@ fn read_stderr(
                     Err(mpsc::TrySendError::Disconnected(_)) => break,
                 }
             }
+            Ok(None) => break,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(_) => break,
         }
     }
+}
+
+fn limited_stderr_line(reader: &mut impl BufRead) -> io::Result<Option<String>> {
+    let mut bytes = Vec::with_capacity(MAX_STDERR_LINE_BYTES);
+    let mut saw_input = false;
+    let mut truncated = false;
+    loop {
+        let chunk = reader.fill_buf()?;
+        if chunk.is_empty() {
+            if !saw_input {
+                return Ok(None);
+            }
+            break;
+        }
+        saw_input = true;
+        let newline = chunk.iter().position(|byte| *byte == b'\n');
+        let content_end = newline.unwrap_or(chunk.len());
+        let copy_len = content_end.min(MAX_STDERR_LINE_BYTES.saturating_sub(bytes.len()));
+        bytes.extend_from_slice(&chunk[..copy_len]);
+        truncated |= copy_len < content_end;
+        let consume_len = newline.map_or(chunk.len(), |index| index + 1);
+        reader.consume(consume_len);
+        if newline.is_some() {
+            break;
+        }
+    }
+    if bytes.last() == Some(&b'\r') {
+        bytes.pop();
+    }
+    let mut line = String::from_utf8_lossy(&bytes).into_owned();
+    if let Some((index, _)) = line.char_indices().nth(MAX_STDERR_LINE_CHARS) {
+        line.truncate(index);
+        truncated = true;
+    }
+    if truncated {
+        line.push('…');
+    }
+    Ok(Some(line))
 }
 
 #[cfg(test)]
