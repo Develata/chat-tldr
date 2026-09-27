@@ -80,6 +80,7 @@ chat-tldr/
 │  │  │  ├─ bridge.rs          # 子进程、管道、事件解析；相关测试在 bridge/
 │  │  │  ├─ model.rs           # 协议事件到界面状态，不打开数据库
 │  │  │  ├─ prefs.rs           # 仅 GUI 偏好，原子保存
+│  │  │  ├─ qce/               # QQ 获取向导、manager 协议状态与渲染
 │  │  │  ├─ appearance.rs      # 字体与外观
 │  │  │  └─ ui.rs              # 群列表、收件箱、证据、日志
 │  │  └─ README.md             # 启动方式、--demo 与配置边界
@@ -258,13 +259,13 @@ eval/
 
 所有清理都限制在该组件拥有的明确目录内；不能接受任意递归删除路径，不能跟随链接越过管理根目录。这是后续实现约束，本轮不执行任何清理或数据迁移。
 
-后续完整安装目录规划（首版 CLI ZIP/tar.gz 与 Docker 的实际文件清单见 [RELEASING](RELEASING.md)，GUI/QCE 管理程序尚未打包）：
+完整安装目录规划（CLI/Docker 与 Windows GUI 的实际白名单见 [RELEASING](RELEASING.md)，Windows GUI 包含管理程序，QCE/NapCat 不捆绑）：
 
 ```text
 dist/<target>/<version>/
 ├─ chat-tldr[.exe]
 ├─ chat-tldr-gui[.exe]
-├─ chat-tldr-qce-manager[.exe]   # 组件交付后才加入
+├─ chat-tldr-qce-manager[.exe]   # Windows GUI 包随附；独立 CLI 包不包含
 ├─ config.example.toml
 ├─ README.txt
 └─ licenses/

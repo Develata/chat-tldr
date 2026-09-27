@@ -12,16 +12,18 @@ import gui_smoke
 
 
 class GuiSmokeTests(unittest.TestCase):
-    def archive(self, root, extra=None, omit_gui=False):
+    def archive(self, root, extra=None, omit_gui=False, omit_manager=False):
         archive = root / "gui.zip"
         prefix = "chat-tldr-gui-0.1.0-windows-x86_64/"
-        names = ["chat-tldr.exe", "chat-tldr-gui.exe", "LICENSE", "README.md",
+        names = ["chat-tldr.exe", "chat-tldr-gui.exe", "chat-tldr-qce-manager.exe", "apps/qce-manager/README.md", "LICENSE", "README.md",
                  "config.example.toml", "docs/DOCKER.md", "docs/RELEASING.md", "apps/gui/README.md",
                  "apps/gui/assets/fonts/OFL.txt", "apps/gui/assets/fonts/README.md"]
         if extra:
             names.append(extra)
         if omit_gui:
             names.remove("chat-tldr-gui.exe")
+        if omit_manager:
+            names.remove("chat-tldr-qce-manager.exe")
         with zipfile.ZipFile(archive, "x") as output:
             for name in names:
                 output.writestr(prefix + name, b"synthetic")
@@ -59,6 +61,13 @@ class GuiSmokeTests(unittest.TestCase):
             path.write_bytes(b"\x89PNG\r\n\x1a\n")
             with self.assertRaisesRegex(RuntimeError, "missing or undersized"):
                 gui_smoke.png_size(path)
+
+    def test_missing_manager_cannot_pass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            options = self.archive(Path(directory), omit_manager=True)
+            with self.assertRaisesRegex(RuntimeError, "public file list"):
+                with gui_smoke.binaries(options):
+                    self.fail("GUI without manager accepted")
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ $notes = Join-Path $Directory 'release-notes.md'
 CLI + Windows GUI + Docker release, built from commit $Commit.
 
 - Windows x64: extract the ZIP and run chat-tldr.exe.
-- Windows GUI: extract the GUI ZIP and keep chat-tldr-gui.exe beside chat-tldr.exe; run chat-tldr-gui.exe.
+- Windows GUI: extract the GUI ZIP and keep chat-tldr-gui.exe, chat-tldr.exe and chat-tldr-qce-manager.exe together; run chat-tldr-gui.exe. QQ acquisition connects to an existing local QCE/NapCat service (not bundled).
 - Linux x64: static musl executable in the tar.gz archive.
 - Docker: ``docker pull ${Image}:$Version`` (linux/amd64, non-root scratch image).
 - Offline Docker: download docker-image.tar, verify SHA256SUMS, then ``docker load -i docker-image.tar``. Loaded image: ``$sourceImage``.

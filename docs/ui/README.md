@@ -30,3 +30,10 @@ target\debug\chat-tldr-gui.exe --demo --demo-view overview --screenshot docs/ui/
 补充六个总览的入口与近 6/24 小时、7 天窗口：热闹但不紧急的话题与安静但有截止日期的 P0 应清楚区分；展示负责人、待分析状态与时间待确认。总览不能标为已读，不能因切换窗口而隐藏旧的未完成 P0。可复用 [多场景合成样本](../../fixtures/qce/scenario-analysis.README.md)，不要把计划中的更正/取消或待回应能力画成已实现结果。
 
 实际使用的字体与图标放 `apps/gui/assets/` 并随附许可；本目录放设计材料。GUI 不读写 SQLite，不依赖 engine，不把尚未实现的 CLI 命令当作可用功能。
+
+## QQ 获取向导（Codex 接入增量）
+
+- [连接、最近群聊和时间范围](qce-acquisition.png)
+- [深色窄窗口扫码](qce-login.png)：二维码为 `example.invalid` 合成内容，不能用于登录。
+
+这两张来自 `scripts/release/gui_smoke.py` 驱动本机假 QCE/NapCat 与真实 GUI/manager/CLI 的原生截图，使用临时数据目录，无真实账号、聊天或云调用；不是 B 的原始交付，也不等于手机扫码验收。复现与结果边界见 [RELEASING](../RELEASING.md#gui-自动化验收)。
