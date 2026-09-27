@@ -6,7 +6,8 @@
 
 - CLI `config show/set` 与 GUI 设置页使用同一份配置。合成密钥经 stdin 保存后，新 CLI 进程在移除环境变量的条件下完成 OpenAI/Anthropic 两种格式的本地假服务分析；查询、Debug 与 GUI 偏好不回显密钥。
 - 配置原子写入、失败保留原文件、旧 revision 冲突、字段校验、密钥删除和环境变量回退均有回归。workspace 测试、严格 Clippy 与 fmt 已通过；原生截图发现设置窗口裁切后修复，并重跑 GUI 测试。
-- `scripts/release/gui_smoke.py` 增加常规与 800×700 设置页，使用真实 CLI 读取配置，并校验密钥输入/保存按钮的可见区域。Windows 本地全部 23 个原生捕获场景通过；现有 CI/GUI 发布验收复用该脚本。这里未宣称本分支远程 CI、Linux/macOS 或新增真实云请求已验收。
+- `scripts/release/gui_smoke.py` 增加常规与 800×700 设置页，使用真实 CLI 读取配置，并校验密钥输入/保存按钮的可见区域。Windows 本地全部 23 个原生捕获场景通过；PR #10 的 [跨平台 CI](https://github.com/Develata/chat-tldr/actions/runs/36334284929) 和 [发布模拟](https://github.com/Develata/chat-tldr/actions/runs/36334285037) 均成功，覆盖 Linux 原生 GUI smoke、macOS 模块检查、Windows 优化测试/解包及 Docker。该证据对应 `35559e3`，不能替代后续版本自身的正式 tag 验收。
+- 本地实际密钥保存后，移除模型环境变量的新进程 `doctor` 确认从 config 读取并就绪；这是离线配置检查，不是新增云端请求。QCE 本地扫码、近七天导出导入及 CLI 云分析已完成，原始聊天和运行记录只保留在 private。
 - 密钥明文保存在本地 config 是本次用户明确决定（ADR-0011），不是加密存储。真实聊天与真实凭据不作为测试材料提交。
 
 ## 2026-09-26 首版 CLI/Docker 验收

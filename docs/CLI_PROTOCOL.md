@@ -230,7 +230,7 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
 ```json
 {"command":"resolve","target":"i_7c2d9e01ab34","changed":true,"detail":{"lifecycle":"done"}}
 ```
-`version` 命令的 `ack`：`{"command":"version","target":null,"changed":false,"detail":{"cli_version":"0.1.0","schema_version":"1.0","db_version":1,"capabilities":{"commands":["version","config init","doctor","import","chats","messages","analyze","inbox","overview","feedback","resolve","mark-read","stats","decisions","jev-log"],"strategies":["ours"],"deciders":["jev","llm"]}}}`。capabilities 只列实际已实现的能力，不能广告空桩。
+`version` 命令的 `ack`：`{"command":"version","target":null,"changed":false,"detail":{"cli_version":"0.2.0","schema_version":"1.0","db_version":2,"capabilities":{"commands":["version","config init","config show","config set","doctor","import","chats","messages","analyze","inbox","overview","relations","feedback","resolve","mark-read","stats","decisions","jev-log"],"strategies":["ours","b0"],"deciders":["jev","llm"]}}}`。capabilities 只列实际已实现的能力，不能广告空桩。
 
 ### 3.9 `warning`
 ```json

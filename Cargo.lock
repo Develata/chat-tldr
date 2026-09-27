@@ -551,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "chat-tldr"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "chat-tldr-core",
@@ -571,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "chat-tldr-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde",
@@ -582,7 +582,7 @@ dependencies = [
 
 [[package]]
 name = "chat-tldr-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "chat-tldr-core",
@@ -601,7 +601,7 @@ dependencies = [
 
 [[package]]
 name = "chat-tldr-eval"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chat-tldr-core",
  "chrono",
@@ -616,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "chat-tldr-gui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chat-tldr-core",
  "chrono",
@@ -633,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "chat-tldr-qce"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "chat-tldr-core",
@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "chat-tldr-qce-manager"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chat-tldr-core",
  "chrono",
