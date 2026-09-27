@@ -10,6 +10,8 @@ use serde::Deserialize;
 
 use crate::bridge::{BridgeEvent, BridgePayload, CommandKind, Completion, RequestTag};
 
+mod demo;
+
 const LOG_LIMIT: usize = 200;
 const HISTORY_LIMIT: usize = 200;
 const VIEW_LIMIT: usize = 50_000;
@@ -129,6 +131,9 @@ impl GuiModel {
         self.latest_request = Some(request.id);
         self.pending = Pending::default();
         self.progress = None;
+        // An error belongs to the command that produced it. Do not leave a
+        // stale red banner above a newly successful refresh.
+        self.last_error = None;
         if !matches!(
             request.kind,
             CommandKind::Stats | CommandKind::Decisions | CommandKind::JevLog
@@ -139,17 +144,14 @@ impl GuiModel {
             CommandKind::Version => {
                 self.capabilities = None;
                 self.cli_version = None;
-                self.last_error = None;
             }
             CommandKind::Analyze => {
                 self.decisions.clear();
                 self.stats = None;
-                self.last_error = None;
             }
             CommandKind::Decisions => self.decisions.clear(),
             CommandKind::JevLog => self.jev_answers.clear(),
             CommandKind::Stats => self.history_stats.clear(),
-            CommandKind::Import => self.last_error = None,
             _ => {}
         }
         if matches!(
@@ -180,6 +182,7 @@ impl GuiModel {
         self.inbox = None;
         self.stats = None;
         self.progress = None;
+        self.last_error = None;
         self.decisions.clear();
         self.jev_answers.clear();
         true
@@ -456,14 +459,26 @@ impl GuiModel {
             }
         }
         if !completion.is_success() {
-            let message = completion.error.clone().unwrap_or_else(|| {
-                match completion.done.as_ref().map(|done| done.status) {
-                    Some(RunStatus::Partial) => "命令部分完成；已保存的结果将通过收件箱刷新".into(),
-                    Some(RunStatus::Cancelled) => "CLI 已取消；将刷新已保存的结果".into(),
-                    Some(RunStatus::Unknown) => "CLI 返回未知结束状态，不能视为成功".into(),
-                    _ => format!("CLI 未成功完成（退出码 {:?}）", completion.exit_code),
+            let status = completion.done.as_ref().map(|done| done.status);
+            let detail = completion.error.clone().or_else(|| self.last_error.clone());
+            let message = match (status, detail) {
+                (Some(RunStatus::Partial), Some(detail)) => {
+                    format!("{detail}；命令部分完成，已保存的结果将通过收件箱刷新")
                 }
-            });
+                (Some(RunStatus::Partial), None) => {
+                    "命令部分完成；已保存的结果将通过收件箱刷新".into()
+                }
+                (Some(RunStatus::Cancelled), Some(detail)) => {
+                    format!("{detail}；CLI 已取消，将刷新已保存的结果")
+                }
+                (Some(RunStatus::Cancelled), None) => "CLI 已取消；将刷新已保存的结果".into(),
+                (Some(RunStatus::Unknown), Some(detail)) => {
+                    format!("{detail}；CLI 返回未知结束状态，不能视为成功")
+                }
+                (Some(RunStatus::Unknown), None) => "CLI 返回未知结束状态，不能视为成功".into(),
+                (_, Some(detail)) => detail,
+                _ => format!("CLI 未成功完成（退出码 {:?}）", completion.exit_code),
+            };
             self.last_error = Some(message.clone());
             self.log(message);
         }
@@ -541,6 +556,9 @@ impl GuiModel {
                 .find(|chat| chat.chat_id == inbox.meta.chat_id)
         {
             chat.open_p0 = inbox.meta.counts.p0;
+        }
+        if let Err(error) = demo::complete(&mut model) {
+            model.last_error = Some(error);
         }
         model
     }

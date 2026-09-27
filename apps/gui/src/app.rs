@@ -10,7 +10,7 @@ use chat_tldr_core::ChatId;
 use eframe::egui;
 
 use crate::{
-    Args, appearance,
+    Args, DemoView, appearance,
     bridge::{self, Bridge, CliSettings, CommandKind, Request, RequestTag},
     model::{FollowUp, GuiModel},
     prefs::{self, Preferences},
@@ -22,6 +22,7 @@ pub struct Startup {
     prefs_path: Option<PathBuf>,
     error: Option<String>,
     demo: bool,
+    demo_view: Option<DemoView>,
     screenshot: Option<PathBuf>,
     quit_after_capture: bool,
 }
@@ -99,6 +100,7 @@ impl Startup {
             prefs_path,
             error,
             demo: args.demo,
+            demo_view: args.demo_view,
             screenshot: args.screenshot,
             quit_after_capture: args.quit_after_capture,
         }
@@ -145,10 +147,14 @@ impl App {
         } else {
             GuiModel::default()
         };
+        let mut state = UiState::new(startup.prefs.clone());
+        if startup.demo {
+            state.configure_demo(startup.demo_view.unwrap_or_default());
+        }
         let mut app = Self {
             model,
             bridge,
-            state: UiState::new(startup.prefs.clone()),
+            state,
             prefs: startup.prefs,
             prefs_path: startup.prefs_path,
             sequence: 10,
@@ -243,6 +249,10 @@ impl App {
     fn act(&mut self, action: Action, ctx: &egui::Context) {
         if action == Action::Cancel {
             self.bridge.cancel();
+            return;
+        }
+        if action == Action::DismissError {
+            self.model.last_error = None;
             return;
         }
         if self.demo || self.bridge.is_busy() || self.picking_file {
@@ -397,7 +407,7 @@ impl App {
                     );
                 }
             }
-            Action::Cancel => {}
+            Action::Cancel | Action::DismissError => {}
         }
     }
 }
@@ -469,7 +479,8 @@ impl eframe::App for App {
             ui,
             &mut self.state,
             &self.model,
-            self.bridge.is_busy() || self.picking_file,
+            self.bridge.is_busy(),
+            self.picking_file,
             self.demo,
         );
         if let Some(request_id) = displayed {

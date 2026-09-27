@@ -6,11 +6,17 @@ pub(super) fn render(
     ui: &mut egui::Ui,
     state: &mut UiState,
     model: &GuiModel,
-    enabled: bool,
-    busy: bool,
+    query_enabled: bool,
     actions: &mut Vec<Action>,
 ) {
-    ui.heading("群聊分析总览");
+    ui.horizontal_wrapped(|ui| {
+        ui.heading("群聊分析总览");
+        ui.label(
+            RichText::new("只读 · 不计为已读")
+                .strong()
+                .color(crate::appearance::ACCENT),
+        );
+    });
     if state.overview_hours == 0 {
         state.overview_hours = 24;
     }
@@ -18,7 +24,7 @@ pub(super) fn render(
         for (hours, label) in [(6, "近 6 小时"), (24, "近 24 小时"), (168, "近 7 天")] {
             if ui
                 .add_enabled(
-                    enabled,
+                    query_enabled,
                     egui::Button::selectable(state.overview_hours == hours, label),
                 )
                 .clicked()
@@ -29,50 +35,54 @@ pub(super) fn render(
             }
         }
         if ui
-            .add_enabled(enabled, egui::Button::new("刷新总览"))
+            .add_enabled(query_enabled, egui::Button::new("刷新总览"))
             .clicked()
         {
             actions.push(Action::Overview(state.overview_hours));
         }
     });
     let Some(view) = &model.overview else {
-        ui.label(if busy {
-            "正在读取分析结果…"
-        } else {
-            "点击刷新总览，读取这个群的分析结果。"
-        });
+        ui.label("点击刷新总览，读取这个群的分析结果。");
         return;
     };
     let report = &view.report;
-    ui.weak(format!(
-        "{} 至 {} · 窗口内 {} 条，{} 条待分析 · 全群 {} 条待分析",
-        report.since.format("%m-%d %H:%M %:z"),
-        report.until.format("%m-%d %H:%M %:z"),
-        report.window_messages,
-        report.window_pending,
-        report.pending_messages
-    ));
-    ui.weak(format!(
-        "已导入记录截至 {}；总览不会标为已读。",
-        report
-            .data_end
-            .map(|d| d.format("%m-%d %H:%M %:z").to_string())
-            .unwrap_or_else(|| "无记录".into())
-    ));
+    ui.horizontal_wrapped(|ui| {
+        overview_metric(
+            ui,
+            "统计窗口",
+            format!(
+                "{} — {}",
+                report.since.format("%m-%d %H:%M"),
+                report.until.format("%m-%d %H:%M")
+            ),
+        );
+        overview_metric(ui, "窗口消息", report.window_messages.to_string());
+        overview_metric(ui, "窗口待分析", report.window_pending.to_string());
+        overview_metric(ui, "全群待分析", report.pending_messages.to_string());
+        overview_metric(
+            ui,
+            "数据截至",
+            report
+                .data_end
+                .map(|date| date.format("%m-%d %H:%M").to_string())
+                .unwrap_or_else(|| "无记录".into()),
+        );
+    });
+    ui.add_space(6.0);
     let old = state.overview_tab;
     ui.horizontal_wrapped(|ui| {
         for (index, label) in [
-            "热门话题",
-            "优先话题",
-            "与我有关",
-            "截止事项",
-            "未读回顾",
-            "资料入口",
+            format!("热门话题  {}", report.hot_topics.len()),
+            format!("优先话题  {}", report.priority_topics.len()),
+            format!("与我有关  {}", report.related.len() + report.mentions.len()),
+            format!("截止事项  {}", report.deadlines.len()),
+            format!("未读回顾  {}", report.unread_topics.len()),
+            format!("资料入口  {}", report.resources.len()),
         ]
         .iter()
         .enumerate()
         {
-            ui.selectable_value(&mut state.overview_tab, index, *label);
+            ui.selectable_value(&mut state.overview_tab, index, label);
         }
     });
     if old != state.overview_tab {
@@ -109,117 +119,155 @@ pub(super) fn render(
         }
     });
     egui::ScrollArea::vertical()
-        .id_salt(("overview", state.overview_tab, state.overview_page))
+        .id_salt((
+            "overview",
+            report.generated_at.timestamp_millis(),
+            state.overview_tab,
+            state.overview_page,
+        ))
         .show(ui, |ui| {
             if total == 0 {
-                ui.label("当前没有符合条件的内容。尚未分析的消息需要先运行分析。");
+                let reason = if report.window_messages == 0 {
+                    "当前时间窗口没有消息；可切换到更长窗口。"
+                } else if report.window_pending > 0 {
+                    "当前没有可展示结果，但窗口内仍有待分析消息。"
+                } else {
+                    "当前窗口没有符合这一分类的内容。"
+                };
+                empty_state(ui, "暂无结果", reason);
             }
             for index in (state.overview_page * 20..total).take(20) {
-                ui.push_id(index, |ui| match state.overview_tab {
-                    0 => {
-                        let row = &report.hot_topics[index];
-                        ui.heading(title(view, Some(&row.topic_id)));
-                        ui.label(format!(
-                            "{} 人参与 · {} 条有效讨论 / {} 条已分析消息",
-                            row.participants, row.meaningful_messages, row.message_count
-                        ));
-                        ui.weak(format!(
-                            "最近活动 {} · 已限制单人刷屏贡献",
-                            row.last_message_at.format("%m-%d %H:%M %:z")
-                        ));
-                        if let Some(group) = report
-                            .priority_topics
-                            .iter()
-                            .find(|g| g.topic_id.as_ref() == Some(&row.topic_id))
-                        {
-                            items(ui, view, &group.insight_ids, enabled, model, actions);
+                ui.push_id(index, |ui| {
+                    egui::Frame::group(ui.style()).show(ui, |ui| match state.overview_tab {
+                        0 => {
+                            let row = &report.hot_topics[index];
+                            ui.label(
+                                RichText::new(title(view, Some(&row.topic_id)))
+                                    .strong()
+                                    .size(18.0),
+                            );
+                            ui.label(format!(
+                                "{} 人参与 · {} 条有效讨论 / {} 条已分析消息",
+                                row.participants, row.meaningful_messages, row.message_count
+                            ));
+                            ui.weak(format!(
+                                "最近活动 {} · 已限制单人刷屏贡献",
+                                row.last_message_at.format("%m-%d %H:%M %:z")
+                            ));
+                            if let Some(group) = report
+                                .priority_topics
+                                .iter()
+                                .find(|g| g.topic_id.as_ref() == Some(&row.topic_id))
+                            {
+                                items(ui, view, &group.insight_ids, query_enabled, model, actions);
+                            }
                         }
-                    }
-                    1 | 4 => {
-                        let groups = if state.overview_tab == 1 {
-                            &report.priority_topics
-                        } else {
-                            &report.unread_topics
-                        };
-                        let group = &groups[index];
-                        ui.heading(format!(
-                            "{:?} · {}",
-                            group.priority,
-                            title(view, group.topic_id.as_ref())
-                        ));
-                        ui.label(group.reasons.join(" · "));
-                        items(ui, view, &group.insight_ids, enabled, model, actions);
-                    }
-                    2 => {
-                        if index < report.related.len() {
-                            let row = &report.related[index];
-                            ui.label(row.reasons.join(" · "));
+                        1 | 4 => {
+                            let groups = if state.overview_tab == 1 {
+                                &report.priority_topics
+                            } else {
+                                &report.unread_topics
+                            };
+                            let group = &groups[index];
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} · {}",
+                                    priority_label(group.priority),
+                                    title(view, group.topic_id.as_ref())
+                                ))
+                                .strong()
+                                .size(18.0),
+                            );
+                            ui.label(group.reasons.join(" · "));
+                            items(ui, view, &group.insight_ids, query_enabled, model, actions);
+                        }
+                        2 => {
+                            if index < report.related.len() {
+                                let row = &report.related[index];
+                                ui.label(row.reasons.join(" · "));
+                                items(
+                                    ui,
+                                    view,
+                                    std::slice::from_ref(&row.insight_id),
+                                    query_enabled,
+                                    model,
+                                    actions,
+                                );
+                            } else {
+                                let row = &report.mentions[index - report.related.len()];
+                                ui.label(format!(
+                                    "{} · {} · {}",
+                                    row.sender_display,
+                                    row.reasons.join(" · "),
+                                    if row.analyzed {
+                                        "已分析"
+                                    } else {
+                                        "待分析"
+                                    }
+                                ));
+                                ui.label(&row.text);
+                            }
+                        }
+                        3 => {
+                            let row = &report.deadlines[index];
+                            ui.label(
+                                RichText::new(match row.status {
+                                    DeadlineStatus::Overdue => "已逾期",
+                                    DeadlineStatus::Upcoming => "尚未到期",
+                                    _ => "时间待确认",
+                                })
+                                .strong()
+                                .color(match row.status {
+                                    DeadlineStatus::Overdue => error_color(ui),
+                                    _ => crate::appearance::ACCENT,
+                                }),
+                            );
                             items(
                                 ui,
                                 view,
                                 std::slice::from_ref(&row.insight_id),
-                                enabled,
+                                query_enabled,
                                 model,
                                 actions,
                             );
-                        } else {
-                            let row = &report.mentions[index - report.related.len()];
-                            ui.label(format!(
-                                "{} · {} · {}",
-                                row.sender_display,
-                                row.reasons.join(" · "),
-                                if row.analyzed {
-                                    "已分析"
-                                } else {
-                                    "待分析"
-                                }
-                            ));
-                            ui.label(&row.text);
                         }
-                    }
-                    3 => {
-                        let row = &report.deadlines[index];
-                        ui.heading(match row.status {
-                            DeadlineStatus::Overdue => "已逾期",
-                            DeadlineStatus::Upcoming => "尚未到期",
-                            _ => "时间待确认",
-                        });
-                        items(
-                            ui,
-                            view,
-                            std::slice::from_ref(&row.insight_id),
-                            enabled,
-                            model,
-                            actions,
-                        );
-                    }
-                    _ => {
-                        let row = &report.resources[index];
-                        ui.label(format!(
-                            "{} · {}",
-                            row.source.sender_display,
-                            row.source.sent_at.format("%m-%d %H:%M %:z")
-                        ));
-                        ui.label(&row.source.text);
-                        for attachment in &row.attachments {
+                        _ => {
+                            let row = &report.resources[index];
                             ui.label(format!(
-                                "附件：{}",
-                                attachment.name.as_deref().unwrap_or("未命名")
+                                "{} · {}",
+                                row.source.sender_display,
+                                row.source.sent_at.format("%m-%d %H:%M %:z")
                             ));
-                        }
-                        for link in &row.links {
-                            if link.starts_with("http://") || link.starts_with("https://") {
-                                ui.hyperlink_to(link, link);
-                            } else {
-                                ui.label(link);
+                            ui.label(&row.source.text);
+                            for attachment in &row.attachments {
+                                ui.label(format!(
+                                    "附件：{}",
+                                    attachment.name.as_deref().unwrap_or("未命名")
+                                ));
                             }
+                            for link in &row.links {
+                                if link.starts_with("http://") || link.starts_with("https://") {
+                                    if ui.link(link).on_hover_text("点击复制链接").clicked() {
+                                        ui.ctx().copy_text(link.clone());
+                                    }
+                                } else {
+                                    ui.label(link);
+                                }
+                            }
+                            ui.weak("点击链接可复制；仅展示附件元数据，未读取文件正文。");
                         }
-                        ui.weak("仅附件元数据，未读取文件正文。");
-                    }
+                    });
                 });
-                ui.separator();
+                ui.add_space(8.0);
             }
         });
+}
+
+fn overview_metric(ui: &mut egui::Ui, label: &str, value: String) {
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.weak(label);
+        ui.label(RichText::new(value).strong());
+    });
 }
 
 fn title<'a>(view: &'a OverviewView, id: Option<&TopicId>) -> &'a str {
@@ -232,7 +280,7 @@ fn items(
     ui: &mut egui::Ui,
     view: &OverviewView,
     ids: &[InsightId],
-    enabled: bool,
+    write_enabled: bool,
     model: &GuiModel,
     actions: &mut Vec<Action>,
 ) {
@@ -265,8 +313,12 @@ fn items(
             let row = &view.report.insights[*index];
             ui.push_id(id.as_ref(), |ui| {
                 ui.collapsing(
-                    format!("{:?} · {}", row.insight.priority, row.insight.title),
-                    |ui| insight(ui, row, enabled, model, actions),
+                    format!(
+                        "{} · {}",
+                        priority_label(row.insight.priority),
+                        row.insight.title
+                    ),
+                    |ui| insight(ui, row, write_enabled, false, model, actions),
                 );
             });
         }

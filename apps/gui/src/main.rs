@@ -5,8 +5,18 @@ mod model;
 mod prefs;
 mod ui;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
+
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+enum DemoView {
+    #[default]
+    Inbox,
+    Evidence,
+    Decisions,
+    Stats,
+    Overview,
+}
 
 #[derive(Parser)]
 #[command(version, about = "群聊省流桌面端；通过本地 CLI 读写聊天数据")]
@@ -21,6 +31,9 @@ struct Args {
     /// Show synthetic fixtures; never starts a CLI or writes preferences.
     #[arg(long)]
     demo: bool,
+    /// Select a reproducible synthetic view for screenshots.
+    #[arg(long, value_enum, hide = true, requires = "demo")]
+    demo_view: Option<DemoView>,
     #[arg(long, hide = true)]
     screenshot: Option<PathBuf>,
     #[arg(long, hide = true, requires = "screenshot")]
