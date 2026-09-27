@@ -27,10 +27,10 @@ docker compose run --rm cli relations --chat <CHAT_ID>
 
 ## 正式镜像与发布归档
 
-正式 tag 流程成功后使用 `ghcr.io/develata/chat-tldr:0.1.0`；`latest` 指向最近正式稳定版本。正式发布之前，`compose build` 或 Actions 的模拟发布产物可用于验收，不能把尚未发布的版本当作可拉取镜像。
+正式 tag 流程成功后使用 `ghcr.io/develata/chat-tldr:0.2.0`；`latest` 指向最近正式稳定版本。正式发布之前，`compose build` 或 Actions 的模拟发布产物可用于验收，不能把尚未发布的版本当作可拉取镜像。
 
 ```powershell
-$env:CHAT_TLDR_IMAGE = 'ghcr.io/develata/chat-tldr:0.1.0'
+$env:CHAT_TLDR_IMAGE = 'ghcr.io/develata/chat-tldr:0.2.0'
 docker compose pull cli
 docker compose run --rm cli version
 ```
@@ -39,4 +39,4 @@ Actions 提供的 `docker-image.tar` 可用 `docker load -i docker-image.tar` �
 
 ## 验证边界
 
-`scripts/release/smoke.py --image <IMAGE> --version 0.1.0` 在最终 scratch 镜像中运行合成导入、模型假服务、证据/P0、状态操作、历史、HTML 和关系覆盖查询。它保持镜像的 UID/GID 10001，使用一次性命名卷保存输出，通过 Docker 读取私有文件，避免宿主用户与容器 UID 不同导致 Linux 权限错误。只读挂载合成输入，结束后仅移除本次创建的卷。测试服务器仅提供合成响应，不接入云模型。Linux CLI 归档从同一镜像提取并再次运行验收。真实模型质量需要独立人工标注。
+`scripts/release/smoke.py --image <IMAGE> --version 0.2.0` 在最终 scratch 镜像中运行合成导入、模型假服务、证据/P0、状态操作、历史、HTML 和关系覆盖查询。它保持镜像的 UID/GID 10001，使用一次性命名卷保存输出，通过 Docker 读取私有文件，避免宿主用户与容器 UID 不同导致 Linux 权限错误。只读挂载合成输入，结束后仅移除本次创建的卷。测试服务器仅提供合成响应，不接入云模型。Linux CLI 归档从同一镜像提取并再次运行验收。真实模型质量需要独立人工标注。

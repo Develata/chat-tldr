@@ -4,11 +4,11 @@
 > 把未读群聊变成可追溯的个人行动收件箱。
 
 **状态 / Status（2026-09-27）**：文件导入、增量分析、话题合并/自动关闭/历史回填、收件箱及六个总览已实现。CLI 新增更正/取消/冲突关联与待回应查询；eval 支持 Ours/B0、话题切分和概率校准。真实云调用记录见 [ACCEPTANCE](docs/ACCEPTANCE.md)，真实质量评分与 Jev 校准曲线仍为**待标注**。CLI/Windows GUI/Docker 发布见 [RELEASING](docs/RELEASING.md)，分工见 [TEAM_ASSIGNMENTS](docs/TEAM_ASSIGNMENTS.md)。
-*The CLI supports import, incremental analysis, topic lifecycle, inbox/overview and evidence-backed changes and question states. Ours/B0 scoring, partition metrics and calibration tools are available. Real-data quality and Jev calibration await independent human labels. CI packages the CLI, Windows GUI and Docker image; the GUI bundle will ship with the next tagged release.*
+*The CLI supports import, incremental analysis, topic lifecycle, inbox/overview and evidence-backed changes and question states. Ours/B0 scoring, partition metrics and calibration tools are available. Real-data quality and Jev calibration await independent human labels. Version 0.2.0 adds Windows GUI distribution, local QQ acquisition and editable model settings; tag CI publishes the tested CLI, GUI and Docker artifacts.*
 
 [![CI](https://github.com/Develata/chat-tldr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Develata/chat-tldr/actions/workflows/ci.yml)
 
-首版 [v0.1.0 下载](https://github.com/Develata/chat-tldr/releases/tag/v0.1.0)：Windows CLI、Linux 静态 CLI；公开镜像 `ghcr.io/develata/chat-tldr:0.1.0`。发布与下载校验记录见 [ACCEPTANCE](docs/ACCEPTANCE.md#已发布版本与复核凭据)。
+正式下载见 [GitHub Releases](https://github.com/Develata/chat-tldr/releases/latest)。本版 `v0.2.0` 的发布范围为 Windows CLI、Windows GUI（含 CLI/QCE manager）、Linux 静态 CLI 和 `ghcr.io/develata/chat-tldr:0.2.0`；tag 流程成功后提供对应产物。首版 `v0.1.0` 继续保留，发布与校验记录见 [ACCEPTANCE](docs/ACCEPTANCE.md)。
 
 ---
 
@@ -44,7 +44,7 @@
 - eval 的 `check-stream`、`export-sheet`、`import-sheet`、`score`、`calibrate`：Ours/B0、最优话题匹配/ARI/NMI、ECE/Brier 和 SVG；缺标注不造分数
 - 极简非 root scratch [Docker 镜像](docs/DOCKER.md)；push 模拟 CLI/Windows GUI/Docker 发布，正式 tag 才公开 Release 与推送 GHCR
 
-尚未实现 B1/sim-*、embedding、burst/边界与人工支持率指标、`agreement/summarize`。Windows GUI 打包已接入模拟发布，正式下载随下一次 tag 提供。当前策略为 `--strategy ours|b0`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成。QCE 管理组件支持本机登录/导出，GUI 已接入“从 QQ 获取聊天”；真实手机扫码仍待验收，JSON 文件导入可独立使用。
+尚未实现 B1/sim-*、embedding、burst/边界与人工支持率指标、`agreement/summarize`。Windows GUI 从 `v0.2.0` 开始纳入正式发布。当前策略为 `--strategy ours|b0`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成。QCE 管理组件支持本机登录/导出，GUI 已接入“从 QQ 获取聊天”；本地真实扫码、近七天导出导入与 CLI 分析已跑通，JSON 文件导入可独立使用。
 
 ### 已验证到哪里
 
