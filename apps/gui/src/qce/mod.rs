@@ -78,6 +78,7 @@ pub struct Wizard {
     pub groups_only: bool,
     pub since: String,
     pub until: String,
+    default_range: (String, String),
     pub importing: bool,
     pub imported: bool,
     pub import_attempts: usize,
@@ -90,6 +91,8 @@ impl Default for Wizard {
     fn default() -> Self {
         let until = Local::now();
         let since = until - chrono::Duration::hours(24);
+        let since = since.to_rfc3339_opts(SecondsFormat::Millis, false);
+        let until = until.to_rfc3339_opts(SecondsFormat::Millis, false);
         Self {
             open: false,
             model: Model::default(),
@@ -101,8 +104,9 @@ impl Default for Wizard {
             selected: None,
             search: String::new(),
             groups_only: true,
-            since: since.to_rfc3339_opts(SecondsFormat::Millis, false),
-            until: until.to_rfc3339_opts(SecondsFormat::Millis, false),
+            default_range: (since.clone(), until.clone()),
+            since,
+            until,
             importing: false,
             imported: false,
             import_attempts: 0,
@@ -130,6 +134,7 @@ impl Wizard {
         if self.connected_data_dir == prefs.data_dir
             && self.settings == prefs.qce
             && self.model.export.is_some()
+            && !self.imported
         {
             return; // Closing the window does not discard a recoverable export.
         }
@@ -189,6 +194,15 @@ impl Wizard {
         ));
         self.connected_settings = self.settings.clone();
         self.connected_data_dir = prefs.data_dir.clone();
+        // Refresh an untouched default when starting a new acquisition or
+        // checking the connection. Never rewrite an explicitly edited range.
+        if self.since == self.default_range.0 && self.until == self.default_range.1 {
+            let until = Local::now();
+            self.since =
+                (until - chrono::Duration::hours(24)).to_rfc3339_opts(SecondsFormat::Millis, false);
+            self.until = until.to_rfc3339_opts(SecondsFormat::Millis, false);
+            self.default_range = (self.since.clone(), self.until.clone());
+        }
         self.model = Model::default();
         self.selected = None;
         self.imported = false;

@@ -249,3 +249,83 @@ fn failed_import_retains_exact_export_for_retry_and_time_is_explicit() {
     assert!(time_range("2026-09-27T09:00:00.0001Z", "2026-09-27T10:00:00Z").is_err());
     assert!(time_range("2026-09-28T09:00:00Z", "2026-09-27T10:00:00Z").is_err());
 }
+
+#[test]
+fn reopening_after_success_starts_a_fresh_acquisition() {
+    let dir = tempfile::tempdir().unwrap();
+    let prefs = Preferences {
+        data_dir: dir.path().to_string_lossy().into_owned(),
+        qce: Settings {
+            executable: dir
+                .path()
+                .join("missing-manager")
+                .to_string_lossy()
+                .into_owned(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut wizard = Wizard {
+        settings: prefs.qce.clone(),
+        connected_settings: prefs.qce.clone(),
+        connected_data_dir: prefs.data_dir.clone(),
+        imported: true,
+        ..Default::default()
+    };
+    wizard.model.export = Some(serde_json::from_value(export_detail()).unwrap());
+    wizard.open(&prefs, &egui::Context::default());
+    assert!(
+        wizard.model.export.is_none(),
+        "a completed acquisition must not be reused"
+    );
+    assert!(!wizard.imported);
+    assert!(
+        wizard.busy(),
+        "reopening should check the current connection"
+    );
+}
+
+#[test]
+fn connecting_refreshes_the_recent_day_but_preserves_an_edited_range() {
+    let dir = tempfile::tempdir().unwrap();
+    let prefs = Preferences {
+        data_dir: dir.path().to_string_lossy().into_owned(),
+        qce: Settings {
+            executable: dir
+                .path()
+                .join("missing-manager")
+                .to_string_lossy()
+                .into_owned(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let old_range = (
+        "2000-01-01T00:00:00Z".to_owned(),
+        "2000-01-02T00:00:00Z".to_owned(),
+    );
+    for edited in [false, true] {
+        let mut wizard = Wizard {
+            settings: prefs.qce.clone(),
+            since: old_range.0.clone(),
+            until: old_range.1.clone(),
+            default_range: old_range.clone(),
+            ..Default::default()
+        };
+        if edited {
+            wizard.since = "1999-12-01T00:00:00Z".into();
+        }
+        let chosen_range = (wizard.since.clone(), wizard.until.clone());
+        let before = Local::now().timestamp_millis();
+        assert!(wizard.connect(&prefs, &egui::Context::default()));
+        if edited {
+            assert_eq!((wizard.since.clone(), wizard.until.clone()), chosen_range);
+        } else {
+            let since = DateTime::parse_from_rfc3339(&wizard.since).unwrap();
+            let until = DateTime::parse_from_rfc3339(&wizard.until).unwrap();
+            assert!(until.timestamp_millis() >= before);
+            assert!(until.timestamp_millis() <= Local::now().timestamp_millis());
+            assert_eq!(until - since, chrono::Duration::hours(24));
+        }
+    }
+}
