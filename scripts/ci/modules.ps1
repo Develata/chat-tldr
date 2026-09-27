@@ -13,6 +13,7 @@ $modules = @(
     @{ module = 'engine'; package = 'chat-tldr-engine' }
     @{ module = 'cli'; package = 'chat-tldr' }
     @{ module = 'gui'; package = 'chat-tldr-gui' }
+    @{ module = 'qce-manager'; package = 'chat-tldr-qce-manager' }
     @{ module = 'eval'; package = 'chat-tldr-eval' }
 )
 
@@ -32,7 +33,7 @@ if ($actual.Count -ne $expected.Count -or (Compare-Object $expected $actual)) {
 }
 
 if ($Platform -eq 'macos') {
-    $nativeModules = @('cli', 'gui', 'eval')
+    $nativeModules = @('cli', 'gui', 'eval', 'qce-manager')
     $modules = @($modules | Where-Object { $_.module -in $nativeModules })
     if ($modules.Count -ne $nativeModules.Count) {
         throw 'macOS coverage is incomplete; refusing to produce a partial CI matrix.'

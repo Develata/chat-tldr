@@ -105,7 +105,7 @@ jobs:
         run: ./scripts/tests/test-with-env.ps1
 
   platform-unix:
-    name: CLI / eval (Linux)
+    name: CLI / eval / QCE manager (Linux)
     needs: modules
     runs-on: ubuntu-26.04
     timeout-minutes: 15
@@ -122,9 +122,9 @@ jobs:
           # Keep native build artifacts separate across Ubuntu image generations.
           key: cli-eval-ubuntu-26.04
       - name: Lint platform-specific atomic publication
-        run: cargo clippy -p chat-tldr -p chat-tldr-eval --all-targets --locked -- -D warnings
+        run: cargo clippy -p chat-tldr -p chat-tldr-eval -p chat-tldr-qce-manager --all-targets --locked -- -D warnings
       - name: Test publication races and symbolic aliases on a POSIX filesystem
-        run: cargo test -p chat-tldr -p chat-tldr-eval --locked
+        run: cargo test -p chat-tldr -p chat-tldr-eval -p chat-tldr-qce-manager --locked
       - name: Verify the offline acceptance script using synthetic QCE input
         run: ./scripts/verify-qce.ps1 -InputFile ./fixtures/qce/template-docker-export.json
       - name: Verify Ours versus B0 scoring and Jev calibration with local model doubles
