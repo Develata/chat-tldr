@@ -6,8 +6,8 @@
 ## 当前安排（2026-09-26 用户更新）
 
 - **实际交付截止：2026-09-27 23:59，America/Santiago（UTC−3）。**
-- 主线编码（包含 QCE JSON 导入适配器）主要由 Codex 承担，Develata 参与设计与架构审核；当前仓库未记录三位同学的独立交付或账号绑定，线下进度待确认。同学承担 QCE 管理、GUI 设计复核、独立标注与验收材料；QCE 管理组件向主线交付本地导出文件路径。下方原始分工保留作历史参考。
-- CLI 与文件布局草案已经用户批准，见 [CLI_V1_REVIEW.md](CLI_V1_REVIEW.md)。**当前分工以 [TEAM_ASSIGNMENTS.md](TEAM_ASSIGNMENTS.md) 为准**：Codex 主线编码，A 做 QCE 管理，B 做 GUI 设计，C 做合成场景与验收材料；字母仍未绑定真实账号。
+- 主线编码（包含 QCE JSON 导入适配器）主要由 Codex 承担，Develata 参与设计与架构审核；B（@liguilong256）已通过 PR #7 交付 GUI 设计，A/C 的线下进度待确认。QCE 管理由 Codex 接手，PR #8/#9 已合并，向主线交付本地导出文件路径。下方原始分工保留作历史参考。
+- CLI 与文件布局草案已经用户批准，见 [CLI_V1_REVIEW.md](CLI_V1_REVIEW.md)。**当前分工以 [TEAM_ASSIGNMENTS.md](TEAM_ASSIGNMENTS.md) 为准**：Codex 主线编码及 QCE 接入，B 做 GUI 设计复核，C 做独立人工标注与验收材料；A/C 尚未绑定账号。
 - 文件存放与组件读写归属见 [FILE_LAYOUT.md](FILE_LAYOUT.md)；QCE 管理组件预留在 `apps/qce-manager/`，主线导入适配器保持在 `crates/qce/`。
 - 下方“第 1/2/3 天”是原始相对计划，不代表在实际截止日期之后另有开发时间。
 
