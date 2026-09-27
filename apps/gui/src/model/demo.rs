@@ -425,7 +425,7 @@ fn demo_overview(
             topic_id: topic(1),
             message_count: 3,
             meaningful_messages: 3,
-            participants: 4,
+            participants: 3,
             activity_score: 7.6,
             last_message_at: time("2026-09-26T11:32:00+08:00"),
         }],

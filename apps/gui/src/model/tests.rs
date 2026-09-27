@@ -504,6 +504,10 @@ fn demo_overview_fills_six_tabs_and_keeps_every_reference_resolvable() {
     let view = model.overview.as_ref().unwrap();
     let report = &view.report;
     assert!(!report.hot_topics.is_empty());
+    for topic in &report.hot_topics {
+        assert!(topic.participants <= topic.meaningful_messages);
+        assert!(topic.meaningful_messages <= topic.message_count);
+    }
     assert!(!report.priority_topics.is_empty());
     assert!(!report.related.is_empty() || !report.mentions.is_empty());
     assert!(!report.deadlines.is_empty());
