@@ -44,7 +44,7 @@
 - eval 的 `check-stream`、`export-sheet`、`import-sheet`、`score`、`calibrate`：Ours/B0、最优话题匹配/ARI/NMI、ECE/Brier 和 SVG；缺标注不造分数
 - 极简非 root scratch [Docker 镜像](docs/DOCKER.md)；push 模拟 CLI/Windows GUI/Docker 发布，正式 tag 才公开 Release 与推送 GHCR
 
-尚未实现 B1/sim-*、embedding、burst/边界与人工支持率指标、`agreement/summarize`。Windows GUI 打包已接入模拟发布，正式下载随下一次 tag 提供。当前策略为 `--strategy ours|b0`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成。QCE 管理组件仅有接入说明；JSON 适配器可独立使用。
+尚未实现 B1/sim-*、embedding、burst/边界与人工支持率指标、`agreement/summarize`。Windows GUI 打包已接入模拟发布，正式下载随下一次 tag 提供。当前策略为 `--strategy ours|b0`，不代表 [PIPELINE](docs/PIPELINE.md) 的全部策略已经完成。QCE 管理组件支持本机登录/导出，GUI 已接入“从 QQ 获取聊天”；真实手机扫码仍待验收，JSON 文件导入可独立使用。
 
 ### 已验证到哪里
 
@@ -55,7 +55,7 @@
 | GUI | 收件箱/总览合成截图、交互回归、Linux 原生 smoke、Windows release 测试与解包验证 | 真实聊天云分析的完整交互、macOS 原生窗口及各平台 GPU/缩放覆盖 |
 | 评估 | 标注往返、Ours/B0 合成流程、话题匹配和校准手算回归 | 独立人工 gold、真实质量比较和真实 Jev 校准曲线 |
 
-CI 按模块并行，覆盖 Windows 六模块、Linux CLI/eval 与 GUI 原生 smoke、macOS CLI/GUI/eval，保留 `fmt`、`clippy`、`test` 必需检查名称；GUI smoke 失败或跳过也不能通过 `test`。Actions 使用 Node.js 24、Linux 使用 Ubuntu 26.04；版本固定完整 SHA。GUI 发布验收及平台边界见 [RELEASING](docs/RELEASING.md#gui-自动化验收)，运行结果见上方 CI。
+CI 按 workspace 模块并行，覆盖 Windows 全部模块、Linux CLI/eval/manager 与 GUI 原生 smoke、macOS CLI/GUI/eval/manager，保留 `fmt`、`clippy`、`test` 必需检查名称；GUI smoke 失败或跳过也不能通过 `test`。Actions 使用 Node.js 24、Linux 使用 Ubuntu 26.04；版本固定完整 SHA。GUI 发布验收及平台边界见 [RELEASING](docs/RELEASING.md#gui-自动化验收)，运行结果见上方 CI。
 
 ### 现在就能运行（无需密钥）
 
@@ -99,7 +99,7 @@ cargo build --workspace
 .\target\debug\chat-tldr.exe --data-dir .\private\my-chat import "C:\path\group.json" --self-uin "<你的QQ号>"
 ```
 
-GUI 的导入只选择已完成的导出文件；GUI 不填写密钥或 QQ 身份。密钥按下节设置在启动 GUI 的进程环境中；首次云端分析需确认聊天原文会发送给配置的服务。仅打开 GUI、导入和查询不调用模型。`doctor` 检查本地配置和环境变量是否就绪，不验证网络连通性。
+GUI 保留文件导入，并提供“从 QQ 获取聊天”：连接本机 QCE → 扫码登录 → 选群/时间 → 导出并导入，见 [操作说明](apps/gui/README.md#从-qq-获取聊天)。随附 manager，不安装/捆绑 QCE/NapCat。GUI 不填写密钥或 QQ 身份；密钥按下节设置在启动进程的环境中。首次云端分析需确认聊天原文会发送给配置的服务；获取、导入和查询不调用模型。`doctor` 检查本地配置和环境变量是否就绪，不验证网络连通性。
 
 ### 查看分析总览
 

@@ -5,7 +5,7 @@
 ## 发布产物
 
 - `chat-tldr-<VERSION>-windows-x86_64.zip`，包含 `chat-tldr.exe`。
-- `chat-tldr-gui-<VERSION>-windows-x86_64.zip`，包含同目录的 `chat-tldr-gui.exe` 和 `chat-tldr.exe`，以及 GUI 使用说明和内嵌中文字体的 OFL 许可证。
+- `chat-tldr-gui-<VERSION>-windows-x86_64.zip`，包含同目录的 `chat-tldr-gui.exe`、`chat-tldr.exe`、`chat-tldr-qce-manager.exe`，以及组件使用说明和内嵌中文字体的 OFL 许可证；不捆绑 QCE/NapCat。
 - `chat-tldr-<VERSION>-linux-x86_64-musl.tar.gz`，包含静态 `chat-tldr`。
 - `docker-image.tar`，为已验证镜像的离线副本。
 - 每个归档的 SHA-256 文件及正式发布的 `SHA256SUMS`。
@@ -14,15 +14,19 @@ CLI 归档还含许可证、README、示例配置和 Docker/发布说明。发�
 
 ## GUI 自动化验收
 
+QQ 获取流程增加独立本机假服务，驱动真实 GUI/manager/CLI：连接与最近会话、缺失/不兼容组件、二维码刷新、登录超时、完整导出导入、导出失败/损坏、取消和导入失败重试。重试用例验证同一个保留文件被再次导入，不重复导出；失败状态不得产生业务导入。二维码截图仅用 `example.invalid` 合成内容，JSON 回执与日志检查无二维码/凭据。
+
+Windows `--package-only` 也检查 manager 版本和 QR 能力，并从假服务导出后用真实 CLI 导入；它不打开原生窗口。manager 与 GUI 的 release 单元/协议测试一起执行。需要手机的真实扫码和真实服务联调另行报告。
+
 - 必需检查 `test` 包含独立并发的 `GUI smoke (Linux)`：Xvfb/Mesa 打开真实 GUI 窗口，覆盖收件箱、证据、决策、统计、总览、窄窗口和深色；另外通过同目录 CLI 导入合成消息，验证 GUI 自动握手与收件箱查询。缺失 CLI 的负例必须明确报错。
-- Windows 发布任务运行 `cargo test --release -p chat-tldr-gui`，验证优化构建中的协议、失败传播与 egui 指针交互；生成 ZIP 后，校验 SHA-256 和文件白名单，解压到独立目录检查两份 EXE 的版本和 CLI 导入/查询。
+- Windows 发布任务运行 GUI 与 manager 的 release 测试，验证优化构建中的协议、失败传播与 egui 指针交互；生成 ZIP 后，校验 SHA-256 和文件白名单，解压到独立目录检查三份 EXE 的版本、manager 导出与 CLI 导入/查询。
 - `gui-native-smoke` artifact 保存原生截图、状态回执和二进制哈希；`gui-release-test` 保存 Windows 解包验证记录。目录必须全新，缺失回执、截图损坏、超时或错误状态都会失败。
 
 Windows runner 的解包检查使用 `--package-only`，明确不代表原生窗口渲染；Linux 原生 smoke 也不代替 Windows/macOS GPU、缩放、系统文件选择器或真实云质量验收。Windows 有可用图形桌面时，可以去掉 `--package-only` 对解包后的 release EXE 跑相同原生 smoke。
 
 ```powershell
 cargo build --release --locked -p chat-tldr -p chat-tldr-gui
-python scripts/release/package.py --binary target/release/chat-tldr.exe --gui-binary target/release/chat-tldr-gui.exe --target windows-x86_64 --version 0.1.0
+python scripts/release/package.py --binary target/release/chat-tldr.exe --gui-binary target/release/chat-tldr-gui.exe --manager-binary target/release/chat-tldr-qce-manager.exe --target windows-x86_64 --version 0.1.0
 python scripts/release/gui_smoke.py --archive dist/chat-tldr-gui-0.1.0-windows-x86_64.zip --version 0.1.0 --out tmp/gui-release-native
 ```
 

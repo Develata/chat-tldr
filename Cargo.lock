@@ -616,10 +616,12 @@ dependencies = [
  "clap",
  "eframe",
  "image",
+ "qrcode",
  "rfd",
  "serde",
  "serde_json",
  "tempfile",
+ "url",
 ]
 
 [[package]]

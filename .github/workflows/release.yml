@@ -56,9 +56,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: release-windows-x86_64
-      - run: cargo build --locked --release -p chat-tldr -p chat-tldr-gui
+      - run: cargo build --locked --release -p chat-tldr -p chat-tldr-gui -p chat-tldr-qce-manager
       - name: Test optimized GUI protocol, errors, priority examples and pointer interactions
-        run: cargo test --locked --release -p chat-tldr-gui
+        run: cargo test --locked --release -p chat-tldr-gui -p chat-tldr-qce-manager
       - name: Exercise and package the actual executable
         env:
           RELEASE_VERSION: ${{ needs.plan.outputs.version }}
@@ -67,7 +67,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/release/package.py --binary target/release/chat-tldr.exe --target windows-x86_64 --version $env:RELEASE_VERSION
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/release/package.py --binary target/release/chat-tldr.exe --gui-binary target/release/chat-tldr-gui.exe --target windows-x86_64 --version $env:RELEASE_VERSION
+          python scripts/release/package.py --binary target/release/chat-tldr.exe --gui-binary target/release/chat-tldr-gui.exe --manager-binary target/release/chat-tldr-qce-manager.exe --target windows-x86_64 --version $env:RELEASE_VERSION
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/release/gui_smoke.py --archive "dist/chat-tldr-gui-$env:RELEASE_VERSION-windows-x86_64.zip" --version $env:RELEASE_VERSION --package-only --out tmp/gui-package-smoke
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

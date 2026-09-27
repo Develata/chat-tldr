@@ -98,6 +98,7 @@ pub fn run<W: Write>(
         }
     };
     let url = http.base.join(&download).map_err(|_| Failure::protocol())?;
+    output.progress("downloading", "正在下载完整 JSON")?;
     let mut response = http.request(Method::GET, url, Some(&token), None, budget)?;
     let expected = response.content_length();
     let path = job.path.join("messages.json");
@@ -128,6 +129,7 @@ pub fn run<W: Write>(
     }
     file.sync_all().map_err(|_| Failure::io())?;
     drop(file);
+    output.progress("validating", "正在校验并保存导出文件")?;
     let message_count = validation::count_messages(&path)?;
     let sha256 = hex(hash.finish().as_ref());
     budget.check()?;

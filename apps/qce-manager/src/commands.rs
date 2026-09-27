@@ -23,7 +23,7 @@ pub fn run<W: Write>(
     budget: Budget<'_>,
 ) -> Result<()> {
     if let Command::Version = cli.command {
-        return output.ack("version", false, json!({"name":env!("CARGO_PKG_NAME"),"version":env!("CARGO_PKG_VERSION"),"schema_version":chat_tldr_core::SCHEMA_VERSION,"capabilities":["version","status","login","chats","export","clean"]}));
+        return output.ack("version", false, json!({"name":env!("CARGO_PKG_NAME"),"version":env!("CARGO_PKG_VERSION"),"schema_version":chat_tldr_core::SCHEMA_VERSION,"capabilities":["version","status","login","login.qr-events","chats","export","clean"]}));
     }
     if let Command::Clean { dry_run } = cli.command {
         return output.ack(
@@ -51,8 +51,14 @@ pub fn run<W: Write>(
     };
     match &cli.command {
         Command::Status => status(&credentials, &qce, &napcat, output, budget),
-        Command::Login { max_wait_secs } => login::run(
-            *max_wait_secs,
+        Command::Login {
+            max_wait_secs,
+            qr_events,
+        } => login::run(
+            login::Options {
+                max_wait_secs: *max_wait_secs,
+                qr_events: *qr_events,
+            },
             &credentials,
             &qce,
             &napcat,

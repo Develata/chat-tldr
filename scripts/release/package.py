@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True, type=Path)
     parser.add_argument("--gui-binary", type=Path, help="Include GUI beside CLI (Windows only)")
+    parser.add_argument("--manager-binary", type=Path, help="Required beside GUI for QQ acquisition")
     parser.add_argument("--version", required=True)
     parser.add_argument("--target", choices=["windows-x86_64", "linux-x86_64-musl"], required=True)
     parser.add_argument("--out", type=Path, default=ROOT / "dist")
@@ -20,12 +21,15 @@ def main():
     windows = args.target.startswith("windows")
     if args.gui_binary and not windows:
         parser.error("GUI bundles currently support windows-x86_64 only")
+    if bool(args.gui_binary) != bool(args.manager_binary):
+        parser.error("GUI bundles require --gui-binary and --manager-binary together")
     product = "chat-tldr-gui" if args.gui_binary else "chat-tldr"
     name = f"{product}-{args.version}-{args.target}"
     args.out.mkdir(parents=True, exist_ok=True)
     files = [(args.binary, "chat-tldr.exe" if windows else "chat-tldr")]
     if args.gui_binary:
         files += [(args.gui_binary, "chat-tldr-gui.exe")]
+        files += [(args.manager_binary, "chat-tldr-qce-manager.exe"), (ROOT / "apps/qce-manager/README.md", "apps/qce-manager/README.md")]
         files += [(ROOT / name, name) for name in
                   ("apps/gui/README.md", "apps/gui/assets/fonts/OFL.txt", "apps/gui/assets/fonts/README.md")]
     files += [(ROOT / entry, entry) for entry in

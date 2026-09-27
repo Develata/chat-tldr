@@ -34,7 +34,7 @@ Cargo workspace：
 | `fixtures/` | — | 数据 | @Develata 建立，各自补充 | 合成的 QCE 导出样例、mock JSONL、mock 模型响应 |
 | `docs/` | — | 文档 | @Develata | 本文档集 |
 
-`apps/qce-manager/` 已作为 `chat-tldr-qce-manager` 加入 workspace，由 Codex 接手实现本机 QCE 状态诊断、扫码登录、单文件导出和受控清理。它在本仓库内只依赖 core，通过完成后的本地 JSON 文件与主 CLI 对接，不访问业务数据库；安装、启动容器和发布打包尚未纳入，见 [使用说明](../apps/qce-manager/README.md)。
+`apps/qce-manager/` 已作为 `chat-tldr-qce-manager` 加入 workspace，由 Codex 接手实现本机 QCE 状态诊断、扫码登录、单文件导出和受控清理。它在本仓库内只依赖 core，通过完成后的本地 JSON 文件与主 CLI 对接，不访问业务数据库。GUI 的 `qce/` 模块复用子进程传输，独立保存连接/二维码/导出状态，成功退出后才把文件交给主 CLI；窗口关闭和取消均不触发导入。管理程序随 Windows GUI 包交付；不安装/启动容器、不捆绑 QCE/NapCat，见 [使用说明](../apps/qce-manager/README.md)。
 
 依赖方向（箭头表示“依赖于”）：
 

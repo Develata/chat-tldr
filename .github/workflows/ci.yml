@@ -154,7 +154,7 @@ jobs:
       - name: Test smoke failure detection
         run: python -m unittest discover -s scripts/tests -p test_gui_smoke.py
       - name: Build the real GUI and its adjacent CLI
-        run: cargo build --locked -p chat-tldr-gui -p chat-tldr
+        run: cargo build --locked -p chat-tldr-gui -p chat-tldr -p chat-tldr-qce-manager
       - name: Render all views and exercise the actual CLI bridge
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'

@@ -134,8 +134,13 @@ pub fn online(status: &Value) -> Result<bool> {
         .ok_or_else(Failure::protocol)
 }
 
+pub struct Options {
+    pub max_wait_secs: u64,
+    pub qr_events: bool,
+}
+
 pub fn run<W: Write>(
-    max_wait_secs: u64,
+    options: Options,
     credentials: &Credentials<'_>,
     qce: &Http,
     napcat: &Http,
@@ -143,7 +148,10 @@ pub fn run<W: Write>(
     output: &mut Output<W>,
     budget: Budget<'_>,
 ) -> Result<()> {
-    let budget = budget.limited(Duration::from_secs(max_wait_secs), "E_QCE_LOGIN_TIMEOUT");
+    let budget = budget.limited(
+        Duration::from_secs(options.max_wait_secs),
+        "E_QCE_LOGIN_TIMEOUT",
+    );
     let mut client = Napcat::new(napcat, credentials);
     let mut last_qr = String::new();
     loop {
@@ -151,7 +159,7 @@ pub fn run<W: Write>(
         if online(&status)? {
             break;
         }
-        if !display.interactive() {
+        if !options.qr_events && !display.interactive() {
             return Err(interaction_required());
         }
         let response = client.request("/api/QQLogin/GetQQLoginQrcode", budget);
@@ -170,7 +178,18 @@ pub fn run<W: Write>(
         if let Some(qr) = qr
             && qr != last_qr
         {
-            display.show(qr)?;
+            if options.qr_events {
+                // Only the explicitly opted-in pipe receives QR material. No files or logs.
+                if qr.len() > 4096 || qrcode::QrCode::new(qr.as_bytes()).is_err() {
+                    return Err(Failure::protocol());
+                }
+                output.emit(chat_tldr_core::EventBody::Unknown {
+                    event: "qce_login_qr".into(),
+                    payload: json!({"version":1,"content":qr}),
+                })?;
+            } else {
+                display.show(qr)?;
+            }
             last_qr = qr.to_owned();
             output.progress("waiting_scan", "等待手机 QQ 扫码")?;
         }

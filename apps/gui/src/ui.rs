@@ -68,6 +68,7 @@ pub enum Action {
     Select(ChatId),
     Refresh,
     PickImport,
+    OpenQce,
     Analyze,
     MarkRead,
     Cancel,
@@ -160,6 +161,13 @@ pub fn render(
                 "导入 QCE 文件",
                 write_enabled && model.has_capability("import"),
                 Action::PickImport,
+                &mut actions,
+            );
+            button(
+                ui,
+                "从 QQ 获取聊天",
+                write_enabled && model.has_capability("import"),
+                Action::OpenQce,
                 &mut actions,
             );
             if ui

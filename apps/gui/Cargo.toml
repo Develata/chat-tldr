@@ -13,6 +13,8 @@ serde.workspace = true
 serde_json.workspace = true
 clap.workspace = true
 chrono.workspace = true
+qrcode.workspace = true
+url = "2"
 rfd = "0.15"
 image = { version = "0.25", default-features = false, features = ["png"] }
 

@@ -51,7 +51,7 @@ def binaries(options):
             check(len(names) == len(set(names)), "duplicate GUI archive entry")
             prefix = f"chat-tldr-gui-{options.version}-windows-x86_64"
             expected = {f"{prefix}/{name}" for name in (
-                "chat-tldr.exe", "chat-tldr-gui.exe", "LICENSE", "README.md",
+                "chat-tldr.exe", "chat-tldr-gui.exe", "chat-tldr-qce-manager.exe", "apps/qce-manager/README.md", "LICENSE", "README.md",
                 "config.example.toml", "docs/DOCKER.md", "docs/RELEASING.md", "apps/gui/README.md",
                 "apps/gui/assets/fonts/OFL.txt", "apps/gui/assets/fonts/README.md")}
             check(set(names) == expected, "GUI archive must contain only the explicit public file list")
@@ -92,6 +92,12 @@ def exercise(options, gui, cli, data, output, env):
     check(gui.parent == cli.parent, "GUI and CLI must be installed together")
     version = run([gui, "--version"], cwd=data, env=env).stdout.strip()
     check(version == f"chat-tldr-gui {options.version}", f"unexpected GUI version: {version}")
+    manager = gui.with_name("chat-tldr-qce-manager.exe" if os.name == "nt" else "chat-tldr-qce-manager")
+    manager_rows = [json.loads(line) for line in run([manager, "version"], cwd=data, env=env).stdout.splitlines()]
+    check(manager_rows[-1]["event"] == "done" and manager_rows[-1]["payload"]["exit_code"] == 0
+          and any(row["event"] == "ack" and row["payload"]["detail"].get("version") == options.version
+                  and "login.qr-events" in row["payload"]["detail"].get("capabilities", []) for row in manager_rows),
+          "missing or incompatible QCE manager in GUI bundle")
 
     def command(*args):
         result = run([cli, "--data-dir", data, *args], cwd=data, env=env)
@@ -111,7 +117,9 @@ def exercise(options, gui, cli, data, output, env):
               and row["payload"]["unreviewed_messages"] == 3 for row in command("chats")),
           "bundled CLI failed to import the synthetic chat")
     if options.package_only:
-        return {"mode": "package-only", "native_rendering": False, "cases": []}
+        from qce_gui_smoke import exercise as exercise_qce
+        qce = exercise_qce(gui, cli, manager, output, env, native=False)
+        return {"mode": "package-only", "native_rendering": False, "cases": [], "qce": qce}
 
     cases = [("inbox", 1440, 900), ("evidence", 1440, 900),
              ("decisions", 1440, 1000), ("stats", 1440, 1000),
@@ -151,7 +159,9 @@ def exercise(options, gui, cli, data, output, env):
                       and report["inbox"]["chat_id"] == CHAT and report["inbox"]["insights"] == 0,
                       "native GUI did not load the bundled CLI's synthetic inbox")
         checked.append(name)
-    return {"mode": "native", "native_rendering": True, "cases": checked}
+    from qce_gui_smoke import exercise as exercise_qce
+    qce = exercise_qce(gui, cli, manager, output, env, native=True)
+    return {"mode": "native", "native_rendering": True, "cases": checked, "qce": qce}
 
 
 def main():
@@ -173,7 +183,8 @@ def main():
                        gui_sha256=hashlib.sha256(gui.read_bytes()).hexdigest(),
                        cli_sha256=hashlib.sha256(cli.read_bytes()).hexdigest())
     (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    print(f"GUI {summary['mode']} checks passed; {len(summary['cases'])} native captures; no cloud calls")
+    qce_count = len(summary["qce"]["cases"]) if summary["qce"]["native_rendering"] else 0
+    print(f"GUI {summary['mode']} checks passed; {len(summary['cases']) + qce_count} native captures; no cloud calls")
 
 
 if __name__ == "__main__":
