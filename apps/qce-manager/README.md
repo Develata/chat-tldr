@@ -2,7 +2,7 @@
 
 `chat-tldr-qce-manager` 把本机 QCE/NapCat 的登录与 JSON 导出封装为独立 Rust CLI。它只依赖共享 core，不调用模型、不打开数据库；导出完成后由用户或编排程序调用主 CLI 的 `import`。
 
-支持 `version`、`status`、`login`、`chats`、`export`、`clean`。不安装 QCE、不启动/停止/重建 Docker、不自动导入，不做账号密码或快速登录；本轮不进入正式发布包。
+支持 `version`、`status`、`login`、`chats`、`export`、`clean`。不安装 QCE、不启动/停止/重建 Docker、不自动导入，不做账号密码或快速登录。Windows GUI 包随附本管理程序，QCE/NapCat 本身不捆绑。
 
 ## 使用
 
@@ -40,6 +40,14 @@ NapCat 使用 `CHAT_TLDR_NAPCAT_TOKEN`，或容器 `/app/napcat/config/webui.jso
 `status` 只读诊断 QCE/QQ 和可选 Docker 状态，输出带当前端口的 `login_hint`。`login --max-wait-secs N`（默认 180，上限 86400）先检查 QQ 状态：已登录不请求二维码；未登录仅在 **stderr 是交互终端** 时取码并渲染 Unicode 字符画，二维码变化后刷新。stderr 被重定向或管道捕获时，未登录返回 `E_QCE_LOGIN_REQUIRED`，不会取码、输出二维码或写二维码文件。
 
 总等待期限包含认证、扫码和 QCE 启动。QQ 已登录后仍需等 QCE 可达且认证通过；等待时重新读取尚未生成的 Token。等待期间丢失登录直接退出，不再次转入扫码。Ctrl-C 返回 130；正在执行的 blocking HTTP 最迟在请求超时后观察到取消。二维码在真实终端的可扫描性需要用户实际扫码验收。
+
+## GUI 登录接口
+
+`login --qr-events` 是显式授权的 GUI 管道模式，`version.capabilities` 包含 `login.qr-events`。仅此模式允许在非交互进程中请求二维码；普通 `login` 保留上面的终端限制。二维码每次变化时输出扩展事件 `qce_login_qr`，payload 为 `{"version":1,"content":"<二维码原始内容>"}`，不增加 core 的冻结类型。
+
+GUI 只在内存中将 content 编码为二维码，不能把它写入日志、偏好、缓存或诊断回执；收到 `progress.stage=logged_in`、错误、完成、取消或关闭窗口后立即清除。协议不提供过期时间，界面不得捏造倒计时。已有登录仍不会请求二维码；登录成功须同时等待 QCE 就绪。二维码内容最多 4096 字节且必须可编码。
+
+GUI 先通过同版本/同 schema/capabilities 握手，再使用 `status`、`chats` 和 `export`。`status` 可先返回诊断 ack 再以非零状态结束，不能把 ack 单独当成功。`qce_chat` 仅在完整流和实际进程成功后发布；导出路径也必须等成功 `done` 和正常退出后才交给主 CLI。导入失败保留原文件，重试导入不重做导出。
 
 ## 导出、发布与清理
 

@@ -1,4 +1,8 @@
 //! Coordinates UI actions, bounded CLI events and a separate file-I/O worker.
+#[path = "app/qce.rs"]
+mod acquisition;
+#[path = "app/qce_smoke.rs"]
+pub(crate) mod acquisition_smoke;
 use std::{
     ffi::OsString,
     path::PathBuf,
@@ -26,6 +30,7 @@ pub struct Startup {
     screenshot: Option<PathBuf>,
     smoke_report: Option<PathBuf>,
     quit_after_capture: bool,
+    qce_smoke: Option<acquisition_smoke::Case>,
 }
 
 impl Startup {
@@ -105,6 +110,7 @@ impl Startup {
             screenshot: args.screenshot,
             smoke_report: args.smoke_report,
             quit_after_capture: args.quit_after_capture,
+            qce_smoke: args.qce_smoke,
         }
     }
 }
@@ -142,6 +148,8 @@ pub struct App {
     screenshot_requested: bool,
     quit_after_capture: bool,
     frames: usize,
+    qce: crate::qce::Wizard,
+    qce_smoke: Option<acquisition_smoke::Script>,
 }
 
 impl App {
@@ -175,6 +183,8 @@ impl App {
             screenshot_requested: false,
             quit_after_capture: startup.quit_after_capture,
             frames: 0,
+            qce: crate::qce::Wizard::default(),
+            qce_smoke: startup.qce_smoke.map(acquisition_smoke::Script::new),
         };
         if let Some(error) = startup.error {
             app.model.last_error = Some(error);
@@ -263,7 +273,7 @@ impl App {
             self.model.last_error = None;
             return;
         }
-        if self.demo || self.bridge.is_busy() || self.picking_file {
+        if self.demo || self.bridge.is_busy() || self.picking_file || self.qce.open {
             return;
         }
         let chat = self.model.selected_chat.clone();
@@ -279,6 +289,11 @@ impl App {
             self.state.overview = false;
         }
         match action {
+            Action::OpenQce => {
+                self.state.cloud_notice = false;
+                self.state.cloud_target = None;
+                self.qce.open(&self.prefs, ctx);
+            }
             Action::Overview(hours) => {
                 if let Some(chat) = chat {
                     let until = chrono::Utc::now();
@@ -427,14 +442,40 @@ impl eframe::App for App {
             let Some(event) = self.bridge.try_recv() else {
                 break;
             };
-            if let Some(follow_up) = self.model.apply(event) {
+            let qce_import = self.model.active.as_ref() == Some(&event.request)
+                && self.qce.importing
+                && event.request.kind == CommandKind::Import
+                && matches!(event.payload, crate::bridge::BridgePayload::Finished(_));
+            self.observe_qce_import(&event);
+            let follow_up = self.model.apply(event);
+            if qce_import {
+                let success = self
+                    .model
+                    .last_completion
+                    .as_ref()
+                    .is_some_and(crate::bridge::Completion::is_success)
+                    && self.qce.imported_chat.is_some();
+                self.qce.import_finished(success);
+                if !success && let Some(error) = &self.model.last_error {
+                    self.qce.model.error =
+                        Some(format!("导入未完成：{error}。导出文件已保留，可重试导入。"));
+                }
+                if success && let Some(chat) = self.qce.imported_chat.clone() {
+                    self.model.select_chat(chat);
+                }
+            }
+            if let Some(follow_up) = follow_up {
                 match follow_up {
                     FollowUp::Chats => self.start(CommandKind::Chats, None, ["chats".into()]),
                     FollowUp::Inbox(chat) => self.inbox(chat),
                 }
             }
         }
-        if self.bridge.is_busy() {
+        if let Some(path) = self.qce.tick() {
+            self.import_qce(path);
+        }
+        self.advance_qce_smoke(ctx);
+        if self.bridge.is_busy() || self.qce.busy() {
             ctx.request_repaint_after(Duration::from_millis(30));
         }
         while let Ok(result) = self.io_rx.try_recv() {
@@ -477,29 +518,46 @@ impl eframe::App for App {
         });
         for image in captures {
             if let Some(path) = self.screenshot.take() {
-                let report = self
-                    .smoke_report
-                    .take()
-                    .map(|path| (path, crate::capture::report(&self.model, self.demo)));
+                let report = self.smoke_report.take().map(|path| {
+                    let mut report = crate::capture::report(&self.model, self.demo);
+                    if let Some(script) = &self.qce_smoke {
+                        report["qce"] = script.report(&self.qce);
+                    }
+                    (path, report)
+                });
                 let _ = self.io_tx.send(IoRequest::Screenshot(path, image, report));
             }
         }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let (actions, displayed) = ui::render(
-            ui,
-            &mut self.state,
-            &self.model,
-            self.bridge.is_busy(),
-            self.picking_file,
-            self.demo,
-        );
-        if let Some(request_id) = displayed {
+        let (actions, displayed) = ui
+            .add_enabled_ui(!self.qce.open, |ui| {
+                ui::render(
+                    ui,
+                    &mut self.state,
+                    &self.model,
+                    self.bridge.is_busy(),
+                    self.picking_file,
+                    self.demo,
+                )
+            })
+            .inner;
+        if let Some(request_id) = displayed
+            && !self.qce.open
+        {
             self.model.mark_inbox_displayed(request_id);
         }
         for action in actions {
             self.act(action, ui.ctx());
+        }
+        if let Some(action) = self.qce.ui(
+            ui.ctx(),
+            !self.bridge.is_busy()
+                && self.model.handshake_ok()
+                && self.model.has_capability("import"),
+        ) {
+            self.act_qce(action, ui.ctx());
         }
         self.frames += 1;
         if self.screenshot.is_some() && !self.screenshot_requested {
@@ -507,6 +565,10 @@ impl eframe::App for App {
                 && !self.bridge.is_busy()
                 && self.model.active.is_none()
                 && !self.picking_file
+                && self
+                    .qce_smoke
+                    .as_ref()
+                    .map_or(!self.qce.busy(), |s| s.ready)
             {
                 self.screenshot_requested = true;
                 ui.ctx()
@@ -575,6 +637,7 @@ fn io_worker(
 impl Drop for App {
     fn drop(&mut self) {
         self.bridge.cancel();
+        self.qce.cancel();
         // FIFO Stop waits for all requested atomic preference writes. The
         // picker runs separately, so an open dialog cannot block this drain.
         let _ = self.io_tx.send(IoRequest::Stop);

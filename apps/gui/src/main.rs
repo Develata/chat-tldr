@@ -4,6 +4,7 @@ mod bridge;
 mod capture;
 mod model;
 mod prefs;
+mod qce;
 mod ui;
 
 use clap::{Parser, ValueEnum};
@@ -40,6 +41,15 @@ struct Args {
     /// Write opt-in capture metadata for isolated native smoke tests.
     #[arg(long, hide = true, requires = "screenshot")]
     smoke_report: Option<PathBuf>,
+    /// Synthetic local-service integration harness; requires the smoke test environment.
+    #[arg(
+        long,
+        value_enum,
+        hide = true,
+        requires = "smoke_report",
+        conflicts_with = "demo"
+    )]
+    qce_smoke: Option<app::acquisition_smoke::Case>,
     #[arg(long, hide = true, requires = "screenshot")]
     quit_after_capture: bool,
     #[arg(long, hide = true, default_value_t = 1280.0)]

@@ -13,6 +13,7 @@ pub struct Preferences {
     pub config: String,
     pub dark: bool,
     pub cloud_notice_accepted: bool,
+    pub qce: crate::qce::Settings,
 }
 
 impl Preferences {

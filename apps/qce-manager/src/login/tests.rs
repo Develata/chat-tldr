@@ -50,6 +50,15 @@ fn authenticate(request: &Request) -> Option<Reply> {
 }
 
 fn invoke(server: &Server, display: &mut Display, max_wait: u64) -> (Result<()>, String) {
+    invoke_mode(server, display, max_wait, false)
+}
+
+fn invoke_mode(
+    server: &Server,
+    display: &mut Display,
+    max_wait: u64,
+    qr_events: bool,
+) -> (Result<()>, String) {
     let cli = Cli::parse_from(["test", "login"]);
     let credentials = Credentials {
         cli: &cli,
@@ -65,7 +74,10 @@ fn invoke(server: &Server, display: &mut Display, max_wait: u64) -> (Result<()>,
     let cancelled = AtomicBool::new(false);
     let mut bytes = Vec::new();
     let result = run(
-        max_wait,
+        Options {
+            max_wait_secs: max_wait,
+            qr_events,
+        },
         &credentials,
         &qce,
         &napcat,
@@ -78,6 +90,42 @@ fn invoke(server: &Server, display: &mut Display, max_wait: u64) -> (Result<()>,
         assert!(!text.contains(secret));
     }
     (result, text)
+}
+
+#[test]
+fn explicit_gui_mode_refreshes_qr_without_terminal_output() {
+    let mut probes = 0;
+    let server = Server::new(move |request| {
+        if let Some(reply) = authenticate(&request) {
+            return reply;
+        }
+        match request.path.as_str() {
+            "/api/QQLogin/CheckLoginStatus" => {
+                probes += 1;
+                Reply::json(json!({"data":{"isLogin":probes >= 4}}))
+            }
+            "/api/QQLogin/GetQQLoginQrcode" => Reply::json(
+                json!({"data":{"qrcode":if probes < 3 {"synthetic-a"} else {"synthetic-b"}}}),
+            ),
+            "/api/system/status" => Reply::json(json!({"data":{"online":true}})),
+            _ => panic!("unexpected route"),
+        }
+    });
+    let mut display = Display::default();
+    let (result, text) = invoke_mode(&server, &mut display, 4, true);
+    assert!(result.is_ok(), "{result:?}");
+    assert!(display.codes.is_empty());
+    let codes: Vec<_> = text
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|row| row["event"] == "qce_login_qr")
+        .collect();
+    assert_eq!(codes.len(), 2);
+    assert_eq!(
+        codes[0]["payload"],
+        json!({"version":1,"content":"synthetic-a"})
+    );
+    assert_eq!(codes[1]["payload"]["content"], "synthetic-b");
 }
 
 #[test]
@@ -261,7 +309,10 @@ fn startup_reloads_token_created_after_login() {
     let qce = Http::new(&server.url, 1, false).unwrap();
     let napcat = Http::new(&server.url, 1, true).unwrap();
     run(
-        3,
+        Options {
+            max_wait_secs: 3,
+            qr_events: false,
+        },
         &credentials,
         &qce,
         &napcat,

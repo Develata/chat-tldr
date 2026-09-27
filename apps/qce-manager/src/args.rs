@@ -31,6 +31,9 @@ pub enum Command {
     Status,
     /// 扫码仅在交互终端显示；非交互调用仅检查已有登录。
     Login {
+        /// Explicitly deliver ephemeral QR content to a GUI over JSONL.
+        #[arg(long)]
+        qr_events: bool,
         #[arg(long, default_value_t = 180, value_parser = clap::value_parser!(u64).range(1..=86400))]
         max_wait_secs: u64,
     },

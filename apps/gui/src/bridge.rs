@@ -55,6 +55,11 @@ pub enum CommandKind {
     Stats,
     Decisions,
     JevLog,
+    QceVersion,
+    QceStatus,
+    QceLogin,
+    QceChats,
+    QceExport,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

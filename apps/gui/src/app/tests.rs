@@ -28,6 +28,8 @@ fn app(prefs: Preferences, launch: PathBuf) -> App {
         screenshot_requested: false,
         quit_after_capture: false,
         frames: 0,
+        qce: crate::qce::Wizard::default(),
+        qce_smoke: None,
     }
 }
 
@@ -37,6 +39,37 @@ fn profile(root: &std::path::Path) -> Preferences {
         cli: root.join("missing-test-cli").to_string_lossy().into_owned(),
         data_dir: root.join("data").to_string_lossy().into_owned(),
         ..Default::default()
+    }
+}
+
+#[test]
+fn delayed_import_ack_cannot_select_a_chat_for_a_new_request() {
+    use crate::bridge::{BridgeEvent, BridgePayload};
+    use chat_tldr_core::{AckPayload, CliEvent, EventBody};
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app(profile(dir.path()), dir.path().join("gui-state.json"));
+    app.qce.import_started();
+    let tag = RequestTag {
+        id: 40,
+        kind: CommandKind::Import,
+        chat: None,
+    };
+    app.model.begin(tag.clone()).unwrap();
+    for id in [39, 40] {
+        app.observe_qce_import(&BridgeEvent {
+            request: RequestTag { id, ..tag.clone() },
+            payload: BridgePayload::Event(Box::new(CliEvent::new(
+                "synthetic".into(),
+                0,
+                EventBody::Ack(AckPayload {
+                    command: "import".into(),
+                    target: None,
+                    changed: true,
+                    detail: serde_json::json!({"chat_ids":["qq:group:synthetic"]}),
+                }),
+            ))),
+        });
+        assert_eq!(app.qce.imported_chat.is_some(), id == 40);
     }
 }
 
