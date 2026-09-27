@@ -3,7 +3,7 @@
 > 原任务 B 的实现规格与验收目标，保留作主线参考，不是要求同学重新实现整个 GUI。下方验收清单不作为实时完成台账。
 > 当前安排：Codex 负责主线实现与 CLI 接入，同学先协助 GUI 设计，具体实现范围按任务分派。审核：@Develata。
 
-**当前状态（2026-09-26）**：原生收件箱、证据/状态操作、历史查询和六个分析总览已实现；Windows 收件箱有原生截图，GUI 当前 36 项测试通过。新总览截图、真实云分析的界面验收和同学独立设计稿仍待完成。实际使用见 [apps/gui/README](../../apps/gui/README.md)，同学 B 从 [docs/ui](../ui/README.md) 的设计复核开始；状态以 [TEAM_ASSIGNMENTS](../TEAM_ASSIGNMENTS.md) 为准。
+**当前状态（2026-09-27）**：原生收件箱、证据/状态操作、历史查询和六个分析总览已实现；同学 B 的 PR #7 补充了界面整理、运行详情和七张合成截图。Codex 接续修复 review 问题并加入原生 smoke、Windows release 测试和解包验证，范围见 [RELEASING](../RELEASING.md#gui-自动化验收)。真实云分析的完整界面验收仍待完成；状态以 [TEAM_ASSIGNMENTS](../TEAM_ASSIGNMENTS.md) 为准。
 
 设计稿放 `docs/ui/`，正式程序资源放 `apps/gui/assets/`，运行中的界面偏好放 `<data-dir>/gui-state.json`；完整归属见 [FILE_LAYOUT.md](../FILE_LAYOUT.md)。
 
