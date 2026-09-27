@@ -32,13 +32,16 @@ impl HttpTransport {
         suffix: &str,
         auth: AuthStyle,
     ) -> Result<Self, ProviderError> {
-        let key = std::env::var(&config.api_key_env).map_err(|_| {
-            ProviderError::config("The provider API-key environment variable is unavailable")
-        })?;
-        Self::with_key(config, suffix, auth, &key)
+        let key = match &config.api_key {
+            Some(key) => key.clone(),
+            None => chat_tldr_core::settings::SecretString::new(std::env::var(&config.api_key_env).map_err(|_| {
+                ProviderError::config("API key is unavailable; configure it in GUI settings, config set, or the provider environment variable")
+            })?),
+        };
+        Self::with_key(config, suffix, auth, key.expose())
     }
 
-    fn with_key(
+    pub(crate) fn with_key(
         config: &ProviderConfig,
         suffix: &str,
         auth: AuthStyle,
@@ -49,12 +52,14 @@ impl HttpTransport {
                 "Provider credentials and positive timeout are required",
             ));
         }
-        let endpoint = reqwest::Url::parse(&format!(
-            "{}/{}",
-            config.base_url.trim_end_matches('/'),
+        let base = config.base_url.trim_end_matches('/');
+        let suffix = if base.ends_with("/v1") {
+            suffix.strip_prefix("v1/").unwrap_or(suffix)
+        } else {
             suffix
-        ))
-        .map_err(|_| ProviderError::config("Invalid provider URL"))?;
+        };
+        let endpoint = reqwest::Url::parse(&format!("{base}/{suffix}"))
+            .map_err(|_| ProviderError::config("Invalid provider URL"))?;
         if !matches!(endpoint.scheme(), "https" | "http")
             || endpoint.host_str().is_none()
             || !endpoint.username().is_empty()

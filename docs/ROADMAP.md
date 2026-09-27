@@ -6,8 +6,8 @@
 ## 当前安排（2026-09-26 用户更新）
 
 - **实际交付截止：2026-09-27 23:59，America/Santiago（UTC−3）。**
-- 主线编码（包含 QCE JSON 导入适配器）主要由 Codex 承担，Develata 参与设计与架构审核；当前仓库未记录三位同学的独立交付或账号绑定，线下进度待确认。同学承担 QCE 管理、GUI 设计复核、独立标注与验收材料；QCE 管理组件向主线交付本地导出文件路径。下方原始分工保留作历史参考。
-- CLI 与文件布局草案已经用户批准，见 [CLI_V1_REVIEW.md](CLI_V1_REVIEW.md)。**当前分工以 [TEAM_ASSIGNMENTS.md](TEAM_ASSIGNMENTS.md) 为准**：Codex 主线编码，A 做 QCE 管理，B 做 GUI 设计，C 做合成场景与验收材料；字母仍未绑定真实账号。
+- 主线编码（包含 QCE JSON 导入适配器）主要由 Codex 承担，Develata 参与设计与架构审核；B（@liguilong256）已通过 PR #7 交付 GUI 设计，A/C 的线下进度待确认。QCE 管理由 Codex 接手，PR #8/#9 已合并，向主线交付本地导出文件路径。下方原始分工保留作历史参考。
+- CLI 与文件布局草案已经用户批准，见 [CLI_V1_REVIEW.md](CLI_V1_REVIEW.md)。**当前分工以 [TEAM_ASSIGNMENTS.md](TEAM_ASSIGNMENTS.md) 为准**：Codex 主线编码及 QCE 接入，B 做 GUI 设计复核，C 做独立人工标注与验收材料；A/C 尚未绑定账号。
 - 文件存放与组件读写归属见 [FILE_LAYOUT.md](FILE_LAYOUT.md)；QCE 管理组件预留在 `apps/qce-manager/`，主线导入适配器保持在 `crates/qce/`。
 - 下方“第 1/2/3 天”是原始相对计划，不代表在实际截止日期之后另有开发时间。
 
@@ -26,7 +26,7 @@ CI 已升级 checkout v7.0.1 / rust-cache v2.9.2（Node.js 24，完整 SHA 固�
 - 分析包含基础话题分配、结构化抽取、时间规范化、证据校验、规则 @我 和 P0–P3 排序。同步 Jev / DeepSeek 客户端、OpenAI / Anthropic 兼容接口及 Mock 已实现；网络协议与异常路径通过本地假服务器验证，未以真实云调用替代测试。
 - SQLite 保存按话题提交的检查点、模型响应缓存、决策和用量。未完成消息可继续分析；步数、费用预估、超时、有限重试和取消约束执行。`analyze --dry-run` 无需密钥，只读、不联网、不写缓存。
 - QCE Docker 字段核对与导出说明见 [QCE_DOCKER_EXPORT.md](QCE_DOCKER_EXPORT.md)，对应 [template-docker-export.json](../fixtures/qce/template-docker-export.json) 为手写合成模板。本机 CRLF 入口故障已修复、用户已 QQ 登录；QCE 容器服务正常，宿主 40653 发布仍异常，使用仅本机的 40654 独立转发入口。已完成首个真实单文件导出（200 条）及 `scripts/verify-qce.ps1` 51 项离线检查：重复导入新增 0、消息计数/协议/游标与源文件不变检查通过。JSON 卡片正文未归一化；没有据此验收未出现的数据形态或云模型质量，见 [ACCEPTANCE](ACCEPTANCE.md)。
-- 实际调用模型需要环境变量密钥；聊天原文会发送到配置的云服务。无密钥预演、配置及 HTML 导出示例见 [README](../README.md)。
+- 实际调用模型需要有效密钥，可通过 CLI/GUI 保存在本地 config（课程阶段明文），或使用环境变量；聊天原文会发送到配置的云服务。无密钥预演、模型配置及 HTML 导出示例见 [README](../README.md)。
 - CI 必需检查名保持 `fmt`、`clippy`、`test`。fmt 在 Linux；clippy 和 test 各按 core/qce/engine/cli/gui/eval 六模块在 Windows 并行，`fail-fast: false`，使用 `--locked`。Linux CLI/eval 检查 POSIX 发布保护、HTML 路径别名并运行合成离线验收脚本；macOS 将 CLI、GUI、eval 三模块并行检查和测试。每次 PR/main push 全量覆盖六模块，公共依赖变更自然覆盖下游；共享规划脚本 `scripts/ci/modules.ps1` 校验 workspace 成员，新增包未登记时失败。汇总检查只接受规划、全部 Windows 模块、Linux 及 macOS 检查成功，失败、取消或意外跳过均不能通过。外部 Actions 固定 40 位提交；质量 CI 仅申请只读权限，正式发布 job 单独申请 Release/GHCR 所需的写权限。远程结果以当前提交为准；Linux GUI 构建、Linux/macOS 原生桌面交互仍待验收。
 - `stats/decisions/jev-log` 历史查询 CLI 已实现，查询不建库、不调用模型；新记录保存可重放的决策与真实 subject。旧记录缺失精确计数或归属时明确告警，不能用于伪造评估对齐。
 - 当前支持 `--strategy ours|b0`，不代表完整 PIPELINE 策略。话题合并、自动关闭和保持 Closed 的历史回填已实现。控制器由规则确定合法集合，多候选时 Jev 选择，失败回退规则；合并仍安排在抽取/校验之后。embedding、B1/sim-* 后续补齐。

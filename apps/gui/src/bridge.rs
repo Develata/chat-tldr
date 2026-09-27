@@ -1,7 +1,7 @@
 //! Bounded background transport for one CLI child owned by this GUI.
 use std::{
     ffi::OsString,
-    io::{self, BufRead, BufReader, Read},
+    io::{self, BufRead, BufReader, Read, Write},
     path::PathBuf,
     process::{Command, Stdio},
     sync::{
@@ -13,6 +13,7 @@ use std::{
     time::Duration,
 };
 
+use chat_tldr_core::settings::SecretString;
 use chat_tldr_core::{ChatId, CliEvent, DonePayload, EventBody, EventStreamValidator, RunStatus};
 
 const CHANNEL_CAPACITY: usize = 64;
@@ -55,6 +56,8 @@ pub enum CommandKind {
     Stats,
     Decisions,
     JevLog,
+    ConfigShow,
+    ConfigSet,
     QceVersion,
     QceStatus,
     QceLogin,
@@ -137,8 +140,22 @@ impl Bridge {
     }
 
     pub fn start(&mut self, request: Request) -> Result<(), String> {
+        self.start_with_input(request, None)
+    }
+
+    pub fn start_with_input(
+        &mut self,
+        request: Request,
+        input: Option<SecretString>,
+    ) -> Result<(), String> {
         if self.is_busy() {
             return Err("已有 CLI 命令正在运行".into());
+        }
+        if input
+            .as_ref()
+            .is_some_and(|input| input.expose().len() > 64 * 1024)
+        {
+            return Err("配置输入超过 64 KiB".into());
         }
         let cancel = Arc::new(AtomicBool::new(false));
         let settings = self.settings.clone();
@@ -153,7 +170,8 @@ impl Bridge {
         let worker = thread::Builder::new()
             .name("chat-tldr-command".into())
             .spawn(move || {
-                let completion = run_child(settings, &request, &sender, &repaint, &cancellation);
+                let completion =
+                    run_child(settings, &request, &sender, &repaint, &cancellation, input);
                 send(
                     &sender,
                     &repaint,
@@ -249,6 +267,7 @@ fn run_child(
     sender: &SyncSender<BridgeEvent>,
     repaint: &Repaint,
     cancel: &AtomicBool,
+    input: Option<SecretString>,
 ) -> Completion {
     let mut completion = Completion {
         exit_code: None,
@@ -256,7 +275,11 @@ fn run_child(
         error: None,
         cancelled: false,
     };
-    let mut child = match command(&settings, request).spawn() {
+    let mut cmd = command(&settings, request);
+    if input.is_some() {
+        cmd.stdin(Stdio::piped());
+    }
+    let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(error) => {
             completion.error = Some(format!("无法启动 CLI：{error}"));
@@ -275,9 +298,23 @@ fn run_child(
     let stderr_tag = request.tag.clone();
     let stderr_thread =
         thread::spawn(move || read_stderr(stderr, &stderr_sender, &stderr_repaint, &stderr_tag));
+    // A separate writer keeps cancellation responsive even if a bad CLI never
+    // reads its pipe. The secret never enters argv, request Debug, or preferences.
+    let mut input_thread = input.map(|input| {
+        let mut stdin = child.stdin.take().expect("piped config input");
+        thread::spawn(move || stdin.write_all(input.expose().as_bytes()))
+    });
     let mut stdout_thread = Some(stdout_thread);
     let mut stream = None;
     loop {
+        if input_thread
+            .as_ref()
+            .is_some_and(thread::JoinHandle::is_finished)
+            && !matches!(input_thread.take().unwrap().join(), Ok(Ok(())))
+        {
+            completion.error = Some("无法向 CLI 传送配置，密钥未回显".into());
+            let _ = child.kill();
+        }
         if stdout_thread
             .as_ref()
             .is_some_and(thread::JoinHandle::is_finished)
@@ -324,6 +361,17 @@ fn run_child(
             None => Stream::default(),
         }
     });
+    if let Some(writer) = input_thread
+        && !matches!(
+            join_reader_unless_cancelled(writer, cancel),
+            Some(Ok(Ok(())))
+        )
+        && !cancel.load(Ordering::Relaxed)
+    {
+        completion
+            .error
+            .get_or_insert_with(|| "配置传送未完成".into());
+    }
     if let Some(Err(_)) = join_reader_unless_cancelled(stderr_thread, cancel) {
         completion
             .error

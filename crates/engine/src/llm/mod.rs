@@ -100,6 +100,15 @@ pub enum Client {
 }
 
 impl Client {
+    pub fn with_key(config: &ProviderConfig, key: &str) -> Result<Self, ProviderError> {
+        match config.api_format.as_deref() {
+            Some("openai") => Ok(Self::OpenAi(OpenAiCompatClient::with_key(config, key)?)),
+            Some("anthropic") => Ok(Self::Anthropic(AnthropicCompatClient::with_key(
+                config, key,
+            )?)),
+            _ => Err(ProviderError::config("Unsupported LLM API format")),
+        }
+    }
     pub fn new(config: &ProviderConfig) -> Result<Self, ProviderError> {
         match config.api_format.as_deref() {
             Some("openai") => Ok(Self::OpenAi(OpenAiCompatClient::new(config)?)),
@@ -128,6 +137,13 @@ pub struct AnthropicCompatClient {
 }
 
 impl OpenAiCompatClient {
+    pub fn with_key(config: &ProviderConfig, key: &str) -> Result<Self, ProviderError> {
+        validate_config(config, 2.0)?;
+        Ok(Self {
+            transport: HttpTransport::with_key(config, "chat/completions", AuthStyle::Bearer, key)?,
+            config: config.clone(),
+        })
+    }
     pub fn new(config: &ProviderConfig) -> Result<Self, ProviderError> {
         validate_config(config, 2.0)?;
         Ok(Self {
@@ -145,6 +161,13 @@ impl OpenAiCompatClient {
 }
 
 impl AnthropicCompatClient {
+    pub fn with_key(config: &ProviderConfig, key: &str) -> Result<Self, ProviderError> {
+        validate_config(config, 1.0)?;
+        Ok(Self {
+            transport: HttpTransport::with_key(config, "v1/messages", AuthStyle::Anthropic, key)?,
+            config: config.clone(),
+        })
+    }
     pub fn new(config: &ProviderConfig) -> Result<Self, ProviderError> {
         validate_config(config, 1.0)?;
         Ok(Self {

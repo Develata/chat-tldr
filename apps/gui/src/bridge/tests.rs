@@ -187,7 +187,7 @@ fn real_child_transport_drains_stderr_validates_exit_and_cancels_only_its_child(
         "helper"
     });
     fs::write(&helper_source, r#"
-use std::{env,fs,io::{self,Write},thread,time::Duration};
+use std::{env,fs,io::{self,Write,Read},thread,time::Duration};
 fn main() {
  let args:Vec<_>=env::args().collect();
  let mode=&args[1];
@@ -203,6 +203,11 @@ fn main() {
  if mode=="pause" { eprintln!("ready"); thread::sleep(Duration::from_secs(20)); return; }
  if mode=="bad" { println!("bad json"); io::stdout().flush().unwrap(); thread::sleep(Duration::from_secs(20)); return; }
  if mode=="flood" { for _ in 0..5000 { eprintln!("{}", "诊断".repeat(300)); } }
+ if mode=="input" {
+   let mut input=String::new(); io::stdin().read_to_string(&mut input).unwrap();
+   assert_eq!(input, "synthetic-stdin-secret");
+   assert!(!args.iter().any(|arg| arg.contains("synthetic-stdin-secret")));
+ }
  print!("{}",fs::read_to_string(&args[2]).unwrap());
  io::stdout().flush().unwrap();
  if mode=="mismatch" { std::process::exit(4); }
@@ -231,7 +236,7 @@ fn main() {
         },
         || {},
     );
-    for (index, mode) in ["flood", "mismatch", "bad", "pause"]
+    for (index, mode) in ["flood", "mismatch", "bad", "pause", "input"]
         .into_iter()
         .enumerate()
     {
@@ -239,19 +244,24 @@ fn main() {
             tag: tag(index as u64),
             args: vec![mode.into(), fixture.as_os_str().to_owned()],
         };
-        bridge.start(request.clone()).unwrap();
+        bridge
+            .start_with_input(
+                request.clone(),
+                (mode == "input").then(|| SecretString::new("synthetic-stdin-secret".into())),
+            )
+            .unwrap();
         assert!(bridge.start(request).is_err());
         if mode == "pause" {
             assert!(bridge.cancel());
         }
         let completion = finish(&mut bridge);
         assert!(!bridge.is_busy());
-        assert_eq!(completion.is_success(), mode == "flood");
+        assert_eq!(completion.is_success(), matches!(mode, "flood" | "input"));
         if mode == "pause" {
             assert!(completion.cancelled);
             assert!(completion.error.is_some());
             assert_ne!(completion.exit_code, Some(130));
-        } else if mode != "flood" {
+        } else if !matches!(mode, "flood" | "input") {
             assert!(completion.error.is_some());
         }
     }

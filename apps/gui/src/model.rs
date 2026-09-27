@@ -50,6 +50,7 @@ pub enum FollowUp {
 
 #[derive(Default)]
 struct Pending {
+    settings: Option<chat_tldr_core::settings::SettingsSnapshot>,
     overview: Option<Overview>,
     overview_expected: Option<BTreeMap<String, u64>>,
     version: Option<VersionInfo>,
@@ -63,6 +64,7 @@ struct Pending {
 
 #[derive(Default)]
 pub struct GuiModel {
+    pub settings: Option<(u64, chat_tldr_core::settings::SettingsSnapshot)>,
     pub overview: Option<OverviewView>,
     pub capabilities: Option<Capabilities>,
     pub cli_version: Option<String>,
@@ -135,13 +137,21 @@ impl GuiModel {
         // their error until dismissal or an explicit new import/analysis.
         if matches!(
             request.kind,
-            CommandKind::Version | CommandKind::Analyze | CommandKind::Import
+            CommandKind::Version
+                | CommandKind::Analyze
+                | CommandKind::Import
+                | CommandKind::ConfigShow
+                | CommandKind::ConfigSet
         ) {
             self.last_error = None;
         }
         if !matches!(
             request.kind,
-            CommandKind::Stats | CommandKind::Decisions | CommandKind::JevLog
+            CommandKind::Stats
+                | CommandKind::Decisions
+                | CommandKind::JevLog
+                | CommandKind::ConfigShow
+                | CommandKind::ConfigSet
         ) {
             self.overview = None;
         }
@@ -245,6 +255,33 @@ impl GuiModel {
 
     fn reduce(&mut self, request: &RequestTag, body: EventBody) {
         match body {
+            EventBody::Ack(ack)
+                if matches!(
+                    request.kind,
+                    CommandKind::ConfigShow | CommandKind::ConfigSet
+                ) =>
+            {
+                let expected = if request.kind == CommandKind::ConfigShow {
+                    "config show"
+                } else {
+                    "config set"
+                };
+                if ack.command != expected
+                    || self.pending.settings.is_some()
+                    || (request.kind == CommandKind::ConfigShow && ack.changed)
+                {
+                    self.problem("配置响应重复或命令不匹配");
+                    return;
+                }
+                match serde_json::from_value::<chat_tldr_core::settings::SettingsSnapshot>(
+                    ack.detail,
+                ) {
+                    Ok(snapshot) if snapshot.version == 1 && !snapshot.revision.is_empty() => {
+                        self.pending.settings = Some(snapshot)
+                    }
+                    _ => self.problem("CLI 配置响应无效"),
+                }
+            }
             EventBody::Ack(ack)
                 if request.kind == CommandKind::Overview && ack.command == "overview.rows" =>
             {
@@ -395,7 +432,11 @@ impl GuiModel {
                 self.log(message);
                 if matches!(
                     request.kind,
-                    CommandKind::Version | CommandKind::Chats | CommandKind::Inbox
+                    CommandKind::Version
+                        | CommandKind::Chats
+                        | CommandKind::Inbox
+                        | CommandKind::ConfigShow
+                        | CommandKind::ConfigSet
                 ) {
                     self.problem("CLI 返回了错误，当前视图不能发布");
                 }
@@ -425,6 +466,13 @@ impl GuiModel {
         }
         if current_chat && completion.is_success() {
             match request.kind {
+                CommandKind::ConfigShow | CommandKind::ConfigSet => {
+                    if let Some(settings) = pending.settings {
+                        self.settings = Some((request.id, settings));
+                    } else {
+                        completion.error = Some("CLI 未返回配置状态，保存结果未确认".into());
+                    }
+                }
                 CommandKind::Overview => {
                     if let Some(report) = pending.overview
                         && pending.overview_expected.as_ref() == Some(&report.counts())

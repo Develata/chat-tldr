@@ -205,6 +205,58 @@ fn narrow_layout_tabs_respond_to_pointer_clicks() {
 }
 
 #[test]
+fn provider_form_accepts_masked_key_and_emits_save_without_serializing_preferences() {
+    let mut gui = Harness::new(1400.0, false);
+    gui.model
+        .capabilities
+        .as_mut()
+        .unwrap()
+        .commands
+        .extend(["config show".into(), "config set".into()]);
+    gui.model.settings = Some((10, settings::synthetic_snapshot()));
+    gui.state.settings = true;
+    assert!(gui.click("填写新密钥；留空保留原值").is_empty());
+    gui.frame(vec![egui::Event::Text("synthetic-ui-private-key".into())]);
+    let update = gui.state.providers.update("llm").unwrap();
+    assert_eq!(update.key.unwrap().expose(), "synthetic-ui-private-key");
+    assert!(text_position(&gui.settled(), "synthetic-ui-private-key").is_none());
+    assert!(
+        !serde_json::to_string(&gui.state.draft)
+            .unwrap()
+            .contains("synthetic-ui-private-key")
+    );
+    assert_eq!(
+        gui.click("保存 LLM 配置"),
+        vec![Action::SaveProvider("llm")]
+    );
+    gui.state.providers.clear_inputs();
+    assert!(gui.state.providers.update("llm").unwrap().key.is_none());
+    assert!(gui.click("Jev · 决策").is_empty());
+    assert_eq!(
+        gui.click("保存 Jev 配置"),
+        vec![Action::SaveProvider("jev")]
+    );
+}
+
+#[test]
+fn provider_key_and_save_are_visible_at_800_by_700() {
+    let mut gui = Harness::new(800.0, false);
+    gui.size.y = 700.0;
+    crate::appearance::install(&gui.ctx, false);
+    gui.model
+        .capabilities
+        .as_mut()
+        .unwrap()
+        .commands
+        .extend(["config show".into(), "config set".into()]);
+    gui.model.settings = Some((10, settings::synthetic_snapshot()));
+    gui.state.settings = true;
+    gui.settled();
+    assert!(gui.state.providers.key_visible);
+    assert!(gui.state.providers.save_visible);
+}
+
+#[test]
 fn demo_disables_mutations_even_with_capabilities_and_displayed_cursor() {
     let mut gui = Harness::new(1400.0, true);
     gui.settled();

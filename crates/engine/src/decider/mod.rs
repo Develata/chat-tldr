@@ -143,6 +143,15 @@ pub struct JevDecider {
 }
 
 impl JevDecider {
+    pub fn with_key(config: &ProviderConfig, key: &str) -> Result<Self, ProviderError> {
+        if config.model.trim().is_empty() {
+            return Err(ProviderError::config("Jev model is required"));
+        }
+        Ok(Self {
+            transport: HttpTransport::with_key(config, "v1/systemone", AuthStyle::Bearer, key)?,
+            config: config.clone(),
+        })
+    }
     pub fn new(config: &ProviderConfig) -> Result<Self, ProviderError> {
         if config.model.trim().is_empty() {
             return Err(ProviderError::config("Jev model is required"));

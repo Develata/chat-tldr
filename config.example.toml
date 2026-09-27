@@ -4,6 +4,7 @@ timezone = "+08:00"
 base_url = "https://api.typesafe.ai"
 model = "jev-1.13.0"                 # 固定版本，避免 jev-latest 漂移导致阈值失效
 api_key_env = "TYPESAFE_API_KEY"
+# 可用 GUI 设置或 config set jev --key-prompt 保存 api_key（本地明文）；存在时优先于环境变量。
 timeout_secs = 30
 
 [llm]                                # 团队统一配置（Q-LLM-1）：DeepSeek 官方 API
@@ -11,6 +12,7 @@ api_format = "openai"                # "openai" | "anthropic"；DeepSeek 两种�
 base_url = "https://api.deepseek.com"          # anthropic 格式为 https://api.deepseek.com/anthropic
 model = "deepseek-flash"
 api_key_env = "CHAT_TLDR_LLM_API_KEY"
+# 可用 GUI 设置或 config set llm --key-prompt 保存 api_key（本地明文）；示例不含密钥。
 temperature = 0.0
 json_mode = true                     # 仅 openai 格式：response_format = {"type":"json_object"}
 extra_body = { thinking = { type = "disabled" } }   # 原样合并进请求体；关闭 thinking 以便 temperature 生效

@@ -22,6 +22,8 @@ pub struct ProviderConfig {
     pub base_url: String,
     pub model: String,
     pub api_key_env: String,
+    /// Optional local plaintext key. Debug output is always redacted.
+    pub api_key: Option<chat_tldr_core::settings::SecretString>,
     pub timeout_secs: u64,
     pub api_format: Option<String>,
     pub temperature: Option<f64>,
@@ -126,6 +128,19 @@ impl Config {
                         .into(),
                 ));
             }
+            let url = reqwest::Url::parse(&provider.base_url)
+                .map_err(|_| EngineError::Config("invalid provider URL".into()))?;
+            if !matches!(url.scheme(), "http" | "https")
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.query().is_some()
+                || url.fragment().is_some()
+            {
+                return Err(EngineError::Config(
+                    "provider URL must be HTTP(S), without credentials, query or fragment".into(),
+                ));
+            }
             for price in [
                 provider.price_input_per_mtok,
                 provider.price_output_per_mtok,
@@ -143,6 +158,20 @@ impl Config {
         if !matches!(self.llm.api_format.as_deref(), Some("openai" | "anthropic")) {
             return Err(EngineError::Config(
                 "llm.api_format must be openai or anthropic".into(),
+            ));
+        }
+        let max_temperature = if self.llm.api_format.as_deref() == Some("anthropic") {
+            1.0
+        } else {
+            2.0
+        };
+        if self
+            .llm
+            .temperature
+            .is_some_and(|t| !t.is_finite() || !(0.0..=max_temperature).contains(&t))
+        {
+            return Err(EngineError::Config(
+                "LLM temperature is out of range".into(),
             ));
         }
         if self.agent.max_steps == 0
@@ -185,6 +214,11 @@ fn merge(base: &mut toml::Value, overlay: toml::Value) {
     match (base, overlay) {
         (toml::Value::Table(base), toml::Value::Table(overlay)) => {
             for (key, value) in overlay {
+                // A provider-specific request body must be replaceable with {}.
+                if key == "extra_body" {
+                    base.insert(key, value);
+                    continue;
+                }
                 match base.get_mut(&key) {
                     Some(current) => merge(current, value),
                     None => {

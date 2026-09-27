@@ -2,6 +2,54 @@ use super::*;
 use chat_tldr_core::{AckPayload, DecisionMethod, DonePayload, Priority, StatsPayload};
 use serde_json::json;
 
+#[test]
+fn provider_settings_require_matching_ack_success_and_current_request() {
+    let mut model = GuiModel::default();
+    for (id, valid) in [(1, false), (2, true)] {
+        let tag = request(id, CommandKind::ConfigShow, None);
+        model.begin(tag.clone()).unwrap();
+        emit(
+            &mut model,
+            &tag,
+            EventBody::Ack(AckPayload {
+                command: "config show".into(),
+                changed: false,
+                target: None,
+                detail: serde_json::to_value(crate::ui::settings::synthetic_snapshot()).unwrap(),
+            }),
+        );
+        assert!(model.settings.is_none());
+        end(
+            &mut model,
+            tag,
+            completed(
+                if valid {
+                    RunStatus::Complete
+                } else {
+                    RunStatus::Failed
+                },
+                if valid { 0 } else { 4 },
+            ),
+        );
+        assert_eq!(model.settings.is_some(), valid);
+    }
+    let tag = request(3, CommandKind::ConfigSet, None);
+    model.begin(tag.clone()).unwrap();
+    emit(
+        &mut model,
+        &tag,
+        EventBody::Ack(AckPayload {
+            command: "config show".into(),
+            changed: false,
+            target: None,
+            detail: serde_json::to_value(crate::ui::settings::synthetic_snapshot()).unwrap(),
+        }),
+    );
+    end(&mut model, tag, completed(RunStatus::Complete, 0));
+    assert!(!model.last_completion.as_ref().unwrap().is_success());
+    assert_eq!(model.settings.as_ref().unwrap().0, 2);
+}
+
 fn overview_ack(chat: &ChatId) -> AckPayload {
     AckPayload {
         command: "overview".into(),

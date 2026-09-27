@@ -22,6 +22,7 @@ use crate::{
 };
 
 pub struct Startup {
+    settings: bool,
     prefs: Preferences,
     prefs_path: Option<PathBuf>,
     error: Option<String>,
@@ -102,6 +103,7 @@ impl Startup {
         }
         prefs.dark |= args.dark;
         Self {
+            settings: args.settings,
             prefs,
             prefs_path,
             error,
@@ -163,6 +165,7 @@ impl App {
             GuiModel::default()
         };
         let mut state = UiState::new(startup.prefs.clone());
+        state.settings = startup.settings;
         if startup.demo {
             state.configure_demo(startup.demo_view.unwrap_or_default());
         }
@@ -201,16 +204,28 @@ impl App {
         chat: Option<ChatId>,
         args: impl IntoIterator<Item = OsString>,
     ) {
+        self.start_with_input(kind, chat, args, None);
+    }
+
+    fn start_with_input(
+        &mut self,
+        kind: CommandKind,
+        chat: Option<ChatId>,
+        args: impl IntoIterator<Item = OsString>,
+        input: Option<chat_tldr_core::settings::SecretString>,
+    ) {
         if self.demo || self.bridge.is_busy() {
             return;
         }
         let args: Vec<OsString> = args.into_iter().collect();
         if kind != CommandKind::Version
             && (!self.model.handshake_ok()
-                || !args
-                    .first()
-                    .and_then(|arg| arg.to_str())
-                    .is_some_and(|name| self.model.has_capability(name)))
+                || !(match kind {
+                    CommandKind::ConfigShow => Some("config show"),
+                    CommandKind::ConfigSet => Some("config set"),
+                    _ => args.first().and_then(|arg| arg.to_str()),
+                })
+                .is_some_and(|name| self.model.has_capability(name)))
         {
             self.model.last_error =
                 Some("CLI 尚未通过版本检查，或不支持此操作；请检查设置。".into());
@@ -222,10 +237,13 @@ impl App {
             kind,
             chat,
         };
-        if let Err(error) = self.bridge.start(Request {
-            tag: tag.clone(),
-            args,
-        }) {
+        if let Err(error) = self.bridge.start_with_input(
+            Request {
+                tag: tag.clone(),
+                args,
+            },
+            input,
+        ) {
             self.model.last_error = Some(error);
             return;
         }
@@ -289,6 +307,50 @@ impl App {
             self.state.overview = false;
         }
         match action {
+            Action::LoadProviders => {
+                if self.state.providers.connection_matches(&self.state.draft) {
+                    self.state.providers.attempted_load = true;
+                    self.state.providers.saving = None;
+                    self.state.providers.message = None;
+                    self.start(
+                        CommandKind::ConfigShow,
+                        None,
+                        ["config".into(), "show".into()],
+                    );
+                }
+            }
+            Action::SaveProvider(provider) => {
+                if !self.state.providers.connection_matches(&self.state.draft) {
+                    return;
+                }
+                let update = match self.state.providers.update(provider) {
+                    Ok(update) => update,
+                    Err(error) => {
+                        self.model.last_error = Some(error);
+                        return;
+                    }
+                };
+                let json = match serde_json::to_string(&update) {
+                    Ok(json) => chat_tldr_core::settings::SecretString::new(json),
+                    Err(_) => {
+                        self.model.last_error = Some("无法编码模型配置".into());
+                        return;
+                    }
+                };
+                self.state.providers.saving = Some(provider);
+                self.state.providers.message = None;
+                self.start_with_input(
+                    CommandKind::ConfigSet,
+                    None,
+                    [
+                        "config".into(),
+                        "set".into(),
+                        provider.into(),
+                        "--request-stdin".into(),
+                    ],
+                    Some(json),
+                );
+            }
             Action::OpenQce => {
                 self.state.cloud_notice = false;
                 self.state.cloud_target = None;
@@ -403,6 +465,7 @@ impl App {
                 self.state.cloud_target = None;
                 self.prefs = candidate;
                 self.state.draft = self.prefs.clone();
+                self.state.providers = ui::settings::ProviderPanel::new(&self.prefs);
                 self.save_preferences();
                 self.bridge = make_bridge(&self.prefs, ctx);
                 self.model = GuiModel::default();
@@ -447,7 +510,24 @@ impl eframe::App for App {
                 && event.request.kind == CommandKind::Import
                 && matches!(event.payload, crate::bridge::BridgePayload::Finished(_));
             self.observe_qce_import(&event);
+            let config_saved = self.model.active.as_ref() == Some(&event.request)
+                && event.request.kind == CommandKind::ConfigSet
+                && matches!(event.payload, crate::bridge::BridgePayload::Finished(_));
             let follow_up = self.model.apply(event);
+            if config_saved
+                && self
+                    .model
+                    .last_completion
+                    .as_ref()
+                    .is_some_and(crate::bridge::Completion::is_success)
+            {
+                self.state.providers.sync(&self.model);
+                self.prefs.cloud_notice_accepted = false;
+                self.state.draft.cloud_notice_accepted = false;
+                self.state.cloud_notice = false;
+                self.state.cloud_target = None;
+                self.save_preferences();
+            }
             if qce_import {
                 let success = self
                     .model
@@ -470,6 +550,16 @@ impl eframe::App for App {
                     FollowUp::Inbox(chat) => self.inbox(chat),
                 }
             }
+        }
+        if self.state.settings
+            && !self.state.providers.attempted_load
+            && !self.bridge.is_busy()
+            && !self.qce.open
+            && !self.demo
+            && self.model.has_capability("config show")
+            && self.state.providers.connection_matches(&self.state.draft)
+        {
+            self.act(Action::LoadProviders, ctx);
         }
         if let Some(path) = self.qce.tick() {
             self.import_qce(path);
@@ -520,6 +610,13 @@ impl eframe::App for App {
             if let Some(path) = self.screenshot.take() {
                 let report = self.smoke_report.take().map(|path| {
                     let mut report = crate::capture::report(&self.model, self.demo);
+                    report["settings"] = serde_json::json!({
+                        "open": self.state.settings,
+                        "loaded": self.model.settings.is_some(),
+                        "controls_visible": self.state.providers.key_visible && self.state.providers.save_visible,
+                        "llm_format": self.model.settings.as_ref().map(|(_, s)| &s.llm.api_format),
+                        "llm_key_available": self.model.settings.as_ref().is_some_and(|(_, s)| s.llm.credential.available),
+                    });
                     if let Some(script) = &self.qce_smoke {
                         report["qce"] = script.report(&self.qce);
                     }

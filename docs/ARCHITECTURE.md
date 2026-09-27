@@ -36,6 +36,8 @@ Cargo workspace：
 
 `apps/qce-manager/` 已作为 `chat-tldr-qce-manager` 加入 workspace，由 Codex 接手实现本机 QCE 状态诊断、扫码登录、单文件导出和受控清理。它在本仓库内只依赖 core，通过完成后的本地 JSON 文件与主 CLI 对接，不访问业务数据库。GUI 的 `qce/` 模块复用子进程传输，独立保存连接/二维码/导出状态，成功退出后才把文件交给主 CLI；窗口关闭和取消均不触发导入。管理程序随 Windows GUI 包交付；不安装/启动容器、不捆绑 QCE/NapCat，见 [使用说明](../apps/qce-manager/README.md)。
 
+模型设置沿同一边界：core `settings` 定义读写协议，GUI `ui/settings` 只维护草稿，CLI `config_command` 校验并原子保存，`credentials` 解析本地 config 或环境变量，再将密钥显式传入 engine 的同步模型客户端。按 ADR-0011 的课程阶段决定，config 可含明文 key；GUI 偏好文件及配置查询均不含 key。GUI 用 stdin 发送有长度限制的更新请求，完整成功响应后才显示已保存；不直接写 TOML 或打开 SQLite。
+
 依赖方向（箭头表示“依赖于”）：
 
 ```mermaid

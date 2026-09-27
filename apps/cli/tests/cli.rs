@@ -8,6 +8,7 @@ use serde_json::Value;
 
 mod merging;
 mod overview;
+mod settings;
 mod workflow;
 
 static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);

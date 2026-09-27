@@ -99,7 +99,7 @@ cargo build --workspace
 .\target\debug\chat-tldr.exe --data-dir .\private\my-chat import "C:\path\group.json" --self-uin "<你的QQ号>"
 ```
 
-GUI 保留文件导入，并提供“从 QQ 获取聊天”：连接本机 QCE → 扫码登录 → 选群/时间 → 导出并导入，见 [操作说明](apps/gui/README.md#从-qq-获取聊天)。随附 manager，不安装/捆绑 QCE/NapCat。GUI 不填写密钥或 QQ 身份；密钥按下节设置在启动进程的环境中。首次云端分析需确认聊天原文会发送给配置的服务；获取、导入和查询不调用模型。`doctor` 检查本地配置和环境变量是否就绪，不验证网络连通性。
+GUI 保留文件导入，并提供“从 QQ 获取聊天”：连接本机 QCE → 扫码登录 → 选群/时间 → 导出并导入，见 [操作说明](apps/gui/README.md#从-qq-获取聊天)。随附 manager，不安装/捆绑 QCE/NapCat。在“设置 → 模型与 API”填写 OpenAI/Anthropic 格式、服务地址、模型和 API key，LLM/Jev 分别保存；重启后继续使用。密钥按课程阶段决定明文存入本地 config，输入框遮罩，查询和日志不回显。首次云端分析需确认聊天原文会发送给配置的服务；获取、导入和查询不调用模型。`doctor` 检查本地配置和密钥是否就绪，不验证网络连通性。
 
 ### 查看分析总览
 
@@ -126,7 +126,18 @@ cargo run -p chat-tldr -- --data-dir ./private/demo overview --chat qq:group:syn
 
 ### 使用真实模型
 
-下面的 `analyze` 会把聊天原文发送到配置的云服务。默认使用 Jev 做分类与话题归属、DeepSeek 做抽取；LLM 密钥必需，Jev 密钥缺失或服务不可用时会警告并改用 LLM。也可显式传入 `--decider llm`。密钥只从环境变量读取。
+下面的 `analyze` 会把聊天原文发送到配置的云服务。默认使用 Jev 做分类与话题归属、DeepSeek 做抽取；LLM 密钥必需，Jev 密钥缺失或服务不可用时会警告并改用 LLM。也可显式传入 `--decider llm`。密钥优先从本地 config 的 `api_key` 读取，没有时才使用 `api_key_env` 指定的环境变量。
+
+GUI 中可直接保存；CLI 的等价命令如下（`--key-prompt` 隐藏输入，写入本地明文 config，不需要重启终端）：
+
+```powershell
+cargo run -p chat-tldr -- --data-dir private/demo config set llm --api-format openai --base-url https://api.deepseek.com --model deepseek-flash --key-prompt
+cargo run -p chat-tldr -- --data-dir private/demo config set jev --key-prompt
+cargo run -p chat-tldr -- --data-dir private/demo config show
+cargo run -p chat-tldr -- --data-dir private/demo doctor
+```
+
+已有 config 时只更新指定字段，密钥不会出现在 `config show` 中。`config set llm --clear-key` 删除保存的密钥并恢复环境变量查找。Anthropic 可使用 `--api-format anthropic --base-url https://api.anthropic.com --model <模型名>`；OpenAI 常见地址为 `https://api.openai.com/v1`。更改地址/格式时重新填写该服务密钥。更多参数见 [CLI 协议](docs/CLI_PROTOCOL.md)。
 
 也可以在本地 `.env` 中填写 [.env.example](.env.example) 的两个变量，然后用 `./scripts/with-env.ps1 cargo run -p chat-tldr -- doctor` 检查配置。脚本只为本次子进程加载密钥，不执行文件内容；CLI 本身不自动读取 `.env`。用法与格式见 [本地模型密钥](docs/ENVIRONMENT.md)。
 
@@ -229,7 +240,7 @@ How it differs from pasting the chat into a general-purpose LLM:
 - CLI analysis, inbox, feedback, lifecycle and mark-read commands, plus standalone HTML export
 - Read-only run statistics, decision replay and model-answer history; annotation CSV export/import, protocol validation and offline Ours extraction/ranking scores
 
-`ours` currently provides this workflow. Change/cancellation links, unanswered-question semantics, Jev-based controller action selection, embedding candidates, topic/calibration metrics and baseline comparisons remain pending. QCE management is still a reserved external component; the JSON importer already works independently.
+Both `ours` and `b0` are implemented. Change/cancellation links, unanswered-question semantics, Jev controller action selection, topic metrics and calibration tools are available; real quality scores remain pending independent human labels. The QCE manager and GUI acquisition wizard provide login, export and import using an existing local QCE service. Embedding candidates remain deferred.
 
 Rust regressions use synthetic data, mocks and local fake services; current validation is recorded in docs/ACCEPTANCE.md. The Windows inbox has native interaction evidence; overview screenshots remain pending. One real 200-message QCE export passed offline checks. The shared 100-message scenario and four-message backfill fixture support regression and independent annotation. Real cloud runs are recorded separately from quality evaluation: independent human labels are required before publishing real-data quality or calibration scores.
 
@@ -237,7 +248,7 @@ CI runs Windows modules in parallel, with Linux CLI/eval and macOS CLI/GUI/eval 
 
 ### Usage
 
-See the PowerShell examples above. Import, queries and `analyze --dry-run` need no keys; dry-run does not contact services or write analysis state. Real analysis requires `CHAT_TLDR_LLM_API_KEY`; `TYPESAFE_API_KEY` enables Jev, otherwise decisions fall back to the LLM. Real analysis sends unredacted chat text to the configured services. Synthetic Docker-format input is at `fixtures/qce/template-docker-export.json`; export instructions are in [QCE_DOCKER_EXPORT](docs/QCE_DOCKER_EXPORT.md).
+See the PowerShell examples above. Import, queries and `analyze --dry-run` need no keys; dry-run does not contact services or write analysis state. Configure API format, URL, model and key in GUI Settings or `config set llm|jev`. For this coursework version, keys are saved as plaintext in local config; they are masked in the GUI and omitted from query output/logs. Saved keys take precedence over environment variables. Without a saved key, `CHAT_TLDR_LLM_API_KEY` supplies the LLM and `TYPESAFE_API_KEY` enables Jev; absent Jev credentials use LLM fallback. Real analysis sends unredacted chat text to the configured services. Synthetic Docker-format input is at `fixtures/qce/template-docker-export.json`; export instructions are in [QCE_DOCKER_EXPORT](docs/QCE_DOCKER_EXPORT.md).
 
 For local `.env` files, use [.env.example](.env.example) and run `./scripts/with-env.ps1 cargo run -p chat-tldr -- doctor`. The wrapper supplies keys only to its child process, preserves existing environment values and treats the file as literal data. The CLI does not load `.env` automatically; see [environment setup](docs/ENVIRONMENT.md).
 

@@ -20,6 +20,8 @@ const CONFIG_TEMPLATE: &str = include_str!("../../../config.example.toml");
 const IMPLEMENTED_COMMANDS: &[&str] = &[
     "version",
     "config init",
+    "config show",
+    "config set",
     "doctor",
     "import",
     "chats",
@@ -45,12 +47,19 @@ pub fn run<W: Write>(cli: Cli, output: &mut Output<W>) -> Result<(), Failure> {
     if cli.verbose > 0 {
         eprintln!("Using data directory: {}", paths.data_dir.display());
     }
+    if let Command::Config { command } = cli.command {
+        return match command {
+            ConfigCommand::Init { out } => config_init(out, &paths, output),
+            ConfigCommand::Show => {
+                crate::config_command::show(&paths, cli.config.is_some(), output)
+            }
+            ConfigCommand::Set(args) => crate::config_command::set(*args, &paths, output),
+        };
+    }
     let config = Config::load(&paths.config_file, cli.config.is_some())?;
     match cli.command {
         Command::Version => unreachable!("version was handled without reading configuration"),
-        Command::Config {
-            command: ConfigCommand::Init { out },
-        } => config_init(out, &paths, output),
+        Command::Config { .. } => unreachable!("config was handled before loading settings"),
         Command::Doctor => doctor(&paths, &config, output),
         Command::Import(args) => import(args, &paths, &config, output),
         Command::Chats => {
@@ -201,8 +210,10 @@ fn doctor<W: Write>(paths: &Paths, config: &Config, output: &mut Output<W>) -> R
             "The data directory path is not a directory",
         ));
     }
-    let jev_key_present = env_present(&config.jev.api_key_env);
-    let llm_key_present = env_present(&config.llm.api_key_env);
+    let jev_key = crate::credentials::resolve(&config.jev);
+    let llm_key = crate::credentials::resolve(&config.llm);
+    let jev_key_present = jev_key.is_ok();
+    let llm_key_present = llm_key.is_ok();
     ack(
         output,
         "doctor",
@@ -214,22 +225,13 @@ fn doctor<W: Write>(paths: &Paths, config: &Config, output: &mut Output<W>) -> R
             "readiness": {"read": true, "import": true, "analyze": llm_key_present},
             "analyze_implemented": true,
             "providers": {
-                "jev": {"api_key_env": config.jev.api_key_env, "key_present": jev_key_present},
-                "llm": {"api_key_env": config.llm.api_key_env, "key_present": llm_key_present},
+                "jev": {"api_key_env": config.jev.api_key_env, "key_present": jev_key_present, "credential": crate::credentials::status(&jev_key, &config.jev)},
+                "llm": {"api_key_env": config.llm.api_key_env, "key_present": llm_key_present, "credential": crate::credentials::status(&llm_key, &config.llm)},
             },
             "remote_checked": false,
         }),
     )?;
-    if !llm_key_present {
-        return Err(Failure::new(
-            "E_CONFIG",
-            4,
-            format!(
-                "LLM environment variable {} is not set; offline read and import remain available",
-                config.llm.api_key_env
-            ),
-        ));
-    }
+    llm_key?;
     if !jev_key_present {
         output.emit(EventBody::Warning(WarningPayload {
             stage: "cli".to_owned(),
@@ -238,10 +240,6 @@ fn doctor<W: Write>(paths: &Paths, config: &Config, output: &mut Output<W>) -> R
         }))?;
     }
     Ok(())
-}
-
-fn env_present(name: &str) -> bool {
-    std::env::var_os(name).is_some_and(|value| !value.is_empty())
 }
 
 fn import<W: Write>(

@@ -1,6 +1,8 @@
 mod analyze;
 mod args;
 mod commands;
+mod config_command;
+mod credentials;
 mod history;
 mod html;
 mod output;

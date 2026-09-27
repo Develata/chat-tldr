@@ -47,6 +47,7 @@ secrets/
 config.local.toml
 chat-tldr.local.toml
 /config.toml
+*.toml.lock
 # 生成的演示页面
 *.html.out
 /demo-output/

@@ -1,8 +1,17 @@
 # 本地模型密钥
 
-默认配置使用 `TYPESAFE_API_KEY` 连接 Jev，使用 `CHAT_TLDR_LLM_API_KEY` 连接 DeepSeek。密钥不写入 TOML。CLI 仅读取进程环境变量，不自动加载 `.env`。
+桌面端可在“设置 → 模型与 API”保存 LLM/Jev 配置。按 Develata 的课程阶段决定，密钥明文写入所选本地 config 的 `api_key`，重启后生效；配置查询与日志不回显。CLI 可执行 `config set llm --key-prompt` / `config set jev --key-prompt`，从隐藏终端输入保存；`config show` 查询状态，`--clear-key` 移除本地密钥。具体契约见 [CLI_PROTOCOL](CLI_PROTOCOL.md)。
 
-将仓库根目录的 `.env.example` 复制为 `.env`，只在 `.env` 中填写密钥；已有 `.env` 时保留原文件。`.env` 及 `.env.*` 本地变体均被 Git 忽略，模板 `.env.example` 可以提交。
+没有保存 `api_key` 时，默认使用 `TYPESAFE_API_KEY` 连接 Jev、`CHAT_TLDR_LLM_API_KEY` 连接 DeepSeek。已保存配置优先于环境变量，无效配置密钥不会静默切换来源。CLI 不自动加载 `.env`，Docker/CI 仍可只用环境变量。
+
+已有 `.env` 可一次性迁入选定数据目录（保留原 `.env`）：
+
+```powershell
+./scripts/with-env.ps1 ./target/debug/chat-tldr.exe --data-dir private/demo config set llm --key-from-env CHAT_TLDR_LLM_API_KEY
+./scripts/with-env.ps1 ./target/debug/chat-tldr.exe --data-dir private/demo config set jev --key-from-env TYPESAFE_API_KEY
+```
+
+使用环境变量模式时，将仓库根目录的 `.env.example` 复制为 `.env`，在 `.env` 中填写密钥；已有 `.env` 时保留原文件。`.env` 及 `.env.*` 本地变体均被 Git 忽略，模板 `.env.example` 可以提交。
 
 PowerShell 7.2 或更高版本可从仓库根目录运行：
 

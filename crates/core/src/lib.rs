@@ -20,6 +20,7 @@ pub mod message;
 pub mod overview;
 pub mod protocol;
 pub mod relations;
+pub mod settings;
 
 pub use agent::*;
 pub use ids::*;

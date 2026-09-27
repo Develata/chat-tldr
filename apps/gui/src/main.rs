@@ -30,6 +30,9 @@ struct Args {
     data_dir: Option<PathBuf>,
     #[arg(long)]
     config: Option<PathBuf>,
+    /// Open the provider settings panel on startup.
+    #[arg(long)]
+    settings: bool,
     /// Show synthetic fixtures; never starts a CLI or writes preferences.
     #[arg(long)]
     demo: bool,

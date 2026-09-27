@@ -37,6 +37,8 @@
 |---|---|---|
 | `version` | 输出版本与协议版本（GUI 启动时的握手） | `ack`, `done` |
 | `config init [--out FILE]` | 创建示例配置，不覆盖现有文件 | `ack`, `done` |
+| `config show` | 读取生效的模型配置与密钥来源/就绪状态；不输出密钥 | `ack`, `done` |
+| `config set <llm\|jev> [选项]` | 校验并原子保存单个 provider，可通过 stdin 或隐藏输入保存密钥 | `ack`, `done` |
 | `doctor` | 离线检查配置、环境变量存在性、路径、数据库版本和能力就绪状态 | `ack`, `done`；失败附 `error` |
 | `import <PATH>...` | 整批原子导入一个或多个 QCE JSON 文件，幂等 | `progress`, `warning`, `ack`, `stats`(scope=import), `done` |
 | `chats` | 列出已导入的会话及三个游标、未读数 | `chat`*, `done` |
@@ -57,9 +59,17 @@
 ### 2.3 各命令参数
 
 **`config init [--out FILE]` 与 `doctor`**
-- 配置默认写入 `<data-dir>/config.toml`；现有目标不覆盖，配置中只有环境变量名，不含密钥。
-- `doctor` 不联网、不创建数据库，不打印环境变量的值；分别报告 `read`、`import`、`analyze` 的就绪情况。缺少必需的 LLM key 时返回 `E_CONFIG` / 退出 4，同时说明离线能力是否可用。模型 key 存在不证明云服务连通性或模型效果。
+- 配置默认写入 `<data-dir>/config.toml`；init 不覆盖现有目标，示例没有密钥。config set 写入全局 `--config` 指向的文件（否则用默认配置），允许创建尚不存在的文件。
+- `doctor` 不联网、不创建数据库，不打印密钥值；分别报告 `read`、`import`、`analyze` 的就绪情况。密钥按本地 `api_key` 优先、没有时才读取 `api_key_env` 的顺序解析；无效的已保存密钥不会静默回退。缺少必需的 LLM key 返回 `E_CONFIG` / 退出 4；模型 key 就绪不证明云服务连通性或模型效果。
 - `doctor` 的 `ack.detail.paths` 包含解析后的 `data_dir`、`config_file`、`database`、`outputs_dir`、`qce_exports_dir`，GUI 复用这些路径。
+
+**`config show` 与 `config set <llm|jev>`**
+- show/set 的成功 `ack.detail` 是 core `settings::SettingsSnapshot`：`version=1`、`config_file`、`revision`、`llm`、`jev`。provider 包含地址、模型、格式、超时、温度、JSON 输出、额外请求参数、费用估算和 `credential={source:config|environment,available,problem}`；没有密钥字段。
+- set 接受 `--base-url`、`--model`、`--api-format openai|anthropic`（仅 LLM；Jev 固定 SystemOne）、`--api-key-env`、`--timeout-secs`、`--temperature`、`--json-mode true|false`、`--extra-body <JSON对象>`、两项 `--price-*-per-mtok`。省略字段保持原值。
+- 密钥入口四选一：`--key-prompt` 在终端隐藏输入；`--key-stdin` 从 stdin 读取原始密钥（去掉末尾换行）；`--key-from-env ENV_NAME` 把指定环境变量迁入 config；`--clear-key` 删除本地密钥并恢复环境变量查找。不提供在 argv 上填写密钥的参数。
+- GUI 使用 `config set <provider> --request-stdin`，stdin 为至多 64 KiB 的 `ProviderUpdate` JSON；不能同时传普通更新参数。字段与上述配置项一致，另有可选 `key`、`clear_key`、`expected_revision`。`key` 留空/不提供由 GUI 解释为保留；显式空字符串会拒绝。未知字段、无效值或过期 revision 返回 `E_CONFIG`，不回显输入。
+- set 使用独立文件锁和同目录临时文件原子替换，保留无关配置与注释；失败保留原配置，不修改数据库。保存的 API key 按课程阶段决定明文写入本地 config（[ADR-0011](decisions/0011-provider-settings.md)）。更改保存密钥对应的地址/格式时必须重新填写 key 或显式 clear，避免误用旧凭据；未显式传 extra_body 时清空上一个服务的扩展参数，`{}` 可覆盖默认 DeepSeek 参数。
+- GUI 只在版本能力包含 `config show`/`config set` 时启用面板，并在完整 ack/done 和成功退出后显示保存成功；设置草稿和 JSON 输入不写入 `gui-state.json`。
 
 **`import <PATH>... [--self-uid UID] [--self-uin UIN]`**
 - 接受 QCE 单文件 JSON（顶层含 `metadata`、`chatInfo`、`statistics`、`messages`）。
@@ -277,7 +287,7 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
 | code | stage | retryable | 含义 |
 |---|---|---|---|
 | `E_USAGE` | cli | false | 参数错误 |
-| `E_CONFIG` | cli | false | 配置文件缺失或无效、必需的环境变量未设置 |
+| `E_CONFIG` | cli | false | 配置缺失/无效、必需密钥不可用、配置版本冲突或保存正被其他进程占用 |
 | `E_INPUT_NOT_FOUND` | import | false | 文件不存在 |
 | `E_INPUT_PARSE` | import | false | JSON 解析失败或缺少必需字段 |
 | `E_INPUT_UNSUPPORTED` | import | false | 不支持的导出形式（如 chunked-JSONL） |
@@ -296,7 +306,7 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
 | `E_LLM_OUTPUT_INVALID` | extract | true | 输出不符合 schema，重试一次后仍失败 |
 | `E_BUDGET_EXCEEDED` | cli | false | 达到 `--budget-usd` 上限 |
 | `E_CANCELLED` | cli | false | 收到 Ctrl-C |
-| `E_OUTPUT_WRITE` | cli/render | false | 配置或 HTML 等输出文件写入失败；不覆盖已有配置 |
+| `E_OUTPUT_WRITE` | cli/render | false | 配置或 HTML 等输出文件写入失败；失败不破坏原配置 |
 | `E_INTERNAL` | 任意 | false | 未预期的错误（是 bug） |
 
 重试策略：`retryable=true` 的 provider 错误采用指数退避（0.5s、1s、2s，最多 3 次）；如果响应带 `retry-after`，按它等待。
@@ -327,7 +337,7 @@ payload = `{"insight": <Insight>, "evidence_view": [<EvidenceView>...]}`。其�
 
 ## 7. 配置文件（`config.toml`）
 
-API key **不写进配置文件**，只写环境变量的名字。
+课程阶段允许通过 CLI/GUI 将 `api_key` 明文写入本地配置；它优先于 `api_key_env` 指定的环境变量。示例配置不含真实密钥，配置查询只报告来源与是否就绪，见 ADR-0011。CLI 不自动加载 `.env`。
 
 ```toml
 timezone = "+08:00"
