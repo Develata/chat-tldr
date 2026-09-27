@@ -1,0 +1,25 @@
+[package]
+name = "chat-tldr-qce-manager"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+chat-tldr-core.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+reqwest.workspace = true
+ring.workspace = true
+qrcode.workspace = true
+ctrlc = "3.5"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.27"
+
+[lints]
+workspace = true

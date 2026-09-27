@@ -2,7 +2,7 @@
 
 > 2026-09-26。本文统一规定源码、协作材料和运行文件放在哪里、由谁读写，以及哪些可以清理。
 > 用户已于 2026-09-26 采纳此布局。当前已实现 CLI 分析闭环、话题生命周期、六个分析总览、历史查询与部分 eval。GUI 的 Windows 收件箱有合成截图，新增总览有交互回归；验收边界见 [GUI_VERIFICATION](GUI_VERIFICATION.md) 和 [REVIEW_FIXES](REVIEW_FIXES.md)。下列树仍包含规划位置，文件随功能创建，不预建大量空模块。
-> 保留现有六个 workspace 成员和 `--data-dir` 约定。QCE 管理组件单独预留位置，尚未加入 workspace。
+> 保留既有成员和 `--data-dir` 约定；QCE 管理组件已加入 workspace，现共七个成员。
 
 ## 1. 三个根目录
 
@@ -83,7 +83,7 @@ chat-tldr/
 │  │  │  ├─ appearance.rs      # 字体与外观
 │  │  │  └─ ui.rs              # 群列表、收件箱、证据、日志
 │  │  └─ README.md             # 启动方式、--demo 与配置边界
-│  └─ qce-manager/             # 预留外围组件，见该目录 README
+│  └─ qce-manager/             # 本机登录、单文件导出与受控清理，见该目录 README
 │     └─ README.md             # 获取/导出/管理任务与文件交接边界
 ├─ eval/
 │  ├─ Cargo.toml               # 仍是 chat-tldr-eval，不移动到 apps/
@@ -278,4 +278,4 @@ dist/<target>/<version>/
 - 忽略：target、dist、.codegraph、private、eval/private、真实 exports、本地 config.toml、数据库及旁文件、密钥、本地日志/临时目录。
 - 临时交接 `HANDOFF_CODEX.md` 继续留在本机并被忽略。持续有效的决定写入相应正式文档，不依赖临时交接文件作为唯一来源。
 
-落实顺序：先完成 CLI 契约与 core 协议类型，再做 QCE 导入和 engine 主线；GUI 与 QCE 管理组件按文件/CLI 边界接入。当前没有需要移动的旧业务数据，现有六个 crate 也不搬迁。增加 QCE 管理程序时，再把其 Cargo.toml 纳入同一个 workspace 和 Cargo.lock。
+现有 crate 与用户数据保持原位。GUI 与 QCE 管理组件按文件/CLI 边界接入；管理程序的 Cargo.toml 已纳入同一个 workspace 和 Cargo.lock。导出任务使用 `tmp/qce-manager/<job-id>.lock` 同级进程锁保护目录发布；`sources/qce/state/manager.lock` 只在创建任务、发布和清理时协调目录操作，永久保留以避免锁文件替换竞争。

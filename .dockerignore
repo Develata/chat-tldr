@@ -13,5 +13,7 @@
 # Cargo resolves every workspace manifest, but does not compile these packages.
 !apps/gui/Cargo.toml
 !apps/gui/src/main.rs
+!apps/qce-manager/Cargo.toml
+!apps/qce-manager/src/main.rs
 !eval/Cargo.toml
 !eval/src/main.rs
