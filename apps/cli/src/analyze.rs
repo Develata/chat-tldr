@@ -50,8 +50,10 @@ pub fn run<W: Write>(
         .transpose()?;
     let chat = ChatId(args.chat);
     let mut plan = agent::plan(&paths.database, &chat, &options)?;
-    let has_llm_key = key_present(&config.llm.api_key_env);
-    let has_jev_key = key_present(&config.jev.api_key_env);
+    let llm_key = crate::credentials::resolve(&config.llm);
+    let jev_key = crate::credentials::resolve(&config.jev);
+    let has_llm_key = llm_key.is_ok();
+    let has_jev_key = jev_key.is_ok();
     plan["readiness"] = json!({"read":true,"analyze":has_llm_key,"jev_key_present":has_jev_key,"llm_key_present":has_llm_key});
     if args.dry_run {
         output.emit(EventBody::Ack(AckPayload {
@@ -85,10 +87,10 @@ pub fn run<W: Write>(
     let handler_cancel = Arc::clone(&cancel);
     ctrlc::set_handler(move || handler_cancel.store(true, Ordering::Relaxed))
         .map_err(|_| Failure::new("E_INTERNAL", 1, "Cannot install cancellation handler"))?;
-    let llm = Client::new(&config.llm).map_err(EngineError::from)?;
+    let llm = Client::with_key(&config.llm, llm_key?.expose()).map_err(EngineError::from)?;
     let fallback = LlmDecider::new(&llm, config.llm.model.clone());
     let primary = if options.strategy == "ours" && options.decider == "jev" && has_jev_key {
-        Some(JevDecider::new(&config.jev).map_err(EngineError::from)?)
+        Some(JevDecider::with_key(&config.jev, jev_key?.expose()).map_err(EngineError::from)?)
     } else {
         None
     };
@@ -143,10 +145,6 @@ pub fn run<W: Write>(
         export_html(paths, &chat, config, html_output, committed, output)?;
     }
     Ok(())
-}
-
-fn key_present(name: &str) -> bool {
-    std::env::var_os(name).is_some_and(|value| !value.is_empty())
 }
 
 fn export_html<W: Write>(

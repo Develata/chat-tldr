@@ -66,7 +66,8 @@ impl LocalModels {
                 if empty_then_auth && input["questions"].is_object() {
                     classifications += 1;
                 }
-                let (status, response) = if worker_fail.load(Ordering::Relaxed)
+                let anthropic = body.get("system").is_some();
+                let (status, mut response) = if worker_fail.load(Ordering::Relaxed)
                     || (empty_then_auth && classifications == 2)
                 {
                     (401, json!({"error":"synthetic-key must never be shown"}))
@@ -101,6 +102,10 @@ impl LocalModels {
                     }
                     (200, response)
                 };
+                if anthropic && status == 200 {
+                    response = json!({"content":[{"type":"text", "text":response["choices"][0]["message"]["content"]}],
+                        "stop_reason":"end_turn","usage":{"input_tokens":40,"output_tokens":20}});
+                }
                 let response = response.to_string();
                 write!(stream,"HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",response.len()).unwrap();
             }
@@ -201,6 +206,61 @@ impl Drop for LocalModels {
         if let Some(worker) = self.worker.take() {
             worker.join().unwrap();
         }
+    }
+}
+
+#[test]
+fn gui_style_config_save_then_new_process_analysis_works_with_both_formats() {
+    use std::process::Stdio;
+    for format in ["openai", "anthropic"] {
+        let sandbox = Sandbox::new();
+        let chat = import_fixture(&sandbox);
+        let server = LocalModels::start();
+        let mut setter = sandbox
+            .command()
+            .args(["config", "set", "llm", "--request-stdin"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let update = json!({"api_format":format,"base_url":server.url,"model":"synthetic-model","key":"saved-synthetic-key","extra_body":{}});
+        setter
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(update.to_string().as_bytes())
+            .unwrap();
+        let saved = setter.wait_with_output().unwrap();
+        assert!(!String::from_utf8_lossy(&saved.stdout).contains("saved-synthetic-key"));
+        events(saved, 0);
+        let mut analyze = sandbox.command();
+        analyze
+            .args(["analyze", "--chat", &chat, "--decider", "llm"])
+            .env("NO_PROXY", "127.0.0.1,localhost")
+            .env("no_proxy", "127.0.0.1,localhost");
+        for name in [
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+        ] {
+            analyze.env_remove(name);
+        }
+        let output = analyze.output().unwrap();
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("saved-synthetic-key"));
+        let analyzed = events(output, 0);
+        assert_eq!(payload(&analyzed, "done")["finish_reason"], "done");
+        assert!(server.calls.load(Ordering::Relaxed) > 0);
+        assert_eq!(
+            payload(
+                &sandbox.run(&["inbox", "--chat", &chat, "--all"], 0),
+                "inbox"
+            )["chat_id"],
+            chat
+        );
     }
 }
 

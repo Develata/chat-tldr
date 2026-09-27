@@ -2,6 +2,13 @@
 
 验收分为输入兼容性、真实云调用和原生平台三部分。每次使用独立数据目录，并记录实际运行的二进制；合成样本通过不代表真实群聊质量通过。
 
+## 2026-09-27 模型设置闭环（本地 Windows）
+
+- CLI `config show/set` 与 GUI 设置页使用同一份配置。合成密钥经 stdin 保存后，新 CLI 进程在移除环境变量的条件下完成 OpenAI/Anthropic 两种格式的本地假服务分析；查询、Debug 与 GUI 偏好不回显密钥。
+- 配置原子写入、失败保留原文件、旧 revision 冲突、字段校验、密钥删除和环境变量回退均有回归。workspace 测试、严格 Clippy 与 fmt 已通过；原生截图发现设置窗口裁切后修复，并重跑 GUI 测试。
+- `scripts/release/gui_smoke.py` 增加常规与 800×700 设置页，使用真实 CLI 读取配置，并校验密钥输入/保存按钮的可见区域。Windows 本地全部 23 个原生捕获场景通过；现有 CI/GUI 发布验收复用该脚本。这里未宣称本分支远程 CI、Linux/macOS 或新增真实云请求已验收。
+- 密钥明文保存在本地 config 是本次用户明确决定（ADR-0011），不是加密存储。真实聊天与真实凭据不作为测试材料提交。
+
 ## 2026-09-26 首版 CLI/Docker 验收
 
 - `v0.1.0` 对应源码 **427 项 Rust 测试通过**；新增关系事务/迁移回滚、用户反馈/游标保留、完整/部分回答、撤回与时间窗口、B0、Jev 控制器、话题指标和校准回归。严格 clippy、fmt 及远程 CI 通过，后续提交仍需按对应版本核验。
@@ -79,7 +86,7 @@ chat-tldr-eval score --gold eval/private/gold/course-demo --run eval/private/run
 
 ## 真实云服务的小范围联调
 
-默认密钥名为 `CHAT_TLDR_LLM_API_KEY`（DeepSeek）和 `TYPESAFE_API_KEY`（Jev），只在本机环境中配置，不写入配置文件、回执或聊天。仅检查变量存在或 `doctor` 成功不能证明云服务可用。
+默认环境变量为 `CHAT_TLDR_LLM_API_KEY`（DeepSeek）和 `TYPESAFE_API_KEY`（Jev）。现也可在 CLI/GUI 中保存到本地明文 config（ADR-0011），已保存密钥优先于环境变量；真实密钥不进入 Git、回执或聊天。仅检查密钥存在或 `doctor` 成功不能证明云服务可用。
 
 首次联调只导入仓库的合成样本，使用新的 `private/cloud-smoke/<运行编号>/` 数据目录，避免旧缓存让请求被跳过。先 `config init`、`import` 和 `doctor`，再运行：
 

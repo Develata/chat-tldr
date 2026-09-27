@@ -125,13 +125,16 @@ def exercise(options, gui, cli, data, output, env):
              ("decisions", 1440, 1000), ("stats", 1440, 1000),
              ("overview", 1440, 1000), ("narrow-inbox", 800, 700),
              ("narrow-stats", 800, 700), ("dark-inbox", 1280, 820),
-             ("cli-inbox", 1280, 820), ("missing-cli", 800, 700)]
+             ("cli-inbox", 1280, 820), ("settings", 1280, 820),
+             ("narrow-settings", 800, 700), ("missing-cli", 800, 700)]
     checked = []
     for name, width, height in cases:
         png, receipt = output / f"{name}.png", output / f"{name}.json"
         args = [gui, "--data-dir", data, "--screenshot", png, "--smoke-report", receipt,
                 "--quit-after-capture", "--width", width, "--height", height]
-        demo = name not in ("cli-inbox", "missing-cli")
+        demo = name not in ("cli-inbox", "missing-cli", "settings", "narrow-settings")
+        if name in ("settings", "narrow-settings"):
+            args.append("--settings")
         if demo:
             args.extend(["--demo", "--demo-view", name.removeprefix("narrow-").removeprefix("dark-")])
         if name.startswith("dark-"):
@@ -151,6 +154,10 @@ def exercise(options, gui, cli, data, output, env):
                   "missing CLI was silently accepted")
         else:
             check(report["ready"] and report["error"] is None, f"{name} not ready: {report}")
+            if name in ("settings", "narrow-settings"):
+                check(report["settings"]["open"] and report["settings"]["loaded"] and report["settings"]["controls_visible"]
+                      and report["settings"]["llm_format"] == "openai",
+                      "provider settings were not read from the actual CLI")
             if demo:
                 check(report["inbox"]["counts"] == {"P0": 1, "P1": 1, "P2": 1, "P3": 1},
                       "unexpected synthetic priority counts")

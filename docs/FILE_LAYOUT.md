@@ -40,6 +40,7 @@ chat-tldr/
 │  │  │  ├─ message.rs         # UnifiedMessage、ImportBatch 等
 │  │  │  ├─ insight.rs         # Insight、Evidence、时间约束
 │  │  │  ├─ agent.rs           # AgentAction、AgentObservation
+│  │  │  ├─ settings.rs        # 模型设置快照、写入请求、Debug 隐藏的密钥类型
 │  │  │  └─ protocol.rs        # CliEvent、payload、流校验；需要时再拆目录
 │  │  └─ tests/                # 协议往返、兼容性、fixtures 校验
 │  ├─ qce/                     # QCE JSON → ImportBatch，主线实现
@@ -66,6 +67,8 @@ chat-tldr/
 │  │  │  ├─ main.rs            # 进程入口、退出码
 │  │  │  ├─ args.rs            # clap 参数与互斥约束
 │  │  │  ├─ paths.rs           # 数据/配置/输出路径解析
+│  │  │  ├─ config_command.rs  # config show/set、文件锁、原子保存
+│  │  │  ├─ credentials.rs     # 本地 config / 环境变量密钥解析与不含密钥的状态
 │  │  │  ├─ commands.rs        # 基础命令与状态操作，调用 engine
 │  │  │  ├─ analyze.rs         # 分析参数、取消与退出状态
 │  │  │  ├─ history.rs         # stats / decisions / jev-log 的协议包装
@@ -180,9 +183,10 @@ SQL 迁移、提示词与 HTML 模板在编译时嵌入。可执行文件移动�
 
 | 文件/目录 | 主要写入方 | 其他组件如何使用 |
 |---|---|---|
-| `config.toml` | CLI 配置命令或用户显式编辑 | CLI 读取、校验后传配置给 engine |
+| `config.toml` | CLI 配置命令或用户显式编辑 | 可含明文 API key，属于私有配置；GUI 经 CLI show/set 读写，查询不回显密钥 |
+| `config.toml.lock` | CLI 配置命令 | 原子替换前独占的空锁文件，不含密钥、不进 Git |
 | 数据库及 WAL/SHM | `engine::store` | GUI/eval/QCE 管理组件通过 CLI 获得业务数据 |
-| `gui-state.json` | GUI | 只存界面偏好，不存一套可替代数据库的事项状态 |
+| `gui-state.json` | GUI | 只存界面/连接偏好，不存 API key、模型设置副本或可替代数据库的事项状态 |
 | `sources/qce/`、`components/qce/`、`cache/qce/` | QCE 管理组件 | 导出完成后把 JSON 绝对路径交给 `import` |
 | `tmp/<component>/` | 对应组件 | 每个任务有独立 job 目录 |
 | `logs/<component>/` | 对应组件 | 用于诊断，不参与业务状态判断 |

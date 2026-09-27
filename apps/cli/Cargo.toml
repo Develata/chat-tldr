@@ -15,6 +15,12 @@ serde_json.workspace = true
 clap.workspace = true
 ctrlc = "3.5"
 tempfile = "3.27"
+serde.workspace = true
+zeroize.workspace = true
+rpassword = "7"
+toml_edit = "0.23"
+blake3 = "1"
+fs2 = "0.4"
 
 [lints]
 workspace = true

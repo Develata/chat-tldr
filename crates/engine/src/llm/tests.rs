@@ -126,6 +126,42 @@ fn openai_response() -> Value {
 }
 
 #[test]
+fn saved_config_keys_authenticate_both_wire_formats_and_versioned_anthropic_urls() {
+    for format in ["openai", "anthropic"] {
+        let reply = if format == "openai" {
+            openai_response()
+        } else {
+            json!({"content":[{"type":"text","text":"{\"items\":[]}"}],"stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":20}})
+        };
+        let (url, worker) = server(vec![Reply::json(reply)]);
+        let mut config = provider(format!("{url}/v1"));
+        config.api_format = Some(format.into());
+        config.api_key_env = "NONEXISTENT_SYNTHETIC_ENV".into();
+        config.api_key = Some(chat_tldr_core::settings::SecretString::new(
+            "stored-wire-key".into(),
+        ));
+        assert_eq!(
+            Client::new(&config)
+                .unwrap()
+                .complete(&request())
+                .unwrap()
+                .content,
+            "{\"items\":[]}"
+        );
+        let captured = worker.join().unwrap().remove(0);
+        let headers = captured.headers.to_ascii_lowercase();
+        if format == "openai" {
+            assert!(headers.starts_with("post /v1/chat/completions "));
+            assert!(headers.contains("authorization: bearer stored-wire-key"));
+        } else {
+            assert!(headers.starts_with("post /v1/messages "));
+            assert!(headers.contains("x-api-key: stored-wire-key"));
+        }
+        assert!(!format!("{config:?}").contains("stored-wire-key"));
+    }
+}
+
+#[test]
 fn openai_wire_shape_and_cost_are_checked_without_cloud_access() {
     let (url, worker) = server(vec![Reply::json(openai_response())]);
     let response = OpenAiCompatClient::testing(&provider(url))

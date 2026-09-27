@@ -10,6 +10,7 @@ use crate::{model::GuiModel, prefs::Preferences};
 mod activity;
 mod overview;
 mod review;
+pub mod settings;
 use review::ReviewCoverage;
 
 #[cfg(test)]
@@ -32,6 +33,7 @@ pub struct UiState {
     pub cloud_notice: bool,
     pub cloud_target: Option<ChatId>,
     pub draft: Preferences,
+    pub providers: settings::ProviderPanel,
     inbox_request: Option<u64>,
     lanes: [Vec<usize>; 3],
     pages: [usize; 3],
@@ -41,6 +43,7 @@ pub struct UiState {
 impl UiState {
     pub fn new(draft: Preferences) -> Self {
         Self {
+            providers: settings::ProviderPanel::new(&draft),
             draft,
             ..Default::default()
         }
@@ -75,6 +78,8 @@ pub enum Action {
     Feedback(String, bool),
     Resolve(String, &'static str),
     SaveSettings,
+    LoadProviders,
+    SaveProvider(&'static str),
     AcceptCloud(ChatId),
     Stats,
     Decisions,
@@ -882,14 +887,69 @@ fn dialogs(
     demo: bool,
     actions: &mut Vec<Action>,
 ) {
-    egui::Window::new("设置").open(&mut state.settings).default_width(530.0).resizable(true).show(ctx, |ui| {
-        ui.label("CLI 程序路径"); ui.text_edit_singleline(&mut state.draft.cli);
-        ui.label("数据目录"); ui.text_edit_singleline(&mut state.draft.data_dir);
-        ui.label("配置文件（留空使用数据目录内 config.toml）"); ui.text_edit_singleline(&mut state.draft.config);
-        if ui.checkbox(&mut state.draft.dark, "深色外观").changed() { crate::appearance::theme(ctx, state.draft.dark); }
-        ui.small("API 密钥只从启动时的环境变量读取，不存入 GUI 设置。配置与环境变量就绪情况可用 CLI doctor 离线检查。自身 QQ 身份请通过 CLI import --self-uin 设置。");
-        button(ui, "保存并重新连接", !busy && !demo && !state.draft.cli.trim().is_empty() && !state.draft.data_dir.trim().is_empty(), Action::SaveSettings, actions);
-    });
+    let was_open = state.settings;
+    egui::Window::new("设置")
+        .open(&mut state.settings)
+        .default_width(580.0)
+        .default_height((ctx.content_rect().height() - 80.0).clamp(420.0, 680.0))
+        .resizable(true)
+        .show(ctx, |ui| {
+            let button_height = ui.spacing().interact_size.y.max(
+                ui.text_style_height(&egui::TextStyle::Button)
+                    + 2.0 * ui.spacing().button_padding.y,
+            );
+            let footer_height = button_height + 3.0 * ui.spacing().item_spacing.y + 12.0;
+            egui::ScrollArea::vertical()
+                .max_height((ui.available_height() - footer_height).max(140.0))
+                .show(ui, |ui| {
+                    let matching = state.providers.connection_matches(&state.draft);
+                    settings::render(
+                        ui,
+                        &mut state.providers,
+                        model,
+                        !busy && !demo && matching,
+                        actions,
+                    );
+                    if !matching {
+                        ui.label("程序路径或数据目录已修改，请先保存并重新连接，再编辑模型配置。");
+                    }
+                    if let Some(error) = &model.last_error {
+                        ui.colored_label(error_color(ui), error);
+                    }
+                    ui.separator();
+                    egui::CollapsingHeader::new("程序与数据目录")
+                        .default_open(!model.has_capability("config show"))
+                        .show(ui, |ui| {
+                            ui.label("CLI 程序路径");
+                            ui.text_edit_singleline(&mut state.draft.cli);
+                            ui.label("数据目录");
+                            ui.text_edit_singleline(&mut state.draft.data_dir);
+                            ui.label("配置文件（留空使用数据目录内 config.toml）");
+                            ui.text_edit_singleline(&mut state.draft.config);
+                            button(
+                                ui,
+                                "保存并重新连接",
+                                !busy
+                                    && !demo
+                                    && !state.draft.cli.trim().is_empty()
+                                    && !state.draft.data_dir.trim().is_empty(),
+                                Action::SaveSettings,
+                                actions,
+                            );
+                        });
+                    if ui.checkbox(&mut state.draft.dark, "深色外观").changed() {
+                        crate::appearance::theme(ctx, state.draft.dark);
+                    }
+                });
+            if model.has_capability("config set") {
+                ui.separator();
+                let enabled = !busy && !demo && state.providers.connection_matches(&state.draft);
+                settings::footer(ui, &mut state.providers, enabled, actions);
+            }
+        });
+    if was_open && !state.settings {
+        state.providers.clear_inputs();
+    }
     egui::Window::new("开始云端分析").open(&mut state.cloud_notice).collapsible(false).resizable(false).default_width(470.0).show(ctx, |ui| {
         ui.label("程序与数据库在本机，但分析会把聊天原文发送到配置的云服务（默认 Jev 与 DeepSeek）。聊天不做脱敏，图片不上传。");
         if let Some(chat) = &state.cloud_target {

@@ -14,3 +14,5 @@
 | [0007](0007-cursors-and-lifecycle.md) | 三游标与结论生命周期 | 已接受 |
 | [0008](0008-llm-client.md) | 自写 LLM 客户端，支持 OpenAI / Anthropic 两种格式，同步 IO | 已接受 |
 | [0009](0009-bounded-agent-controller.md) | 规则限定 + Jev 选择的有界控制器 | 已接受 |
+| [0010](0010-semantic-relations.md) | 独立语义关系表与只读查询 | 已接受 |
+| [0011](0011-provider-settings.md) | CLI/GUI 模型设置与本地明文凭据 | 已接受 |

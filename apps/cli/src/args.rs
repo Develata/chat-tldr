@@ -68,6 +68,52 @@ pub enum ConfigCommand {
         #[arg(long, value_name = "FILE")]
         out: Option<PathBuf>,
     },
+    /// Show effective provider settings and credential status, never secret values.
+    Show,
+    /// Update one provider. Secrets enter through a masked prompt or stdin, never argv.
+    Set(Box<ConfigSetArgs>),
+}
+
+#[derive(Debug, Args)]
+pub struct ConfigSetArgs {
+    #[arg(value_parser = ["llm", "jev"])]
+    pub provider: String,
+    /// Read a bounded ProviderUpdate JSON object from stdin (used by the GUI).
+    #[arg(long, conflicts_with_all = ["base_url", "model", "api_format", "api_key_env", "timeout_secs", "temperature", "json_mode", "extra_body", "price_input_per_mtok", "price_output_per_mtok", "key_prompt", "key_stdin", "key_from_env", "clear_key"])]
+    pub request_stdin: bool,
+    #[arg(long)]
+    pub base_url: Option<String>,
+    #[arg(long)]
+    pub model: Option<String>,
+    #[arg(long, value_parser = ["openai", "anthropic", "jev"])]
+    pub api_format: Option<String>,
+    #[arg(long)]
+    pub api_key_env: Option<String>,
+    #[arg(long)]
+    pub timeout_secs: Option<u64>,
+    #[arg(long)]
+    pub temperature: Option<f64>,
+    #[arg(long, action = ArgAction::Set)]
+    pub json_mode: Option<bool>,
+    /// Provider-specific JSON object; {} clears default extensions.
+    #[arg(long)]
+    pub extra_body: Option<String>,
+    #[arg(long)]
+    pub price_input_per_mtok: Option<f64>,
+    #[arg(long)]
+    pub price_output_per_mtok: Option<f64>,
+    /// Read a key without echo and save it in the local config file (plaintext).
+    #[arg(long, group = "key_input")]
+    pub key_prompt: bool,
+    /// Read a raw key from stdin; strips one trailing LF or CRLF.
+    #[arg(long, group = "key_input")]
+    pub key_stdin: bool,
+    /// Copy a key from this process environment into the local config file.
+    #[arg(long, group = "key_input", value_name = "ENV_NAME")]
+    pub key_from_env: Option<String>,
+    /// Remove the saved key and explicitly return to environment-variable lookup.
+    #[arg(long, group = "key_input")]
+    pub clear_key: bool,
 }
 
 #[derive(Debug, Args)]

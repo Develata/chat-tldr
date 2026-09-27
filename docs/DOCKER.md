@@ -23,7 +23,7 @@ docker compose run --rm cli relations --chat <CHAT_ID>
 
 `docker compose down` 保留数据；不要在需要保留数据时使用 `down -v`。备份前结束写入进程，并一起保留 SQLite 主文件、WAL/SHM 或使用 SQLite 一致性备份。
 
-需要自定义配置时可执行 `config init --out /data/config.toml`，通过单独挂载编辑后的 TOML 使用 `--config`；密钥仍放环境变量。`inbox --html /data/inbox.html` 的输出也保存在数据卷内。容器不读取宿主机任意目录。
+需要自定义配置时可执行 `config init --out /data/config.toml`，通过单独挂载编辑后的 TOML 使用 `--config`。密钥可继续放环境变量；也可用 `config set llm --key-from-env CHAT_TLDR_LLM_API_KEY` 保存到数据卷内的 config（明文），之后保存值优先；`--clear-key` 恢复环境变量查找。只读挂载不能使用 config set。`inbox --html /data/inbox.html` 的输出也保存在数据卷内。容器不读取宿主机任意目录。
 
 ## 正式镜像与发布归档
 
