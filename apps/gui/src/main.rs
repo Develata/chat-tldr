@@ -1,6 +1,7 @@
 mod app;
 mod appearance;
 mod bridge;
+mod capture;
 mod model;
 mod prefs;
 mod ui;
@@ -36,6 +37,9 @@ struct Args {
     demo_view: Option<DemoView>,
     #[arg(long, hide = true)]
     screenshot: Option<PathBuf>,
+    /// Write opt-in capture metadata for isolated native smoke tests.
+    #[arg(long, hide = true, requires = "screenshot")]
+    smoke_report: Option<PathBuf>,
     #[arg(long, hide = true, requires = "screenshot")]
     quit_after_capture: bool,
     #[arg(long, hide = true, default_value_t = 1280.0)]

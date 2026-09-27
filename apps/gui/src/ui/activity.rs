@@ -128,7 +128,19 @@ fn decisions(ui: &mut egui::Ui, model: &GuiModel) {
 }
 
 fn stats(ui: &mut egui::Ui, model: &GuiModel) {
+    // A stats query returns cumulative data without replacing the last run,
+    // which is still needed by decision/model-history actions.
+    if model
+        .history_stats
+        .iter()
+        .any(|row| !matches!(row, StatsPayload::Run(_)))
+    {
+        ui.strong("最近查询结果");
+        queried_stats(ui, model);
+        ui.separator();
+    }
     if let Some(stats) = &model.stats {
+        ui.strong("最近一次分析");
         let input_tokens: u64 = stats.usage.iter().map(|row| row.input_tokens).sum();
         let output_tokens: u64 = stats.usage.iter().map(|row| row.output_tokens).sum();
         let cache_hits: u64 = stats.usage.iter().map(|row| row.cache_hits).sum();
@@ -235,8 +247,10 @@ fn stats(ui: &mut egui::Ui, model: &GuiModel) {
             "还没有运行统计",
             "分析完成后会显示消息、话题、结论、Token、估算费用和耗时。",
         );
-        return;
     }
+}
+
+fn queried_stats(ui: &mut egui::Ui, model: &GuiModel) {
     for row in &model.history_stats {
         match row {
             StatsPayload::Import(stats) => {
@@ -350,8 +364,10 @@ fn probability_label(decision: &chat_tldr_core::DecisionPayload) -> String {
     if let Some(confidence) = decision.confidence {
         parts.push(format!("置信度 {:.0}%", confidence * 100.0));
     }
-    if parts.is_empty() {
+    if parts.is_empty() && decision.allowed.len() == 1 {
         "单一合法动作".into()
+    } else if parts.is_empty() {
+        "未提供概率".into()
     } else {
         parts.join(" · ")
     }
@@ -378,4 +394,20 @@ fn grouped(value: u64) -> String {
         out.push(ch);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_probabilities_do_not_claim_only_one_legal_action() {
+        let mut decision = GuiModel::demo().decisions[0].clone();
+        decision.method = DecisionMethod::Fallback;
+        decision.confidence = None;
+        assert!(decision.allowed.len() > 1);
+        assert_eq!(probability_label(&decision), "未提供概率");
+        decision.allowed.truncate(1);
+        assert_eq!(probability_label(&decision), "单一合法动作");
+    }
 }

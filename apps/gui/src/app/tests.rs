@@ -24,6 +24,7 @@ fn app(prefs: Preferences, launch: PathBuf) -> App {
         io_thread: Some(worker),
         picking_file: false,
         screenshot: None,
+        smoke_report: None,
         screenshot_requested: false,
         quit_after_capture: false,
         frames: 0,

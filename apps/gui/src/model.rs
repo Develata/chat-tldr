@@ -131,9 +131,14 @@ impl GuiModel {
         self.latest_request = Some(request.id);
         self.pending = Pending::default();
         self.progress = None;
-        // An error belongs to the command that produced it. Do not leave a
-        // stale red banner above a newly successful refresh.
-        self.last_error = None;
+        // Chats/inbox also run automatically after failed mutations. Retain
+        // their error until dismissal or an explicit new import/analysis.
+        if matches!(
+            request.kind,
+            CommandKind::Version | CommandKind::Analyze | CommandKind::Import
+        ) {
+            self.last_error = None;
+        }
         if !matches!(
             request.kind,
             CommandKind::Stats | CommandKind::Decisions | CommandKind::JevLog
@@ -181,11 +186,19 @@ impl GuiModel {
         self.overview = None;
         self.inbox = None;
         self.stats = None;
+        self.history_stats.clear();
         self.progress = None;
         self.last_error = None;
         self.decisions.clear();
         self.jev_answers.clear();
         true
+    }
+
+    pub fn inbox_is_current(&self) -> bool {
+        self.active.is_none()
+            && self.inbox.as_ref().is_some_and(|view| {
+                view.fresh && self.selected_chat.as_ref() == Some(&view.meta.chat_id)
+            })
     }
 
     pub fn mark_inbox_displayed(&mut self, request_id: u64) {

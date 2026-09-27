@@ -100,6 +100,35 @@ fn capabilities() -> Capabilities {
     }
 }
 
+#[test]
+fn refreshed_global_stats_remain_visible_after_analysis() {
+    let mut gui = Harness::new(1440.0, false);
+    gui.state.logs = true;
+    gui.state.activity_tab = 1;
+    let latest_run = gui.model.stats.take();
+    assert!(latest_run.is_some());
+    gui.model.history_stats.clear();
+    gui.model
+        .history_stats
+        .push_back(chat_tldr_core::StatsPayload::Global(
+            chat_tldr_core::GlobalStats {
+                counts: std::collections::BTreeMap::from([("messages".into(), 777)]),
+                usage: Vec::new(),
+                cost_usd: 123.456,
+            },
+        ));
+    let expected = "全局：1 类计数 · 0 组模型用量 · 估算费用 $123.4560";
+    assert!(
+        text_position(&gui.settled(), expected).is_some(),
+        "control: global stats are painted when no previous run exists"
+    );
+    gui.model.stats = latest_run;
+    assert!(
+        text_position(&gui.settled(), expected).is_some(),
+        "the previous run hides the newly refreshed global stats"
+    );
+}
+
 fn text_position(output: &egui::FullOutput, label: &str) -> Option<egui::Pos2> {
     fn collect(shape: &egui::Shape, clip: egui::Rect, label: &str, found: &mut Vec<egui::Pos2>) {
         match shape {

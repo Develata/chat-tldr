@@ -82,6 +82,16 @@ fn label_fixture_rows(
     row.insight.title = "【合成示例】提交课程报告".into();
     row.insight.summary = "合成演示：张三需要在固定截止时间前提交课程报告。".into();
     row.insight.created_in_run = DEMO_RUN.into();
+    row.insight.deadline = Some(TemporalConstraint {
+        raw: quote.into(),
+        relation: TemporalRelation::Before,
+        bound_date: NaiveDate::from_ymd_opt(2026, 9, 27),
+        bound_time: NaiveTime::from_hms_opt(23, 59, 0),
+        granularity: Granularity::Minute,
+        anchor: time("2026-09-26T10:00:00+08:00"),
+        normalized_by: NormalizedBy::Rule,
+        confidence: 1.0,
+    });
     row.insight
         .evidence
         .first_mut()
@@ -115,7 +125,7 @@ fn additional_topics(chat_id: &ChatId) -> Vec<TopicPayload> {
         ),
         (
             "t_synthetic_resources",
-            "【合成示例】演示资料",
+            "【合成示例】茶歇闲聊",
             1,
             "2026-09-26T13:20:00+08:00",
             "2026-09-26T13:20:00+08:00",
@@ -131,7 +141,11 @@ fn additional_topics(chat_id: &ChatId) -> Vec<TopicPayload> {
         message_count,
         first_message_at: time(first),
         last_message_at: time(last),
-        is_chitchat: Some(0.02),
+        is_chitchat: Some(if id == "t_synthetic_resources" {
+            0.95
+        } else {
+            0.02
+        }),
         merged_into: None,
     })
     .collect()
@@ -144,38 +158,29 @@ fn additional_insights(chat_id: &ChatId) -> Vec<InsightPayload> {
             "i_synthetic_p1",
             "t_synthetic_rehearsal",
             "m_synthetic_rehearsal",
-            InsightKind::Todo,
+            InsightKind::Announcement,
             Priority::P1,
             Assignee::All,
-            "【合成示例】参加功能彩排",
-            "合成演示：全体同学在固定时间参加功能彩排。",
-            "【合成示例】全体同学请在9月28日14:00参加功能彩排。",
-            "9月28日14:00",
+            "【合成示例】功能彩排已完成",
+            "合成演示：面向全体的进展通知，无待办和截止日期。",
+            "【合成示例】@全体成员 功能彩排已完成，演示材料已经整理好。",
+            "功能彩排已完成",
             "合成项目负责人",
             "2026-09-26T11:32:00+08:00",
-            Some(TemporalConstraint {
-                raw: "9月28日14:00".into(),
-                relation: TemporalRelation::At,
-                bound_date: NaiveDate::from_ymd_opt(2026, 9, 28),
-                bound_time: NaiveTime::from_hms_opt(14, 0, 0),
-                granularity: Granularity::Minute,
-                anchor: time("2026-09-26T11:32:00+08:00"),
-                normalized_by: NormalizedBy::Rule,
-                confidence: 1.0,
-            }),
+            None,
         ),
         insight(
             chat_id,
             "i_synthetic_p2",
             "t_synthetic_layout",
             "m_synthetic_layout",
-            InsightKind::MentionMe,
+            InsightKind::Todo,
             Priority::P2,
-            Assignee::Me,
+            Assignee::Other,
             "【合成示例】确认窄窗口排版",
-            "合成演示：请确认窄窗口中的中文和表情符号排版。",
-            "【合成示例】@你 请确认窄窗口里的中文排版 🙂",
-            "【合成示例】@你 请确认窄窗口里的中文排版 🙂",
+            "合成演示：由设计同学确认排版，未指定截止日期。",
+            "【合成示例】设计同学负责确认窄窗口里的中文排版 🙂",
+            "【合成示例】设计同学负责确认窄窗口里的中文排版 🙂",
             "合成设计同学",
             "2026-09-26T12:10:00+08:00",
             None,
@@ -185,12 +190,12 @@ fn additional_insights(chat_id: &ChatId) -> Vec<InsightPayload> {
             "i_synthetic_p3",
             "t_synthetic_resources",
             "m_synthetic_resources",
-            InsightKind::Announcement,
+            InsightKind::TopicSummary,
             Priority::P3,
-            Assignee::All,
-            "【合成示例】查看演示资料",
-            "合成演示：这里展示一个不会访问真实内容的资料入口。",
-            "【合成示例】演示资料：https://example.invalid/synthetic-ui.pdf",
+            Assignee::Unknown,
+            "【合成示例】茶歇闲聊",
+            "合成演示：大家在茶歇分享趣味读物，没有行动要求。",
+            "【合成示例】茶歇趣味读物：https://example.invalid/synthetic-ui.pdf",
             "https://example.invalid/synthetic-ui.pdf",
             "合成资料机器人",
             "2026-09-26T13:20:00+08:00",
@@ -229,7 +234,7 @@ fn insight(
                 Priority::P2 => 1.1,
                 _ => 0.4,
             },
-            confidence: Some(0.94),
+            confidence: (kind != InsightKind::TopicSummary).then_some(0.94),
             assignee,
             deadline,
             evidence: vec![Evidence {
@@ -435,32 +440,26 @@ fn demo_overview(
                 topic_id: Some(topic(1)),
                 priority: Priority::P1,
                 insight_ids: vec![insight(Priority::P1)],
-                reasons: vec!["【合成演示】需要全体参加".into()],
+                reasons: vec!["【合成演示】面向全体的进展通知".into()],
             },
         ],
         related: vec![RelatedInsight {
-            insight_id: insight(Priority::P2),
-            reasons: vec!["【合成演示】消息明确提及了你".into()],
+            insight_id: insight(Priority::P1),
+            reasons: vec!["【合成演示】通知面向全体成员".into()],
         }],
         mentions: vec![OverviewMessage {
-            message_id: "m_synthetic_layout".into(),
-            topic_id: Some(topic(2)),
-            sent_at: time("2026-09-26T12:10:00+08:00"),
-            sender_display: "合成设计同学".into(),
-            text: "【合成示例】@你 请确认窄窗口里的中文排版 🙂".into(),
+            message_id: "m_synthetic_rehearsal".into(),
+            topic_id: Some(topic(1)),
+            sent_at: time("2026-09-26T11:32:00+08:00"),
+            sender_display: "合成项目负责人".into(),
+            text: "【合成示例】@全体成员 功能彩排已完成，演示材料已经整理好。".into(),
             analyzed: true,
-            reasons: vec!["【合成演示】原文中直接 @你".into()],
+            reasons: vec!["【合成演示】原文中 @全体成员".into()],
         }],
-        deadlines: vec![
-            DeadlineItem {
-                insight_id: insight(Priority::P0),
-                status: DeadlineStatus::Upcoming,
-            },
-            DeadlineItem {
-                insight_id: insight(Priority::P1),
-                status: DeadlineStatus::Upcoming,
-            },
-        ],
+        deadlines: vec![DeadlineItem {
+            insight_id: insight(Priority::P0),
+            status: DeadlineStatus::Upcoming,
+        }],
         unread_topics: vec![
             TopicDigest {
                 topic_id: Some(topic(2)),
@@ -481,7 +480,7 @@ fn demo_overview(
                 topic_id: Some(topic(3)),
                 sent_at: time("2026-09-26T13:20:00+08:00"),
                 sender_display: "合成资料机器人".into(),
-                text: "【合成示例】演示资料：https://example.invalid/synthetic-ui.pdf".into(),
+                text: "【合成示例】茶歇趣味读物：https://example.invalid/synthetic-ui.pdf".into(),
                 analyzed: true,
                 reasons: vec!["【合成演示】检测到链接和附件元数据".into()],
             },

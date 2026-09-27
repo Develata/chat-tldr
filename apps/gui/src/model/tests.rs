@@ -264,7 +264,7 @@ fn partial_cancelled_and_mutation_completions_refresh_without_promoting_provisio
 }
 
 #[test]
-fn detailed_partial_error_is_preserved_and_next_command_clears_it() {
+fn detailed_partial_error_survives_refresh_until_explicit_retry() {
     let mut model = GuiModel::demo();
     let tag = request(3, CommandKind::Analyze, model.selected_chat.clone());
     model.begin(tag.clone()).unwrap();
@@ -286,8 +286,28 @@ fn detailed_partial_error_is_preserved_and_next_command_clears_it() {
 
     let refresh = request(4, CommandKind::Chats, None);
     model.begin(refresh.clone()).unwrap();
-    assert!(model.last_error.is_none());
+    assert!(
+        model
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("E_PROVIDER_TIMEOUT")
+    );
     end(&mut model, refresh, completed(RunStatus::Complete, 0));
+    assert!(
+        model
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("E_PROVIDER_TIMEOUT")
+    );
+    model
+        .begin(request(
+            5,
+            CommandKind::Analyze,
+            model.selected_chat.clone(),
+        ))
+        .unwrap();
     assert!(model.last_error.is_none());
 }
 
@@ -523,4 +543,45 @@ fn demo_evidence_highlights_use_valid_unicode_scalar_boundaries() {
         }
     }
     assert!(touches_both_boundaries);
+}
+
+#[test]
+fn failed_analysis_notice_survives_automatic_refresh() {
+    let mut model = GuiModel::demo();
+    model.capabilities = Some(Capabilities {
+        commands: vec!["chats".into(), "inbox".into()],
+        ..Default::default()
+    });
+    let chat = model.selected_chat.clone().unwrap();
+    let tag = request(100, CommandKind::Analyze, Some(chat));
+    model.begin(tag.clone()).unwrap();
+    let mut result = completed(RunStatus::Partial, 6);
+    result.error = Some("synthetic provider failure".into());
+    assert_eq!(end(&mut model, tag, result), Some(FollowUp::Chats));
+    assert!(model.last_error.is_some());
+    model.begin(request(101, CommandKind::Chats, None)).unwrap();
+    assert!(
+        model.last_error.is_some(),
+        "automatic refresh erased original analysis failure before painting"
+    );
+}
+
+#[test]
+fn demo_deadlines_respect_frozen_priority_policy() {
+    let model = GuiModel::demo();
+    for row in &model.inbox.as_ref().unwrap().insights {
+        let item = &row.insight;
+        if item.deadline.is_some() && item.kind != chat_tldr_core::InsightKind::TopicSummary {
+            assert_eq!(item.priority, Priority::P0, "deadline item {}", item.id);
+        }
+    }
+}
+
+#[test]
+fn switching_chats_discards_the_previous_chats_queried_stats() {
+    let mut model = GuiModel::demo();
+    assert!(!model.history_stats.is_empty());
+    assert!(model.select_chat("qq:group:another-synthetic-chat".into()));
+    assert!(model.history_stats.is_empty());
+    assert!(model.stats.is_none());
 }
