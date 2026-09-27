@@ -14,7 +14,7 @@ pub fn install(ctx: &egui::Context, dark: bool) {
             .families
             .entry(family)
             .or_default()
-            .push("noto-sc".into());
+            .insert(0, "noto-sc".into());
     }
     ctx.set_fonts(fonts);
     theme(ctx, dark);
@@ -70,5 +70,10 @@ pub fn theme(ctx: &egui::Context, dark: bool) {
         Color32::from_rgb(219, 232, 249)
     };
     visuals.selection.stroke.color = if dark { Color32::WHITE } else { ACCENT };
+    visuals.hyperlink_color = if dark {
+        Color32::from_rgb(118, 176, 255)
+    } else {
+        ACCENT
+    };
     ctx.set_visuals(visuals);
 }

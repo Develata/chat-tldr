@@ -9,7 +9,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $tag = "v$Version"
 $sourceImage = "chat-tldr-ci:$Commit"
-$files = @("chat-tldr-$Version-windows-x86_64.zip", "chat-tldr-$Version-linux-x86_64-musl.tar.gz", 'docker-image.tar')
+$files = @("chat-tldr-$Version-windows-x86_64.zip", "chat-tldr-gui-$Version-windows-x86_64.zip", "chat-tldr-$Version-linux-x86_64-musl.tar.gz", 'docker-image.tar')
 $sums = foreach ($name in $files) {
     $path = Join-Path $Directory $name
     $expected = (Get-Content -LiteralPath "$path.sha256" -Raw).Trim()
@@ -24,14 +24,16 @@ $revision = docker image inspect $sourceImage --format '{{index .Config.Labels "
 if ($LASTEXITCODE -ne 0 -or $revision -cne $Commit) { throw 'Docker artifact revision does not match the release.' }
 $notes = Join-Path $Directory 'release-notes.md'
 @"
-CLI + Docker release, built from commit $Commit. GUI packages are deferred.
+CLI + Windows GUI + Docker release, built from commit $Commit.
 
 - Windows x64: extract the ZIP and run chat-tldr.exe.
+- Windows GUI: extract the GUI ZIP and keep chat-tldr-gui.exe beside chat-tldr.exe; run chat-tldr-gui.exe.
 - Linux x64: static musl executable in the tar.gz archive.
 - Docker: ``docker pull ${Image}:$Version`` (linux/amd64, non-root scratch image).
 - Offline Docker: download docker-image.tar, verify SHA256SUMS, then ``docker load -i docker-image.tar``. Loaded image: ``$sourceImage``.
 
 See docs/DOCKER.md and docs/RELEASING.md for persistent data, configuration, scope and validation limits. Chat text is sent unredacted to configured cloud models. Cloud model quality is not certified by the synthetic release checks.
+GUI CI includes Linux native rendering on Xvfb/Mesa and Windows optimized protocol/pointer tests plus archive round-trip checks; it does not certify every desktop GPU, display scale or native file picker.
 "@ | Set-Content -LiteralPath $notes -Encoding utf8
 $assets = @($files | ForEach-Object { Join-Path $Directory $_ }) + (Join-Path $Directory 'SHA256SUMS')
 # Create a draft first; a failure must not produce a public, incomplete Release.

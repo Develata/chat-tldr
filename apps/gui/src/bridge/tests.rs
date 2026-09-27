@@ -88,6 +88,82 @@ fn oversized_lines_are_rejected_without_unbounded_allocation() {
     );
 }
 
+fn stderr_lines(reader: impl Read) -> Vec<String> {
+    let (sender, receiver) = mpsc::sync_channel(CHANNEL_CAPACITY);
+    read_stderr(reader, &sender, &(Arc::new(|| {}) as Repaint), &tag(1));
+    drop(sender);
+    receiver
+        .into_iter()
+        .map(|event| match event.payload {
+            BridgePayload::Stderr(line) => line,
+            _ => panic!("unexpected bridge payload"),
+        })
+        .collect()
+}
+
+struct ChunkedReader {
+    inner: io::Cursor<Vec<u8>>,
+    chunk_size: usize,
+}
+
+impl Read for ChunkedReader {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let size = buffer.len().min(self.chunk_size);
+        self.inner.read(&mut buffer[..size])
+    }
+}
+
+#[test]
+fn stderr_preserves_utf8_across_chunks_and_emits_one_event_per_line() {
+    let source = "第一行：中文😀\r\n第二行\n没有换行的末行"
+        .as_bytes()
+        .to_vec();
+    let reader = ChunkedReader {
+        inner: io::Cursor::new(source),
+        chunk_size: 2,
+    };
+    assert_eq!(
+        stderr_lines(reader),
+        ["第一行：中文😀", "第二行", "没有换行的末行"]
+    );
+}
+
+#[test]
+fn stderr_truncates_and_drains_oversized_lines_before_the_next_line() {
+    let oversized = "诊断😀".repeat(MAX_STDERR_LINE_CHARS * 8);
+    let lines = stderr_lines(format!("{oversized}\n下一行\n").as_bytes());
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].ends_with('…'));
+    assert!(lines[0].chars().count() <= MAX_STDERR_LINE_CHARS + 1);
+    assert_eq!(lines[1], "下一行");
+}
+
+#[test]
+fn noisy_stderr_never_waits_for_space_in_the_protocol_queue() {
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let (finished_sender, finished_receiver) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        read_stderr(
+            "一\n二\n三\n".as_bytes(),
+            &sender,
+            &(Arc::new(|| {}) as Repaint),
+            &tag(1),
+        );
+        finished_sender.send(()).unwrap();
+    });
+    assert!(
+        finished_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .is_ok(),
+        "stderr reader blocked on a full protocol queue"
+    );
+    assert!(matches!(
+        receiver.try_recv().unwrap().payload,
+        BridgePayload::Stderr(_)
+    ));
+    worker.join().unwrap();
+}
+
 fn finish(bridge: &mut Bridge) -> Completion {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {

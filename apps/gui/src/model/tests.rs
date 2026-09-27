@@ -1,5 +1,5 @@
 use super::*;
-use chat_tldr_core::{AckPayload, DonePayload};
+use chat_tldr_core::{AckPayload, DecisionMethod, DonePayload, Priority, StatsPayload};
 use serde_json::json;
 
 fn overview_ack(chat: &ChatId) -> AckPayload {
@@ -264,6 +264,54 @@ fn partial_cancelled_and_mutation_completions_refresh_without_promoting_provisio
 }
 
 #[test]
+fn detailed_partial_error_survives_refresh_until_explicit_retry() {
+    let mut model = GuiModel::demo();
+    let tag = request(3, CommandKind::Analyze, model.selected_chat.clone());
+    model.begin(tag.clone()).unwrap();
+    emit(
+        &mut model,
+        &tag,
+        EventBody::Error(chat_tldr_core::ErrorPayload {
+            stage: "extract".into(),
+            code: "E_PROVIDER_TIMEOUT".into(),
+            retryable: true,
+            message: "合成服务超时".into(),
+            topic_id: None,
+        }),
+    );
+    end(&mut model, tag, completed(RunStatus::Partial, 6));
+    let error = model.last_error.as_deref().unwrap();
+    assert!(error.contains("E_PROVIDER_TIMEOUT"));
+    assert!(error.contains("部分完成"));
+
+    let refresh = request(4, CommandKind::Chats, None);
+    model.begin(refresh.clone()).unwrap();
+    assert!(
+        model
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("E_PROVIDER_TIMEOUT")
+    );
+    end(&mut model, refresh, completed(RunStatus::Complete, 0));
+    assert!(
+        model
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("E_PROVIDER_TIMEOUT")
+    );
+    model
+        .begin(request(
+            5,
+            CommandKind::Analyze,
+            model.selected_chat.clone(),
+        ))
+        .unwrap();
+    assert!(model.last_error.is_none());
+}
+
+#[test]
 fn mutations_refresh_chat_summary_before_reloading_the_selected_inbox() {
     let mut model = GuiModel::demo();
     model.capabilities = Some(Capabilities {
@@ -380,4 +428,164 @@ fn failed_chat_refresh_revokes_the_old_displayed_cursor() {
     end(&mut model, tag, completed(RunStatus::Failed, 4));
     model.mark_inbox_displayed(id);
     assert!(model.mark_read_cursor().is_none());
+}
+
+#[test]
+fn demo_keeps_fixture_request_sequence_and_has_consistent_four_priority_counts() {
+    let model = GuiModel::demo();
+    assert_eq!(model.latest_request, Some(2));
+    let inbox = model.inbox.as_ref().unwrap();
+    let actual = [Priority::P0, Priority::P1, Priority::P2, Priority::P3].map(|priority| {
+        inbox
+            .insights
+            .iter()
+            .filter(|row| row.insight.priority == priority)
+            .count() as u64
+    });
+    assert_eq!(actual, [1, 1, 1, 1]);
+    assert_eq!(
+        actual,
+        [
+            inbox.meta.counts.p0,
+            inbox.meta.counts.p1,
+            inbox.meta.counts.p2,
+            inbox.meta.counts.p3,
+        ]
+    );
+    let chat = model
+        .chats
+        .iter()
+        .find(|chat| chat.chat_id == inbox.meta.chat_id)
+        .unwrap();
+    assert_eq!(chat.open_p0, inbox.meta.counts.p0);
+    assert_eq!(
+        chat.unreviewed_messages,
+        inbox
+            .topics
+            .iter()
+            .map(|topic| topic.message_count)
+            .sum::<u64>()
+    );
+}
+
+#[test]
+fn demo_covers_all_decision_methods_and_structured_mock_usage() {
+    let model = GuiModel::demo();
+    assert_eq!(
+        model
+            .decisions
+            .iter()
+            .map(|row| row.method)
+            .collect::<Vec<_>>(),
+        vec![
+            DecisionMethod::Rule,
+            DecisionMethod::Jev,
+            DecisionMethod::Fallback,
+        ]
+    );
+    let stats = model.stats.as_ref().unwrap();
+    assert_eq!(stats.usage.len(), 2);
+    assert!(stats.usage.iter().all(|row| row.provider == "mock"));
+    assert!(
+        stats
+            .usage
+            .iter()
+            .all(|row| row.stage.contains("synthetic"))
+    );
+    assert!(matches!(
+        model.history_stats.front(),
+        Some(StatsPayload::Run(run)) if run == stats
+    ));
+}
+
+#[test]
+fn demo_overview_fills_six_tabs_and_keeps_every_reference_resolvable() {
+    let model = GuiModel::demo();
+    let view = model.overview.as_ref().unwrap();
+    let report = &view.report;
+    assert!(!report.hot_topics.is_empty());
+    for topic in &report.hot_topics {
+        assert!(topic.participants <= topic.meaningful_messages);
+        assert!(topic.meaningful_messages <= topic.message_count);
+    }
+    assert!(!report.priority_topics.is_empty());
+    assert!(!report.related.is_empty() || !report.mentions.is_empty());
+    assert!(!report.deadlines.is_empty());
+    assert!(!report.unread_topics.is_empty());
+    assert!(!report.resources.is_empty());
+    assert!(overview_consistent(report));
+    assert_eq!(view.titles.len(), report.topics.len());
+    assert_eq!(view.items.len(), report.insights.len());
+}
+
+#[test]
+fn demo_evidence_highlights_use_valid_unicode_scalar_boundaries() {
+    let model = GuiModel::demo();
+    let inbox = model.inbox.as_ref().unwrap();
+    let mut touches_both_boundaries = false;
+    for row in &inbox.insights {
+        for evidence in &row.evidence_view {
+            let source = row
+                .insight
+                .evidence
+                .iter()
+                .find(|source| source.message_id == evidence.message_id)
+                .expect("every evidence view references typed evidence");
+            let [start, end] = evidence.highlight.expect("demo evidence is highlighted");
+            let scalars = evidence.display_text.chars().count();
+            assert!(start < end && end <= scalars);
+            assert_eq!(
+                evidence
+                    .display_text
+                    .chars()
+                    .skip(start)
+                    .take(end - start)
+                    .collect::<String>(),
+                source.quote
+            );
+            touches_both_boundaries |= start == 0 && end == scalars;
+        }
+    }
+    assert!(touches_both_boundaries);
+}
+
+#[test]
+fn failed_analysis_notice_survives_automatic_refresh() {
+    let mut model = GuiModel::demo();
+    model.capabilities = Some(Capabilities {
+        commands: vec!["chats".into(), "inbox".into()],
+        ..Default::default()
+    });
+    let chat = model.selected_chat.clone().unwrap();
+    let tag = request(100, CommandKind::Analyze, Some(chat));
+    model.begin(tag.clone()).unwrap();
+    let mut result = completed(RunStatus::Partial, 6);
+    result.error = Some("synthetic provider failure".into());
+    assert_eq!(end(&mut model, tag, result), Some(FollowUp::Chats));
+    assert!(model.last_error.is_some());
+    model.begin(request(101, CommandKind::Chats, None)).unwrap();
+    assert!(
+        model.last_error.is_some(),
+        "automatic refresh erased original analysis failure before painting"
+    );
+}
+
+#[test]
+fn demo_deadlines_respect_frozen_priority_policy() {
+    let model = GuiModel::demo();
+    for row in &model.inbox.as_ref().unwrap().insights {
+        let item = &row.insight;
+        if item.deadline.is_some() && item.kind != chat_tldr_core::InsightKind::TopicSummary {
+            assert_eq!(item.priority, Priority::P0, "deadline item {}", item.id);
+        }
+    }
+}
+
+#[test]
+fn switching_chats_discards_the_previous_chats_queried_stats() {
+    let mut model = GuiModel::demo();
+    assert!(!model.history_stats.is_empty());
+    assert!(model.select_chat("qq:group:another-synthetic-chat".into()));
+    assert!(model.history_stats.is_empty());
+    assert!(model.stats.is_none());
 }
