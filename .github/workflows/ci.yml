@@ -163,7 +163,7 @@ jobs:
           $version = (cargo metadata --no-deps --format-version 1 --locked | ConvertFrom-Json).packages | Where-Object name -eq 'chat-tldr-gui' | Select-Object -ExpandProperty version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           xvfb-run -a -s '-screen 0 1600x1200x24' python scripts/release/gui_smoke.py --gui target/debug/chat-tldr-gui --cli target/debug/chat-tldr --version $version --out tmp/gui-smoke
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: gui-native-smoke

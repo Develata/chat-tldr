@@ -70,14 +70,14 @@ jobs:
           python scripts/release/package.py --binary target/release/chat-tldr.exe --gui-binary target/release/chat-tldr-gui.exe --manager-binary target/release/chat-tldr-qce-manager.exe --target windows-x86_64 --version $env:RELEASE_VERSION
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/release/gui_smoke.py --archive "dist/chat-tldr-gui-$env:RELEASE_VERSION-windows-x86_64.zip" --version $env:RELEASE_VERSION --package-only --out tmp/gui-package-smoke
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: gui-release-test
           path: tmp/gui-package-smoke/
           if-no-files-found: warn
           retention-days: 7
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (Node 24)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.1 (Node 24)
         with:
           name: release-windows
           path: dist/*
@@ -133,7 +133,7 @@ jobs:
           $hash = (Get-FileHash dist/docker-image.tar -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  docker-image.tar" | Set-Content dist/docker-image.tar.sha256 -Encoding utf8
           docker image inspect $image --format 'Image size: {{.Size}} bytes; user: {{.Config.User}}'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-linux-docker
           path: dist/*
@@ -159,7 +159,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1 (Node 24)
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.1 (Node 24)
         with:
           pattern: release-*
           merge-multiple: true
